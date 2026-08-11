@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from ..errors import PartialApplyError
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import get_device, get_track
 from ..utils.normalize import denormalize_parameter, normalize_parameter
@@ -98,7 +99,8 @@ def get_devices(ctx, track_index: int, device_index: int | None = None) -> dict[
     category="devices",
     description=(
         "Set device parameters in one batch (values normalized 0-1) and/or "
-        "enable/bypass the device. Parameter 0 is usually 'Device On'."
+        "enable/bypass the device: `enabled` drives its 'Device On' parameter "
+        "(is_active is read-only and also reflects any enclosing rack)."
     ),
 )
 def set_device_parameters(
@@ -113,7 +115,9 @@ def set_device_parameters(
     params = list(device.parameters)
     by_name = {p.name.lower(): p for p in params}
 
-    changed = []
+    # Resolve and validate EVERY selector and value before the first write, so
+    # a bad later entry cannot leave the batch half-applied.
+    resolved: list[tuple[Any, float]] = []
     for item in parameters or []:
         if "parameter" not in item or "value" not in item:
             raise LiveAPIError("Each entry needs 'parameter' (name or index) and 'value'")
@@ -130,15 +134,47 @@ def set_device_parameters(
             if param is None:
                 names = [p.name for p in params[:30]]
                 raise LiveAPIError(f"No parameter named '{selector}'. Available: {names}")
-        param.value = denormalize_parameter(param, float(item["value"]))
+        try:
+            value = float(item["value"])
+        except (TypeError, ValueError):
+            raise LiveAPIError(
+                f"Value for '{param.name}' is not a number: {item['value']!r}"
+            ) from None
+        resolved.append((param, value))
+
+    device_on = None
+    if enabled is not None:
+        # Live's is_active is get/observe-only (and also reflects an enclosing
+        # Rack's switch); the writable control is the Device On parameter.
+        device_on = by_name.get("device on")
+        if device_on is None:
+            raise LiveAPIError(
+                f"Device '{device.name}' has no 'Device On' parameter — cannot toggle enabled"
+            )
+
+    changed = []
+    applied: list[str] = []
+    for param, value in resolved:
+        try:
+            param.value = denormalize_parameter(param, value)
+        except Exception as e:
+            raise PartialApplyError(f"parameter '{param.name}'", str(e), applied) from e
+        applied.append(param.name)
         changed.append(
             {"name": param.name, "value": normalize_parameter(param), "display_value": str(param)}
         )
 
-    if enabled is not None:
-        device.is_active = enabled
+    if device_on is not None:
+        try:
+            device_on.value = denormalize_parameter(device_on, 1.0 if enabled else 0.0)
+        except Exception as e:
+            raise PartialApplyError("enabled", str(e), applied) from e
 
-    return {"changed": changed, "is_active": device.is_active}
+    result: dict[str, Any] = {"changed": changed, "is_active": device.is_active}
+    if enabled is not None:
+        result["enabled_requested"] = enabled
+        result["device_on"] = {"name": device_on.name, "value": normalize_parameter(device_on)}
+    return result
 
 
 @REGISTRY.register(

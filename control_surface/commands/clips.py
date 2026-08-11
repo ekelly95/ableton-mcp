@@ -3,6 +3,7 @@
 from typing import Any
 
 from ..config import MAX_NOTES_PER_READ
+from ..errors import PartialApplyError, ValidationError
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import (
     get_clip,
@@ -186,9 +187,15 @@ def delete_clip(ctx, track_index: int, slot_index: int) -> dict[str, Any]:
         ParamSchema("looping", ParamType.BOOL, required=False),
         ParamSchema("loop_start", ParamType.FLOAT, required=False, min_value=0),
         ParamSchema("loop_end", ParamType.FLOAT, required=False, min_value=0),
+        ParamSchema(
+            "warping",
+            ParamType.BOOL,
+            required=False,
+            description="Audio clips only: warp on/off (unwarped clips measure loop bounds in SECONDS, not beats)",
+        ),
     ],
     category="clips",
-    description="Batch setter for a clip's name, color, and loop settings (beats). Addresses a session OR arrangement clip (exactly one of slot_index / arrangement_clip_index).",
+    description="Batch setter for a clip's name, color, warp state, and loop settings (beats; seconds on unwarped audio). Addresses a session OR arrangement clip (exactly one of slot_index / arrangement_clip_index). Writes apply in order; a mid-batch Live error names what already landed.",
 )
 def set_clip(
     ctx,
@@ -200,20 +207,59 @@ def set_clip(
     looping: bool | None = None,
     loop_start: float | None = None,
     loop_end: float | None = None,
+    warping: bool | None = None,
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     clip = resolve_clip_ref(track, slot_index, arrangement_clip_index)
+
+    # All cross-field validation happens before the first write.
+    if warping is not None and not clip.is_audio_clip:
+        raise ValidationError("warping applies to audio clips only", param="warping")
+    if loop_start is not None or loop_end is not None:
+        eff_start = loop_start if loop_start is not None else clip.loop_start
+        eff_end = loop_end if loop_end is not None else clip.loop_end
+        if eff_start >= eff_end:
+            raise ValidationError(
+                f"loop_start must be < loop_end (effective {eff_start}..{eff_end})",
+                param="loop_start" if loop_start is not None else "loop_end",
+            )
+
+    applied: list[str] = []
+
+    def _write(field: str, setter) -> None:
+        try:
+            setter()
+        except RuntimeError as e:
+            # Live-side refusals arrive as RuntimeError; keep the taxonomy typed
+            # and tell the caller which earlier writes already landed.
+            raise PartialApplyError(field, str(e), applied) from e
+        applied.append(field)
+
     if name is not None:
-        clip.name = name
+        _write("name", lambda: setattr(clip, "name", name))
     if color_index is not None:
-        clip.color_index = color_index
+        _write("color_index", lambda: setattr(clip, "color_index", color_index))
+    if warping is not None:
+        _write("warping", lambda: setattr(clip, "warping", warping))
     if looping is not None:
-        clip.looping = looping
-    if loop_start is not None:
-        clip.loop_start = loop_start
-    if loop_end is not None:
-        clip.loop_end = loop_end
-    return {
+        _write("looping", lambda: setattr(clip, "looping", looping))
+    if loop_start is not None or loop_end is not None:
+        # Order the two writes so no intermediate state has start >= end:
+        # if the new start fits under the CURRENT end, write start first;
+        # otherwise the new end must clear the current start — write it first.
+        start_first = loop_start is not None and loop_start < clip.loop_end
+        if start_first:
+            if loop_start is not None:
+                _write("loop_start", lambda: setattr(clip, "loop_start", loop_start))
+            if loop_end is not None:
+                _write("loop_end", lambda: setattr(clip, "loop_end", loop_end))
+        else:
+            if loop_end is not None:
+                _write("loop_end", lambda: setattr(clip, "loop_end", loop_end))
+            if loop_start is not None:
+                _write("loop_start", lambda: setattr(clip, "loop_start", loop_start))
+
+    result = {
         "track_index": track_index,
         "slot_index": slot_index,
         "arrangement_clip_index": arrangement_clip_index,
@@ -222,6 +268,9 @@ def set_clip(
         "loop_start": clip.loop_start,
         "loop_end": clip.loop_end,
     }
+    if clip.is_audio_clip:
+        result["warping"] = clip.warping
+    return result
 
 
 @REGISTRY.register(

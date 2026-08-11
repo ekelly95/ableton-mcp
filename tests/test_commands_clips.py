@@ -2,8 +2,9 @@
 
 import pytest
 
-from control_surface.registry import LiveAPIError
+from control_surface.registry import LiveAPIError, ValidationError
 from tests.conftest import run_command
+from tests.mock_live import MockTrack
 
 MELODY = [
     {"pitch": 60, "start_time": 0.0, "duration": 0.5},
@@ -51,6 +52,64 @@ class TestClips:
         assert with_clip.name == "Verse"
         assert with_clip.loop_end == 2.0
         assert result["name"] == "Verse"
+
+    def test_set_clip_rejects_inverted_loop_bounds(self, registry, ctx, song, with_clip):
+        original_name = with_clip.name
+        with pytest.raises(ValidationError, match="loop_start must be < loop_end"):
+            run_command(
+                registry,
+                ctx,
+                "set_clip",
+                track_index=0,
+                slot_index=0,
+                name="Should Not Land",
+                loop_start=3.0,
+                loop_end=1.0,
+            )
+        # Cross-field validation runs before ANY write — the rename didn't land.
+        assert with_clip.name == original_name
+
+    def test_set_clip_rejects_start_beyond_existing_end(self, registry, ctx, song, with_clip):
+        # Only loop_start given: it must be checked against the CURRENT end.
+        with pytest.raises(ValidationError, match="effective"):
+            run_command(
+                registry,
+                ctx,
+                "set_clip",
+                track_index=0,
+                slot_index=0,
+                loop_start=with_clip.loop_end + 4.0,
+            )
+
+    def test_set_clip_moves_loop_window_forward(self, registry, ctx, song, with_clip):
+        # New window entirely beyond the old one forces the end-first write
+        # order (start-first would transiently invert the pair).
+        run_command(
+            registry,
+            ctx,
+            "set_clip",
+            track_index=0,
+            slot_index=0,
+            loop_start=8.0,
+            loop_end=12.0,
+        )
+        assert with_clip.loop_start == 8.0
+        assert with_clip.loop_end == 12.0
+
+    def test_set_clip_warping_rejected_on_midi_clip(self, registry, ctx, song, with_clip):
+        with pytest.raises(ValidationError, match="audio clips only"):
+            run_command(registry, ctx, "set_clip", track_index=0, slot_index=0, warping=False)
+
+    def test_set_clip_warping_toggles_on_audio_clip(self, registry, ctx, song):
+        track = MockTrack(name="Audio", has_midi_input=False, slot_count=2)
+        song.tracks.append(track)
+        track.clip_slots[0].create_audio_clip("C:\\samples\\loop.wav")
+        idx = len(song.tracks) - 1
+        result = run_command(
+            registry, ctx, "set_clip", track_index=idx, slot_index=0, warping=False
+        )
+        assert track.clip_slots[0].clip.warping is False
+        assert result["warping"] is False
 
     def test_duplicate_clip(self, registry, ctx, song, with_clip):
         with_clip.name = "Original"

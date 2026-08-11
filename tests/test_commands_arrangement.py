@@ -127,7 +127,8 @@ class TestArrangement:
         assert result["placed"]["start_time"] == 8.0
         assert result["placed"]["end_time"] == 12.0
         assert result["placed"]["is_midi_clip"] is True
-        assert len(result["arrangement_clips"]) == 1
+        assert result["arrangement_clip_count"] == 1
+        assert "arrangement_clips" not in result  # write path returns count, never the full list
         assert "back_to_arranger" in result
 
     def test_placed_clips_are_time_ordered(self, registry, ctx, song, with_session_clip):

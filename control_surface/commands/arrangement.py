@@ -198,6 +198,14 @@ def arrangement_record(ctx, enabled: bool) -> dict[str, Any]:
         "check back_to_arranger in the response: true means session clips are "
         "still overriding the timeline (fix via set_transport)."
     ),
+    output_schema={
+        "type": "object",
+        "properties": {
+            "placed": {"type": "object"},
+            "arrangement_clip_count": {"type": "integer"},
+            "back_to_arranger": {"type": "boolean"},
+        },
+    },
 )
 def place_clip_in_arrangement(
     ctx, track_index: int, slot_index: int, destination_time: float
@@ -234,11 +242,15 @@ def place_clip_in_arrangement(
         None,
     )
 
+    # Only the placed clip plus a count: serializing the whole track's timeline
+    # here grew without bound on real Sets (the read-path 500-clip cap never
+    # applied to this write path) and could blow the response size limit AFTER
+    # the placement had already succeeded.
     return {
         "placed": _serialize_arrangement_clip(
             placed_index if placed_index is not None else -1, placed
         ),
-        "arrangement_clips": [_serialize_arrangement_clip(i, c) for i, c in enumerate(clips)],
+        "arrangement_clip_count": len(clips),
         "back_to_arranger": song.back_to_arranger,
     }
 

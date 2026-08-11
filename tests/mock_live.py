@@ -140,6 +140,12 @@ class MockClip:
         self.loop_end = length
         self.is_midi_clip = is_midi_clip
         self.is_audio_clip = not is_midi_clip
+        if not is_midi_clip:
+            # CONFIRMED (LOM): `warping` exists on audio clips only — MIDI
+            # clips raise AttributeError on access, so commands must guard with
+            # is_audio_clip first. Default True for fresh audio clips is VERIFY
+            # (checkpoint toggles it via set_clip warping=false).
+            self.warping = True
         self.is_playing = False
         self.is_recording = False
         self.signature_numerator = 4
@@ -147,6 +153,9 @@ class MockClip:
         # Arrangement placement (meaningful only for arrangement clips)
         self.start_time = 0.0
         self.end_time = length
+        # Set by MockTrack._insert_arrangement_clip — the single funnel every
+        # arrangement clip passes through.
+        self._is_arrangement_clip = False
         self.file_path: str | None = None
         self._notes: list[MockMidiNote] = []
         self._envelopes: dict = {}  # id(parameter) -> MockAutomationEnvelope
@@ -154,10 +163,19 @@ class MockClip:
     # --- Clip automation envelopes (spike-CONFIRMED on real Live 12.4.3) ---
 
     def automation_envelope(self, parameter):
-        """Returns None when no envelope exists for the parameter (CONFIRMED)."""
+        """Returns None when no envelope exists for the parameter (CONFIRMED).
+        CONFIRMED via Live's own API docstring: "Returns None for Arrangement
+        clips." — arrangement clips hold only modulation; absolute automation
+        lives on the track's automation lanes."""
+        if self._is_arrangement_clip:
+            return None
         return self._envelopes.get(id(parameter))
 
-    def create_automation_envelope(self, parameter) -> MockAutomationEnvelope:
+    def create_automation_envelope(self, parameter) -> "MockAutomationEnvelope | None":
+        if self._is_arrangement_clip:
+            # VERIFY: real behaviour on arrangement clips unknown (None vs
+            # raise) — unreachable in production behind the envelope guard.
+            return None
         env = MockAutomationEnvelope(parameter)
         self._envelopes[id(parameter)] = env
         return env
@@ -299,12 +317,20 @@ class MockDevice:
     def __init__(self, name: str = "Device", class_name: str = "MockDevice"):
         self.name = name
         self.class_name = class_name
-        self.is_active = True
         self.parameters: list[MockParameter] = [
             MockParameter("Device On", value=1.0, min=0.0, max=1.0, is_quantized=True),
             MockParameter("Macro 1", value=0.5),
             MockParameter("Macro 2", value=0.25),
         ]
+
+    @property
+    def is_active(self) -> bool:
+        # CONFIRMED (LOM): is_active is get/observe ONLY — assigning to it
+        # raises here exactly as commands must expect. It reflects the
+        # "Device On" switch (and on real Live also any enclosing Rack's
+        # state); the writable control is the Device On parameter.
+        on = next((p for p in self.parameters if p.name == "Device On"), None)
+        return bool(on.value) if on is not None else True
 
 
 class MockMixerDevice:
@@ -356,6 +382,7 @@ class MockTrack:
         del self.devices[device_index]
 
     def _insert_arrangement_clip(self, clip: MockClip) -> None:
+        clip._is_arrangement_clip = True
         self.arrangement_clips.append(clip)
         # Live keeps arrangement_clips time-ordered, NOT creation-ordered
         # (LOM-confirmed; the fallback re-scan in place_clip relies on this).
@@ -465,10 +492,10 @@ class MockScene:
 
 class MockCuePoint:
     """Arrangement locator. CONFIRMED in real Live 12.4: name is settable
-    (checkpoint renamed a cue to 'Chorus'). NOTE: current_song_time writes
-    apply only AFTER the current scheduled task — hence create_locator's
-    two-phase design; the mock applies them immediately, which is why the
-    handler checks the playhead BEFORE writing (uniform behaviour)."""
+    (checkpoint renamed a cue to 'Chorus'). current_song_time writes apply
+    only AFTER the current scheduled task — hence the two-phase designs in
+    create_locator and transport_control; the mock now defers identically
+    (see MockSong.current_song_time)."""
 
     def __init__(self, time: float, name: str = ""):
         self.time = time
@@ -518,7 +545,8 @@ class MockSong:
         self.loop = False
         self.loop_start = 0.0
         self.loop_length = 4.0
-        self.current_song_time = 0.0
+        self._current_song_time = 0.0
+        self._pending_song_time: float | None = None
         self.root_note = 0
         self._scale_name = "Major"
         self.scale_mode = False
@@ -545,6 +573,24 @@ class MockSong:
             delattr(self.master_track, missing_attr)
         self.view = MockSongView()
         self.cue_points: list[MockCuePoint] = []
+
+    @property
+    def current_song_time(self) -> float:
+        return self._current_song_time
+
+    @current_song_time.setter
+    def current_song_time(self, value: float) -> None:
+        # CONFIRMED on real Live 12.4: a current_song_time write does NOT take
+        # effect within the same scheduled task (a cue toggled right after a
+        # seek landed at the OLD playhead). The mock defers identically:
+        # MockControlSurface.schedule_message applies the pending seek at the
+        # next task boundary, so handlers reading it back in-task see stale.
+        self._pending_song_time = float(value)
+
+    def _apply_pending_song_time(self) -> None:
+        if self._pending_song_time is not None:
+            self._current_song_time = self._pending_song_time
+            self._pending_song_time = None
 
     @property
     def scale_name(self) -> str:
@@ -698,6 +744,10 @@ class MockControlSurface:
         self.messages: list[str] = []
 
     def schedule_message(self, delay, callback):
+        # Pending playhead seeks apply BETWEEN scheduled tasks on real Live
+        # (repo-verified on 12.4) — model that at the task boundary so
+        # two-phase commands behave in tests exactly as against Live.
+        self._song._apply_pending_song_time()
         callback()
 
     def song(self) -> MockSong:

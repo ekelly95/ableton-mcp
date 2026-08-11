@@ -56,12 +56,67 @@ def test_set_parameters_unknown_name_lists_available(registry, ctx, song, with_d
         )
 
 
-def test_bypass_device(registry, ctx, song, with_device):
+def test_bypass_device_drives_device_on_parameter(registry, ctx, song, with_device):
+    # is_active is get/observe-only in Live's API; `enabled` must go through
+    # the Device On parameter (the mock derives is_active from it).
     result = run_command(
         registry, ctx, "set_device_parameters", track_index=0, device_index=0, enabled=False
     )
+    assert with_device.parameters[0].value == 0.0
     assert with_device.is_active is False
     assert result["is_active"] is False
+    assert result["enabled_requested"] is False
+    assert result["device_on"] == {"name": "Device On", "value": 0.0}
+
+    result = run_command(
+        registry, ctx, "set_device_parameters", track_index=0, device_index=0, enabled=True
+    )
+    assert with_device.parameters[0].value == 1.0
+    assert with_device.is_active is True
+
+
+def test_mock_is_active_is_read_only(with_device):
+    # Contract with reality: assigning device.is_active raises, exactly as the
+    # LOM documents (get/observe only). The old code wrote it directly.
+    with pytest.raises(AttributeError):
+        with_device.is_active = False
+
+
+def test_enabled_without_device_on_parameter_errors_before_writes(registry, ctx, song, with_device):
+    with_device.parameters = [p for p in with_device.parameters if p.name != "Device On"]
+    original = with_device.parameters[0].value  # Macro 1
+    with pytest.raises(LiveAPIError, match="Device On"):
+        run_command(
+            registry,
+            ctx,
+            "set_device_parameters",
+            track_index=0,
+            device_index=0,
+            parameters=[{"parameter": "Macro 1", "value": 0.9}],
+            enabled=False,
+        )
+    # The Device On lookup happens BEFORE the batch applies: nothing changed.
+    assert with_device.parameters[0].value == original
+
+
+def test_invalid_later_selector_leaves_earlier_parameters_unwritten(
+    registry, ctx, song, with_device
+):
+    # Validate-then-write: a bad second entry must not leave the first applied.
+    original = with_device.parameters[1].value
+    with pytest.raises(LiveAPIError, match="Available"):
+        run_command(
+            registry,
+            ctx,
+            "set_device_parameters",
+            track_index=0,
+            device_index=0,
+            parameters=[
+                {"parameter": "Macro 1", "value": 0.9},
+                {"parameter": "No Such Knob", "value": 0.5},
+            ],
+        )
+    assert with_device.parameters[1].value == original
 
 
 def test_delete_device(registry, ctx, song, with_device):
