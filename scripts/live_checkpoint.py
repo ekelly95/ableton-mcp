@@ -159,7 +159,7 @@ def check_duplicate_clip(client):
 @step("launch_clip + stop_clips")
 def check_launch(client):
     client.send("launch_clip", track_index=state["track"], slot_index=0)
-    time.sleep(2.5)
+    time.sleep(1.5)
     clips = client.send("get_clips", track_index=state["track"])
     slot = clips["tracks"][0]["clip_slots"][0]
     playing = slot["is_playing"] or slot["is_triggered"]
@@ -222,7 +222,7 @@ def check_browse(client):
 def check_load(client):
     if not state.get("instrument"):
         raise AssertionError("no loadable instrument found under instruments root")
-    slow_client = AbletonClient(timeout=130.0)
+    slow_client = AbletonClient(timeout=60.0)
     try:
         result = slow_client.send(
             "load_item",
@@ -260,10 +260,10 @@ def check_devices(client):
     return f"set '{changed[0]['name']}' to 0.7 (display: {changed[0]['display_value']})"
 
 
-@step("audible finale: fire the clip for 4 seconds")
+@step("audible finale: fire the clip for 3 seconds")
 def check_finale(client):
     client.send("launch_clip", track_index=state["track"], slot_index=0)
-    time.sleep(4.0)
+    time.sleep(3.0)
     client.send("stop_clips", track_index=state["track"])
     return "if speakers are on, that was your C-minor arpeggio"
 
@@ -288,11 +288,15 @@ def check_live_error(client):
         return "out-of-range rejected with LiveAPIError"
 
 
+WHOLE_RUN_BUDGET_SECONDS = 150
+
+
 def main():
     print("P4 checkpoint against real Ableton Live\n", flush=True)
-    # Fail fast: 15s per command instead of the production 90s, so a stall
+    # Fail fast: 8s per command instead of the production 90s, so a stall
     # (modal dialog in Live, wedged connection) is visible, not a silent hang.
-    client = AbletonClient(timeout=15.0)
+    client = AbletonClient(timeout=8.0)
+    started = time.time()
     for check in [
         check_ping,
         check_overview,
@@ -315,6 +319,10 @@ def main():
         check_validation,
         check_live_error,
     ]:
+        if time.time() - started > WHOLE_RUN_BUDGET_SECONDS:
+            results.append((FAIL, "run budget exceeded", "remaining steps skipped"))
+            print(f"  SKIP  whole-run budget of {WHOLE_RUN_BUDGET_SECONDS}s exceeded — stopping here", flush=True)
+            break
         check(client)
     client.close()
 

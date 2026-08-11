@@ -14,12 +14,17 @@ import threading
 import uuid
 from typing import Any, Dict, Optional
 
+from control_surface.config import COMMAND_TIMEOUTS
+
 HEADER_SIZE = 4
 MAX_MESSAGE_SIZE = 16 * 1024 * 1024
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9877
-DEFAULT_TIMEOUT = 90.0  # above the control surface's longest command timeout
+DEFAULT_TIMEOUT = 45.0
+# Client-side grace on top of the control surface's own per-command timeout,
+# so Live's timeout error (the informative one) wins the race when both fire.
+TIMEOUT_GRACE = 15.0
 CONNECT_TIMEOUT = 5.0
 
 logger = logging.getLogger("ableton-mcp.client")
@@ -95,9 +100,16 @@ class AbletonClient:
     def send(self, command: str, **params: Any) -> Any:
         """Send a command and return its result. Thread-safe; serialized."""
         request = {"type": command, "params": params, "id": str(uuid.uuid4())}
+        # Heavy commands (load_item etc.) get their declared budget + grace;
+        # everything else uses the flat default.
+        per_command = COMMAND_TIMEOUTS.get(command)
+        effective_timeout = (
+            max(self.timeout, per_command + TIMEOUT_GRACE) if per_command else self.timeout
+        )
         with self._lock:
             if self._socket is None:
                 self._connect()
+            self._socket.settimeout(effective_timeout)
             try:
                 response = self._round_trip(request)
             except OSError:
@@ -141,9 +153,10 @@ class AbletonClient:
         except socket.timeout as e:
             # Do NOT resend after a timeout: the command may still be running
             # inside Live, and a resend would queue it twice.
+            waited = self._socket.gettimeout() if self._socket else None
             self._disconnect()
             raise AbletonConnectionError(
-                f"No response within {self.timeout}s — Live may be busy (modal dialog, "
+                f"No response within {waited}s — Live may be busy (modal dialog, "
                 f"loading) or the command is very slow. Connection reset."
             ) from e
         return json.loads(payload.decode("utf-8"))
