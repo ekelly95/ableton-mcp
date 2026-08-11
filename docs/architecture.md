@@ -79,10 +79,21 @@ Encoded in `tests/mock_live.py` with provenance comments — keep them in sync:
    commands their declared budget + grace instead of its flat timeout.
 10. `duplicate_clip_slot(i)` copies into slot i+1.
 
-## Automation envelopes (2.2 — built on the 2026-08-11 spike findings)
+## Automation envelopes (2.2, hardened 2.3)
 
 Spike-verified on real Live 12.4.3, no Max for Live required:
 - `clip.automation_envelope(param)` → None when absent (CONFIRMED)
+- **SESSION CLIPS ONLY** (CONFIRMED via Live's own API docstring, 2.3 audit):
+  `automation_envelope` "Returns None for Arrangement clips" — arrangement
+  clips carry only modulation; their absolute automation lives on the track's
+  automation lanes, which the Python API does not expose. All three envelope
+  tools reject `arrangement_clip_index` with a typed error. (The 2.2 claim of
+  arrangement support was never real: the mock had one clip class and the
+  checkpoint only ever exercised slot 0.)
+- **Unwarped audio rejected** (CONFIRMED via LOM): unwarped audio clips
+  measure loop bounds in SECONDS and `clip.length` "makes no sense" — beat
+  times would be silently wrong. Warp first (`set_clip warping=true`; the
+  property exists on audio clips only). Clearing stays allowed (no time math).
 - `clip.create_automation_envelope(param)` → envelope object (CONFIRMED)
 - `envelope.insert_step(time, length, value)` + `value_at_time` round-trip
   exactly (CONFIRMED); values are in the parameter's NATIVE range — the tools
@@ -92,15 +103,24 @@ Spike-verified on real Live 12.4.3, no Max for Live required:
   and at exactly 0.0 the parameter's live value. get_clip_envelope therefore
   samples at t+0.001 so points read as "value in effect from t".
 - `clip.clear_all_envelopes()` no-arg (CONFIRMED); `clip.clear_envelope(param)`
-  signature VERIFY at checkpoint
+  signature CONFIRMED at the 2.2 checkpoint
+- Write discipline (2.3): every point validated (incl. time ≤ clip.length —
+  out-of-range times used to be silently squashed into 0.01-beat steps) BEFORE
+  the envelope is touched; the envelope is get-or-created BEFORE `clear_first`
+  clears, and re-fetched after (whether clearing invalidates a held envelope
+  object is unprobed — the re-fetch makes it irrelevant).
 - Unused for now: `envelope.create_event/events_in_range/delete_events_in_range`
-  (shape unknown — v1 writes steps, reads via value_at_time sampling),
-  `clip.automation_envelopes` plural (shape unknown — no enumerate tool yet)
+  — existence CONFIRMED (spike + the installed `_MxDCore\Conversions\
+  EnvelopeEvents` module, whose EnvelopeEvent carries time/value/
+  control_coefficients incl. curve coefficients), exact signatures unprobed.
+  The seam for real curved/ramped automation when wanted; v1 writes steps,
+  reads via value_at_time sampling. `clip.automation_envelopes` plural also
+  unused (no enumerate tool yet).
 
 Tools: `set_clip_envelope` (points → steps; each holds to the next point;
-device param XOR mixer volume/pan target; session or arrangement clip),
+device param XOR mixer volume/pan target; SESSION clip, MIDI or warped audio),
 `get_clip_envelope` (sampled read), `clear_clip_envelopes` (destructive; one
-target or all). Envelopes work on audio clips too, not just MIDI.
+target or all).
 
 ## Client discipline (`mcp_server/client.py`)
 
@@ -121,6 +141,46 @@ purpose; FastMCP infers schemas from function signatures, which is the exact
 trap 1.0 fell into. Tools carry outputSchema (structured output) and
 readOnly/destructive annotations. Handlers return dicts → SDK emits
 structuredContent + JSON text. Errors raise → proper isError tool results.
+
+Two tools live OUTSIDE the registry because they cannot run inside Live:
+`get_bridge_status` (server.py) and `get_audio_levels` (mcp_server/m4l.py —
+the optional Max for Live tap, see below). Everything else is
+registry-generated.
+
+## Hearing (2.3)
+
+Two tiers, deliberately separate:
+
+- **`get_track_meters` (core, all editions):** on-demand snapshot of Live's
+  own output meters for every track/return/master — `output_meter_level` is a
+  1s hold peak (audio AND MIDI tracks), left/right are momentary (audio-output
+  tracks only). Values are Live's 0-1 meter scale, NOT dB, and the tool says
+  so. Meters are READ on demand, never observed — the LOM warns stereo meter
+  observers add significant GUI load. Answers "is this making sound, roughly
+  how loud, are L/R different".
+- **`get_audio_levels` (optional, Suite/M4L):** the AbletonMCP Tap v2 device
+  on the Master serves calibrated dBFS loudness (stereo power, anti-phase
+  safe), a latched sample-peak clipping flag, and 10 resonant octave bands
+  31 Hz–16 kHz over TCP 127.0.0.1:9878. Staleness is explicit
+  (stale/data_age_ms); any stale patch/js/server combination answers
+  available:false with a rebuild hint instead of plausible wrong numbers.
+  Design, calibration, honesty notes, and the one-time build/upgrade
+  procedure: `m4l/README-lab.md`. Verification: `scripts/tap_checkpoint.py`
+  (protocol gate, sine calibration, anti-phase regression).
+
+## Device control depth (2.3)
+
+- `enabled` on set_device_parameters drives the **Device On parameter**
+  (looked up by name); `is_active` is get/observe-only and also reflects any
+  enclosing Rack's switch (LOM).
+- `get_devices` serializes per-parameter `value_items` (human-readable enum
+  choices — what "Lowpass"/"24 dB" a normalized value means), `is_enabled`
+  (false = macro/live.remote~ owns it; writes are refused up front), and
+  `automation_state` (none/active/overridden). `re_enable_automation` on
+  set_device_parameters restores automation the batch's writes overrode.
+- `insert_device` inserts NATIVE devices by exact name at a chain position
+  (Track.insert_device, Live 12.3+) without touching the browser or the
+  selected track; plug-ins/M4L/presets still go through browse + load_item.
 
 ## Arrangement view (2.1)
 
@@ -151,7 +211,7 @@ install dir. Generation providers are deliberately CLIENT-side: anything that
 writes an audio file (convention: `samples\`) lands it with this one command.
 No provider dependency ever goes into the bridge.
 
-## Reliability protocol (audit hardening)
+## Reliability protocol (audit hardening; extended in the 2.3 Sol 5.6 round)
 
 - Client auto-resends after a dead connection ONLY for read-only commands
   (registry flags): a response-read failure means the request WAS delivered
@@ -159,7 +219,37 @@ No provider dependency ever goes into the bridge.
   verify state, retry deliberately."
 - The control surface dedupes by request id (ring of 64): a resent id replays
   the cached response instead of executing twice. A Live restart clears the
-  ring — which is why the client-side gate exists as well.
+  ring — which is why the client-side gate exists as well. Timeout responses
+  are NEVER cached (2.3): deadline refusal makes a same-id retry safe, so it
+  gets a fresh attempt instead of a stale replay.
+- **Marshal deadline refusal (2.3):** the scheduled task refuses to START past
+  its deadline, and the waiter holds a grace window beyond it — so a timeout
+  error means "the Set was NOT modified and never will be by this request".
+  The one residual race (task started before the deadline, finished after the
+  waiter abandoned) is journaled to operations.jsonl as `late_success`/
+  `late_error`; a refused-late task journals `expired`. Before this, a
+  timed-out command could still execute later, invisibly.
+- **Batch setters validate-then-write (2.3):** set_track / set_transport /
+  set_clip / set_device_parameters / set_clip_envelope hoist every offline
+  check (index bounds, name lookups, master-track rules, cross-field loop
+  bounds, point times) before the first write. Live-side failures mid-apply
+  raise `PartialApplyError`, whose message and wire `applied` field name
+  exactly which writes landed — atomicity is impossible (Live has no
+  rollback), so honesty about partial application is the contract.
+- **Two-phase playhead seeks (2.3):** `current_song_time` writes apply only
+  between scheduled tasks (repo-verified 12.4) — `transport_control` with a
+  position now uses the same `"seeking"` protocol as `create_locator`; the
+  MCP server's retry loop is command-agnostic. A seek while already playing is
+  a single response (no dependent write). The mock defers seeks identically.
+- **Device enabled = the Device On parameter (2.3):** `Device.is_active` is
+  get/observe-only in the LOM (and reflects any enclosing Rack); the old
+  direct write only ever worked against the mock.
+- **stop() closes accepted client sockets (2.3):** the server thread used to
+  stay parked in a blocking recv for as long as a client was connected ("did
+  not stop cleanly" + 5s stall on every Live script reload). Windows
+  cross-thread close surfaces as OSError in the handler = designed shutdown.
+- `place_clip_in_arrangement` returns the placed clip + a count — never the
+  full timeline (the write path had no size cap; reads cap at 500).
 - `arrangement_record` is its own destructive-annotated tool, kept out of
   set_transport on purpose (record + play overwrites the timeline).
 - `delete_arrangement_clip` REQUIRES `expected_start_time` — positional
@@ -176,9 +266,13 @@ No provider dependency ever goes into the bridge.
 
 ## Deliberately absent (do not "fix" without a decision)
 
-- **Audio engine** (1.0's analyzers/generators). Analyzers (key/tempo/drum
-  detection) may return as a separate optional package; the generators are
-  obsolete — Claude composes note lists better than rule-based random walks.
+- **1.0's audio analyzers/generators.** Hearing now exists (core meters + the
+  optional tap, above); offline analyzers (key/tempo/drum detection) may still
+  return as a separate optional package; the generators are obsolete — Claude
+  composes note lists better than rule-based random walks.
+- **Event-level/curved envelopes and arrangement track-lane automation** —
+  the former is probe-gated future work (see the envelope section's seam),
+  the latter has no exposed API.
 - **Run-arbitrary-code-in-Live escape hatch** (the 2026 community trend).
   Deferred: crash risk inside Live needs deliberate sandboxing design. The
   registry makes it one more command when wanted.

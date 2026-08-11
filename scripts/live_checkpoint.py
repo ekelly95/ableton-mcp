@@ -48,7 +48,7 @@ state = {}
 @step("ping: version + command count")
 def check_ping(client):
     result = client.send("ping")
-    assert result["pong"] and result["version"] == "2.2.0", result
+    assert result["pong"] and result["version"] == "2.3.0", result
     return f"v{result['version']}, {result['command_count']} commands"
 
 
@@ -309,7 +309,11 @@ def check_place_arrangement(client):
         slot_index=0,
         destination_time=0.0,
     )
-    starts = [c["start_time"] for c in r2["arrangement_clips"]]
+    # The write path returns a count (never the full clip list — that response
+    # was unbounded); the ordering assertion reads via get_arrangement.
+    assert r2["arrangement_clip_count"] == 2, r2
+    listing = client.send("get_arrangement", track_index=state["track"])
+    starts = [c["start_time"] for c in listing["tracks"][0]["arrangement_clips"]]
     assert starts == sorted(starts), f"not time-ordered: {starts}"
     assert len(starts) == 2, starts
     client.send("set_transport", back_to_arranger=False)
@@ -492,10 +496,168 @@ def check_import_audio(client):
     return f"440Hz tone: timeline at beat 8 AND session slot 0 (track {state['audio_track']})"
 
 
+@step("envelope guards: arrangement + unwarped audio rejected, nothing destroyed")
+def check_envelope_guards(client):
+    # Live's own docstring: automation_envelope returns None for Arrangement
+    # clips — the tool must refuse with a typed error BEFORE any clear.
+    try:
+        client.send(
+            "set_clip_envelope",
+            track_index=state["track"],
+            arrangement_clip_index=0,
+            mixer_parameter="volume",
+            points=[{"time": 0.0, "value": 0.5}],
+        )
+        raise AssertionError("arrangement envelope write was accepted")
+    except CommandError as e:
+        assert e.error_type == "ValidationError", e
+        assert "rrangement" in e.message, e
+
+    # Unwarped audio: loop bounds in seconds, length undefined (LOM). Uses the
+    # session audio clip from check_import_audio.
+    toggled = client.send(
+        "set_clip", track_index=state["audio_track"], slot_index=0, warping=False
+    )
+    assert toggled["warping"] is False, toggled
+    try:
+        client.send(
+            "set_clip_envelope",
+            track_index=state["audio_track"],
+            slot_index=0,
+            mixer_parameter="volume",
+            points=[{"time": 0.0, "value": 0.5}],
+        )
+        raise AssertionError("unwarped-audio envelope write was accepted")
+    except CommandError as e:
+        assert e.error_type == "ValidationError", e
+        assert "arp" in e.message, e  # Warp/warp
+    client.send("set_clip", track_index=state["audio_track"], slot_index=0, warping=True)
+
+    # Bad point times must fail BEFORE the destructive clear: the LP sweep
+    # written earlier must survive an invalid overwrite attempt.
+    try:
+        client.send(
+            "set_clip_envelope",
+            track_index=state["track"],
+            slot_index=0,
+            device_index=0,
+            parameter="LP Freq",
+            points=[{"time": 999.0, "value": 1.0}],
+        )
+        raise AssertionError("point beyond clip length was accepted")
+    except CommandError as e:
+        assert e.error_type == "ValidationError", e
+    still_there = client.send(
+        "get_clip_envelope",
+        track_index=state["track"],
+        slot_index=0,
+        device_index=0,
+        parameter="LP Freq",
+    )
+    assert still_there["exists"] is True, "guarded failure destroyed the envelope!"
+    return "arrangement + unwarped + beyond-length all refused; existing envelope intact"
+
+
+@step("device enabled: Device On toggled, is_active follows next request")
+def check_device_enabled(client):
+    result = client.send(
+        "set_device_parameters", track_index=state["track"], device_index=0, enabled=False
+    )
+    assert result["device_on"]["value"] == 0.0, result
+    # is_active is read-only and may read stale in the same task — the honest
+    # readback is a SEPARATE request.
+    listing = client.send("get_devices", track_index=state["track"])
+    assert listing["devices"][0]["is_active"] is False, listing["devices"][0]
+    client.send(
+        "set_device_parameters", track_index=state["track"], device_index=0, enabled=True
+    )
+    listing = client.send("get_devices", track_index=state["track"])
+    assert listing["devices"][0]["is_active"] is True, listing["devices"][0]
+    return "enabled=false/true drives Device On; is_active confirmed cross-request"
+
+
+@step("insert_device: native Reverb by name, unknown name refused")
+def check_insert_device(client):
+    before = len(client.send("get_devices", track_index=state["track"])["devices"])
+    result = client.send("insert_device", track_index=state["track"], device_name="Reverb")
+    assert result["inserted"]["name"] == "Reverb", result
+    assert result["device_count"] == before + 1, result
+    client.send(
+        "delete_device", track_index=state["track"], device_index=result["inserted"]["index"]
+    )
+    try:
+        client.send("insert_device", track_index=state["track"], device_name="Definitely Not A Device")
+        raise AssertionError("unknown device name was accepted")
+    except CommandError as e:
+        assert e.error_type == "LiveAPIError", e
+    return "Reverb inserted+removed; unknown name -> LiveAPIError (VERIFY discharged)"
+
+
+@step("parameter metadata: value_items + automation_state on a real device")
+def check_param_metadata(client):
+    device = client.send("get_devices", track_index=state["track"], device_index=0)["device"]
+    by_name = {p["name"]: p for p in device["parameters"]}
+    device_on = by_name.get("Device On")
+    assert device_on is not None, list(by_name)[:10]
+    assert device_on["is_quantized"] is True, device_on
+    assert len(device_on.get("value_items", [])) >= 2, device_on
+    assert device_on["automation_state"] in ("none", "active", "overridden"), device_on
+    assert isinstance(device_on["is_enabled"], bool), device_on
+    return f"Device On value_items={device_on['value_items']}"
+
+
+@step("invalid scale name: typed error, batched tempo untouched")
+def check_invalid_scale(client):
+    tempo_before = client.send("get_transport_state")["tempo"]
+    try:
+        client.send("set_transport", tempo=tempo_before + 7, scale_name="Klingon Blues")
+        raise AssertionError("invalid scale name was accepted")
+    except CommandError as e:
+        assert e.error_type == "LiveAPIError", e
+        assert "rejected scale name" in e.message, e
+    tempo_after = client.send("get_transport_state")["tempo"]
+    assert abs(tempo_after - tempo_before) < 0.01, (
+        f"tempo changed {tempo_before} -> {tempo_after} despite scale failure"
+    )
+    return "silent-no-op VERIFY discharged: readback turns it into a typed error, batch atomic"
+
+
+@step("core meters: track + master move while a clip plays")
+def check_meters(client):
+    client.send("launch_clip", track_index=state["track"], slot_index=0)
+    time.sleep(0.8)
+    meters = client.send("get_track_meters")
+    client.send("stop_clips", track_index=state["track"])
+    test_track = next(t for t in meters["tracks"] if t["name"] == "MCP Test")
+    master = meters["master_track"]
+    assert test_track["output_meter_level"] > 0.0, test_track
+    assert master["output_meter_level"] > 0.0, master
+    return (
+        f"MCP Test level={test_track['output_meter_level']:.2f}, "
+        f"master level={master['output_meter_level']:.2f} (Live meter scale, not dB)"
+    )
+
+
+@step("play from beat 8: two-phase seek lands before playback starts")
+def check_play_from_position(client):
+    client.send("transport_control", action="stop")
+    result = send_looping(client, "transport_control", action="play", position=8.0)
+    assert result.get("phase") != "seeking", "seeking never resolved"
+    time.sleep(0.5)
+    st = client.send("get_transport_state")
+    client.send("transport_control", action="stop")
+    assert st["is_playing"] is True, st
+    assert 8.0 - 0.01 <= st["current_song_time"] <= 24.0, (
+        f"playhead at {st['current_song_time']} — expected to be playing from beat 8"
+    )
+    return f"playing from {st['current_song_time']:.2f} (requested 8.0)"
+
+
 @step("audible finale: play the ARRANGEMENT from the top for 5 seconds")
 def check_finale(client):
     client.send("set_transport", back_to_arranger=False)
-    client.send("transport_control", action="play", position=0.0)
+    # position=0.0 is a real seek by now — two-phase, so loop on 'seeking'.
+    send_looping(client, "transport_control", action="play", position=0.0)
     time.sleep(5.0)
     client.send("transport_control", action="stop")
     return "that was the timeline: the placed loops, then the 440Hz tone at beat 8"
@@ -579,6 +741,13 @@ def main():
         check_envelopes,
         check_locator,
         check_import_audio,
+        check_envelope_guards,
+        check_device_enabled,
+        check_insert_device,
+        check_param_metadata,
+        check_invalid_scale,
+        check_meters,
+        check_play_from_position,
         check_finale,
         check_validation,
         check_live_error,

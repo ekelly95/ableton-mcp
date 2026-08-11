@@ -469,7 +469,7 @@ def create_locator(ctx, time: float, name: str | None = None) -> dict[str, Any]:
         raise LiveAPIError(f"Locator at {time} could not be confirmed")
 
     if name is not None:
-        created.name = name  # VERIFY: CuePoint.name settable via API
+        created.name = name  # CONFIRMED: checkpoint renames a cue to 'Chorus' and asserts it
 
     return {
         "locator": {"name": created.name, "time": created.time},
