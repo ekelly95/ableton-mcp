@@ -67,7 +67,8 @@ class TestToolGeneration:
     def test_bridge_status_included(self):
         tool_names = [t.name for t in registry_tools()]
         assert "get_bridge_status" in tool_names
-        assert len(tool_names) == len(REGISTRY) + 1
+        # lab: +2 = get_bridge_status + get_audio_levels
+        assert len(tool_names) == len(REGISTRY) + 2
 
     def test_wire_specials_are_not_tools(self):
         tool_names = {t.name for t in registry_tools()}

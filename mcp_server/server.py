@@ -25,6 +25,7 @@ from control_surface.commands import REGISTRY  # noqa: E402 - after logging setu
 from control_surface.config import VERSION  # noqa: E402
 
 from .client import AbletonClient, AbletonConnectionError, CommandError  # noqa: E402
+from .m4l import AUDIO_LEVELS_TOOL, TapClient, get_audio_levels  # noqa: E402 - lab extension
 
 BRIDGE_STATUS_TOOL = types.Tool(
     name="get_bridge_status",
@@ -60,6 +61,7 @@ def registry_tools() -> list[types.Tool]:
             )
         )
     tools.append(BRIDGE_STATUS_TOOL)
+    tools.append(AUDIO_LEVELS_TOOL)  # lab: always listed; gracefully absent
     return tools
 
 
@@ -107,8 +109,11 @@ def _bridge_status(client: AbletonClient, drift: _DriftCheck) -> dict:
     }
 
 
-def build_server(client: AbletonClient | None = None) -> Server:
+def build_server(
+    client: AbletonClient | None = None, tap: TapClient | None = None
+) -> Server:
     ableton = client if client is not None else AbletonClient()
+    tap_client = tap if tap is not None else TapClient()
     drift = _DriftCheck()
     server = Server("ableton-mcp", version=VERSION)
 
@@ -120,6 +125,10 @@ def build_server(client: AbletonClient | None = None) -> Server:
     async def call_tool(name: str, arguments: dict[str, Any]) -> dict:
         if name == "get_bridge_status":
             return await anyio.to_thread.run_sync(_bridge_status, ableton, drift)
+
+        if name == "get_audio_levels":
+            duration = float(arguments.get("duration_seconds", 0) or 0)
+            return await anyio.to_thread.run_sync(get_audio_levels, tap_client, duration)
 
         if name not in REGISTRY:
             raise ValueError(f"Unknown tool: {name}")
