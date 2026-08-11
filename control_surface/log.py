@@ -173,6 +173,23 @@ class OperationLogger:
             }
         )
 
+    def log_marshal_event(self, kind: str, command: str, detail: str) -> None:
+        """Journal marshal-lifecycle outcomes the request/response path never
+        sees: kind is 'expired' (task refused to start past its deadline),
+        'late_success' or 'late_error' (task finished after the waiter
+        abandoned it). Without these, a timed-out command that executed anyway
+        would be invisible in the journal."""
+        self._write_entry(
+            {
+                "timestamp": _utc_now_iso(),
+                "type": kind,
+                "command": command,
+                "detail": self._sanitize(detail),
+                "version": VERSION,
+            }
+        )
+        self._logger.warning(f"Marshal {kind} for '{command}': {detail}")
+
     def log_error(
         self,
         command: str,

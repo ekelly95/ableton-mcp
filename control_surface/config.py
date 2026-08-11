@@ -22,6 +22,11 @@ MAX_MESSAGE_SIZE: int = 16 * 1024 * 1024
 
 # Command execution timeouts (seconds)
 DEFAULT_TIMEOUT_SECONDS: float = 30.0
+# Extra wait beyond the timeout before the marshal abandons a request. The
+# scheduled task refuses to START once the timeout deadline has passed, so a
+# task that begins just under the deadline gets this long to finish and still
+# be delivered; after timeout+grace, "timed out" means "never executed".
+MARSHAL_GRACE_SECONDS: float = 2.0
 COMMAND_TIMEOUTS: dict = {
     # Browser loads can trigger sample/pack indexing on first use
     "load_item": 120.0,

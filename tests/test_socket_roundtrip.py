@@ -3,10 +3,12 @@
 import json
 import socket
 import struct
+import time
 import uuid
 
 import pytest
 
+import control_surface.thread_marshal as thread_marshal
 from control_surface.errors import PartialApplyError
 from control_surface.registry import CommandRegistry, LiveAPIError, ParamSchema, ParamType
 from control_surface.socket_server import SocketServer
@@ -186,6 +188,74 @@ def test_duplicate_request_id_executes_once(server):
         server.bound_port, {"type": "count_executions", "params": {}, "id": "dedupe-test-2"}
     )
     assert third["result"]["count"] == 2
+
+
+def test_stop_unblocks_connected_client(server):
+    """stop() must close the accepted client socket so the handler thread is
+    not left parked in a blocking recv (the old 'did not stop cleanly' 5s
+    stall on every Live script reload)."""
+    sock = socket.create_connection(("127.0.0.1", server.bound_port), timeout=5)
+    try:
+        response = send_request(server.bound_port, {"type": "ping", "id": "s1"}, sock=sock)
+        assert response["status"] == "success"
+
+        start = time.time()
+        server.stop()
+        elapsed = time.time() - start
+        assert elapsed < 3.0, f"stop() blocked for {elapsed:.1f}s on a connected client"
+        assert server.is_running is False
+    finally:
+        sock.close()
+
+
+class DropFirstControlSurface:
+    """Drops the FIRST scheduled task (forcing a marshal timeout), runs later
+    ones immediately — models Live briefly freezing, then recovering."""
+
+    def __init__(self):
+        self.dropped = False
+
+    def schedule_message(self, delay, callback):
+        if not self.dropped:
+            self.dropped = True
+            return
+        callback()
+
+    def song(self):
+        return None
+
+    def application(self):
+        return None
+
+
+def test_timed_out_request_not_cached_so_same_id_retries(monkeypatch):
+    # Deadline refusal guarantees a timed-out request never executed, so a
+    # resend with the SAME id must get a fresh attempt — not a replay of the
+    # stale timeout error from the dedupe ring.
+    monkeypatch.setattr(thread_marshal, "MARSHAL_GRACE_SECONDS", 0.05)
+    registry = CommandRegistry()
+    calls = {"n": 0}
+
+    @registry.register("flaky", timeout=0.05)
+    def flaky(ctx):
+        calls["n"] += 1
+        return {"n": calls["n"]}
+
+    srv = SocketServer(
+        DropFirstControlSurface(), host="127.0.0.1", port=0, use_tcp=True, registry=registry
+    )
+    srv.start()
+    try:
+        message = {"type": "flaky", "params": {}, "id": "retry-after-timeout"}
+        first = send_request(srv.bound_port, message)
+        assert first["status"] == "error"
+        assert first["timeout"] is True
+
+        second = send_request(srv.bound_port, message)
+        assert second["status"] == "success"
+        assert calls["n"] == 1  # ran exactly once — on the retry
+    finally:
+        srv.stop()
 
 
 def test_oversized_message_rejected_then_server_survives(server):

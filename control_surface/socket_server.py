@@ -75,8 +75,10 @@ class SocketServer:
         registry=None,
     ):
         self._control_surface = control_surface
-        self._marshaler = ThreadMarshaler(control_surface)
         self._operation_logger = get_operation_logger()
+        # The marshaler journals expired/late task outcomes that the normal
+        # request/response path can no longer report.
+        self._marshaler = ThreadMarshaler(control_surface, operation_logger=self._operation_logger)
         self._registry = registry if registry is not None else REGISTRY
 
         self._host = host if host is not None else TCP_HOST
@@ -88,6 +90,11 @@ class SocketServer:
         self._server_thread: threading.Thread | None = None
         self._running = False
         self._lock = threading.Lock()
+        # Accepted client sockets, guarded by their OWN lock: stop() holds
+        # self._lock while joining the server thread, so the server thread
+        # must never need self._lock to make progress.
+        self._clients_lock = threading.Lock()
+        self._client_sockets: set[socket.socket] = set()
         # id -> response: a client that lost the response and resends the SAME
         # request must get the cached answer, not a second execution.
         self._recent_responses: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -134,6 +141,24 @@ class SocketServer:
                 return
             self._running = False
             self._cleanup_socket()
+            # Unblock any handler parked in a blocking recv: closing the
+            # socket from this thread makes that recv raise OSError, which
+            # _handle_client treats as clean shutdown once _running is False.
+            # Without this, the server thread stayed stuck in recv for as long
+            # as a client was connected ("did not stop cleanly" on every Live
+            # script reload).
+            with self._clients_lock:
+                clients = list(self._client_sockets)
+                self._client_sockets.clear()
+            for client in clients:
+                try:
+                    client.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                try:
+                    client.close()
+                except OSError:
+                    pass
             if self._server_thread and self._server_thread.is_alive():
                 self._server_thread.join(timeout=5.0)
                 if self._server_thread.is_alive():
@@ -183,11 +208,22 @@ class SocketServer:
                         logger.error(f"Accept error: {e}")
                     break
 
+                with self._clients_lock:
+                    if not self._running:
+                        try:
+                            client_socket.close()
+                        except OSError:
+                            pass
+                        break
+                    self._client_sockets.add(client_socket)
+
                 try:
                     self._handle_client(client_socket)
                 except Exception as e:
                     logger.error(f"Error handling client: {e}\n{traceback.format_exc()}")
                 finally:
+                    with self._clients_lock:
+                        self._client_sockets.discard(client_socket)
                     try:
                         client_socket.close()
                     except Exception:
@@ -207,6 +243,15 @@ class SocketServer:
                 self._send_message(client_socket, response)
             except (ConnectionResetError, BrokenPipeError):
                 logger.debug("Client disconnected")
+                break
+            except OSError as e:
+                # On Windows, stop() closing this socket from another thread
+                # surfaces here as OSError on the blocked recv — that is the
+                # designed shutdown path, not an error.
+                if not self._running:
+                    logger.debug("Client socket closed during shutdown")
+                else:
+                    logger.error(f"Client socket error: {e}")
                 break
             except Exception as e:
                 logger.error(f"Error in client handler: {e}")
@@ -242,6 +287,11 @@ class SocketServer:
             try:
                 chunk = sock.recv(min(SOCKET_BUFFER_SIZE, size - len(data)))
             except TimeoutError:
+                # Dead branch while client sockets have no timeout (:200 sets
+                # None), but if one is ever configured this must not busy-spin
+                # through shutdown.
+                if not self._running:
+                    return None
                 continue
             if not chunk:
                 return None
@@ -264,9 +314,15 @@ class SocketServer:
 
         response = self._execute_message(message, request_id)
 
-        self._recent_responses[request_id] = response
-        while len(self._recent_responses) > RECENT_RESPONSES_MAX:
-            self._recent_responses.popitem(last=False)
+        # Timeout responses are NOT cached: the marshal's deadline refusal
+        # guarantees a timed-out request never executed, so a client retrying
+        # the SAME id deserves a fresh attempt, not a replay of the stale
+        # refusal. (The shipped client mints a new uuid per send — this is
+        # insurance for any client that retries on a stable id.)
+        if not response.get("timeout"):
+            self._recent_responses[request_id] = response
+            while len(self._recent_responses) > RECENT_RESPONSES_MAX:
+                self._recent_responses.popitem(last=False)
         return response
 
     def _execute_message(self, message: dict[str, Any], request_id: str) -> dict[str, Any]:
