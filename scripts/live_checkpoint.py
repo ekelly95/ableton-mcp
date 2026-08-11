@@ -421,7 +421,8 @@ def check_envelopes(client):
         slot_index=0,
         mixer_parameter="volume",
     )
-    assert cleared == {"cleared": "Volume"}, cleared  # VERIFY: clear_envelope(param) signature
+    # clear_envelope(param) signature CONFIRMED; Live names it "Track Volume"
+    assert cleared == {"cleared": "Track Volume"}, cleared
     gone = client.send(
         "get_clip_envelope",
         track_index=state["track"],
@@ -432,14 +433,18 @@ def check_envelopes(client):
     return "LP sweep written+verified (left in for the finale!); volume env set+cleared"
 
 
-@step("locator 'Chorus' at beat 32 + collision refusal")
+@step("locator 'Chorus' at a free beat + collision refusal")
 def check_locator(client):
     client.send("transport_control", action="stop")
-    result = send_looping(client, "create_locator", time=32.0, name="Chorus")
-    assert result["locator"]["time"] == 32.0, result
+    # Idempotent across runs: previous runs leave their locator as a souvenir,
+    # so find a beat nothing occupies yet.
+    taken = {loc["time"] for loc in client.send("get_arrangement")["locators"]}
+    target = next(t for t in (32.0, 36.0, 40.0, 44.0, 48.0, 52.0) if t not in taken)
+    result = send_looping(client, "create_locator", time=target, name="Chorus")
+    assert result["locator"]["time"] == target, result
     assert result["locator"]["name"] == "Chorus", result
     try:
-        send_looping(client, "create_locator", time=32.0, name="Verse")
+        send_looping(client, "create_locator", time=target, name="Verse")
         raise AssertionError("collision was not refused")
     except CommandError as e:
         assert "already exists" in e.message, e

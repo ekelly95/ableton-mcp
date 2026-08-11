@@ -309,9 +309,15 @@ class MockDevice:
 
 class MockMixerDevice:
     def __init__(self, send_count: int = 0):
-        # VERIFY #7: volume normalized 0-1 with 0.85 ~= 0 dB; pan -1..1
-        self.volume = MockParameter("Volume", value=0.85, min=0.0, max=1.0, default_value=0.85)
-        self.panning = MockParameter("Pan", value=0.0, min=-1.0, max=1.0, default_value=0.0)
+        # CONFIRMED on real Live 12.4 (2.2 checkpoint): the mixer parameters
+        # are NAMED "Track Volume"/"Track Panning". Volume normalized 0-1 with
+        # 0.85 ~= 0 dB; pan -1..1.
+        self.volume = MockParameter(
+            "Track Volume", value=0.85, min=0.0, max=1.0, default_value=0.85
+        )
+        self.panning = MockParameter(
+            "Track Panning", value=0.0, min=-1.0, max=1.0, default_value=0.0
+        )
         self.sends: list[MockParameter] = [
             MockParameter(f"Send {chr(65 + i)}", value=0.0) for i in range(send_count)
         ]
