@@ -39,7 +39,9 @@ class FakeTapServer:
             "clipping": False,
             "bands": [
                 {"hz": label, "level_db": -30.0 + i}
-                for i, label in enumerate(["60", "120", "240", "480", "960", "1.9k", "3.8k", "7.7k"])
+                for i, label in enumerate(
+                    ["60", "120", "240", "480", "960", "1.9k", "3.8k", "7.7k"]
+                )
             ],
             "window_seconds": 5,
             "window": {"rms_mean_db": -20.0, "rms_max_db": -17.0, "peak_max_db": -5.5},
@@ -205,7 +207,9 @@ def test_node_tap_server_framing_conformance():
                 break
             except TapUnavailable:
                 continue
-        assert result is not None, f"node tap never answered: {proc.stderr.peek()[:200] if proc.stderr else ''}"
+        assert result is not None, (
+            f"node tap never answered: {proc.stderr.peek()[:200] if proc.stderr else ''}"
+        )
         assert result["pong"] is True
         assert result["tap_protocol_version"] == 1
 

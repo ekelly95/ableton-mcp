@@ -27,7 +27,9 @@ def main() -> None:
         print(f"   FAIL: tap unreachable ({e})")
         print("   Build/enable the device first — m4l/README-lab.md, then retry.")
         sys.exit(1)
-    print(f"   OK: {info['name']}, protocol v{info['tap_protocol_version']}, up {info['uptime_seconds']}s")
+    print(
+        f"   OK: {info['name']}, protocol v{info['tap_protocol_version']}, up {info['uptime_seconds']}s"
+    )
 
     print("2. Silence heuristic (nothing should be playing)...", flush=True)
     quiet = get_audio_levels(tap)
@@ -49,7 +51,9 @@ def main() -> None:
             None,
         )
         if target is None:
-            print("   FAIL: no clip on a track with an instrument. Run scripts/live_checkpoint.py first.")
+            print(
+                "   FAIL: no clip on a track with an instrument. Run scripts/live_checkpoint.py first."
+            )
             sys.exit(1)
         track_index, slot_index = target
         bridge.send("launch_clip", track_index=track_index, slot_index=slot_index)
@@ -61,7 +65,9 @@ def main() -> None:
         bridge.close()
 
     print(f"   receiving_audio={loud['receiving_audio']}")
-    print(f"   rms_max={loud['rms_db_max']} dB  peak_max={loud['peak_db_max']} dB  clipping={loud['clipping']}")
+    print(
+        f"   rms_max={loud['rms_db_max']} dB  peak_max={loud['peak_db_max']} dB  clipping={loud['clipping']}"
+    )
     for band in loud["bands_max"]:
         bar = "#" * max(0, int((band["level_db"] + 70) / 3))
         print(f"   {band['hz']:>5} Hz | {band['level_db']:>7.1f} dB | {bar}")

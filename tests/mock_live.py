@@ -96,6 +96,28 @@ class MockParameter:
         return f"{self.value:.2f}"
 
 
+class MockAutomationEnvelope:
+    """Clip automation envelope. CONFIRMED by the 2026-08-11 spike on real
+    Live 12.4.3: insert_step(time, length, value) + value_at_time round-trip
+    exactly. Step model: value holds through [time, time+length); before any
+    step the parameter's own value applies; after/between, the latest step's
+    value holds (spike: value_at_time(1.5) returned step-2's value)."""
+
+    def __init__(self, parameter: "MockParameter"):
+        self.parameter = parameter
+        self._steps = []  # (time, length, value), insertion order
+
+    def insert_step(self, time: float, length: float, value: float) -> None:
+        self._steps.append((float(time), float(length), float(value)))
+
+    def value_at_time(self, time: float) -> float:
+        best = None
+        for start, _length, value in self._steps:
+            if start <= time and (best is None or start >= best[0]):
+                best = (start, value)
+        return best[1] if best is not None else self.parameter.value
+
+
 class MockNoteVector(list):
     """Stands in for Live's native MidiNoteVector.
 
@@ -124,6 +146,30 @@ class MockClip:
         self.end_time = length
         self.file_path: str | None = None
         self._notes: list[MockMidiNote] = []
+        self._envelopes: dict = {}  # id(parameter) -> MockAutomationEnvelope
+
+    # --- Clip automation envelopes (spike-CONFIRMED on real Live 12.4.3) ---
+
+    def automation_envelope(self, parameter):
+        """Returns None when no envelope exists for the parameter (CONFIRMED)."""
+        return self._envelopes.get(id(parameter))
+
+    def create_automation_envelope(self, parameter) -> MockAutomationEnvelope:
+        env = MockAutomationEnvelope(parameter)
+        self._envelopes[id(parameter)] = env
+        return env
+
+    def clear_envelope(self, parameter) -> None:
+        """VERIFY at checkpoint: exact signature (assumed parameter arg)."""
+        self._envelopes.pop(id(parameter), None)
+
+    def clear_all_envelopes(self) -> None:
+        """CONFIRMED (spike): no-arg call works."""
+        self._envelopes.clear()
+
+    @property
+    def has_envelopes(self) -> bool:
+        return bool(self._envelopes)
 
     # --- Modern note-ID API (Live 11.1+) ---
 

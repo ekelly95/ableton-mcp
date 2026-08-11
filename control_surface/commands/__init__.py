@@ -4,7 +4,7 @@ Importing this package registers every command with the global REGISTRY.
 """
 
 from ..registry import REGISTRY
-from . import arrangement, browser, clips, devices, meta, tracks, transport
+from . import arrangement, browser, clips, devices, envelopes, meta, tracks, transport
 
 __all__ = [
     "REGISTRY",
@@ -12,6 +12,7 @@ __all__ = [
     "browser",
     "clips",
     "devices",
+    "envelopes",
     "meta",
     "tracks",
     "transport",

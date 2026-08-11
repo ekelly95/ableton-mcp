@@ -53,9 +53,7 @@ class TapClient:
         body = json.dumps(request).encode("utf-8")
         with self._lock:
             try:
-                sock = socket.create_connection(
-                    (self.host, self.port), timeout=CONNECT_TIMEOUT
-                )
+                sock = socket.create_connection((self.host, self.port), timeout=CONNECT_TIMEOUT)
             except OSError as e:
                 raise TapUnavailable(str(e)) from e
             try:
@@ -165,11 +163,7 @@ def get_audio_levels(tap: TapClient, duration_seconds: float = 0) -> dict[str, A
         last = samples[-1]
         n_bands = len(last.get("bands", []))
         band_max = [
-            max(
-                _db(s["bands"][i]["level_db"])
-                for s in samples
-                if len(s.get("bands", [])) > i
-            )
+            max(_db(s["bands"][i]["level_db"]) for s in samples if len(s.get("bands", [])) > i)
             for i in range(n_bands)
         ]
         return {
@@ -178,13 +172,10 @@ def get_audio_levels(tap: TapClient, duration_seconds: float = 0) -> dict[str, A
             "samples": len(samples),
             "receiving_audio": any(s.get("receiving_audio") for s in samples),
             "rms_db_max": max(_db(s.get("rms_db")) for s in samples),
-            "peak_db_max": max(
-                max(_db(p) for p in (s.get("peak_db") or [-70.0])) for s in samples
-            ),
+            "peak_db_max": max(max(_db(p) for p in (s.get("peak_db") or [-70.0])) for s in samples),
             "clipping": any(s.get("clipping") for s in samples),
             "bands_max": [
-                {"hz": last["bands"][i]["hz"], "level_db": band_max[i]}
-                for i in range(n_bands)
+                {"hz": last["bands"][i]["hz"], "level_db": band_max[i]} for i in range(n_bands)
             ],
             "note": last.get("note", ""),
         }

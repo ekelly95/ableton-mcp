@@ -14,17 +14,20 @@ required.
 
 ## What the AI can do with it
 
-35 tools: read the whole session at a glance; create/rename/mix tracks;
+40 tools: read the whole session at a glance; create/rename/mix tracks;
 create, duplicate, launch and edit clips; write MIDI notes by name ("C3",
 "F#4" — Ableton convention, C3=60) with per-note chance and velocity spread;
-edit single notes precisely by ID without rewriting the clip; set the song's
-key and scale; build songs on the Arrangement timeline (create MIDI clips
+edit single notes precisely by ID without rewriting the clip; **draw
+automation envelopes on clips** (filter sweeps, volume fades — any device
+knob or the track mixer, on session or timeline clips); set the song's key
+and scale; build songs on the Arrangement timeline (create MIDI clips
 directly on it, stamp session loops onto it, drop named locators, edit
 timeline clips); import audio files into the session or onto the timeline
 (the landing pad for sample generation — generators just write a file and
 call import_audio); browse Live's library and load instruments/effects; turn
 any device knob; control tempo, loop, metronome, playback and (via its own
-guarded tool) arrangement recording.
+guarded tool) arrangement recording; and optionally *hear* the result (next
+section).
 
 ## Optional: audio ears (Suite / Max for Live only)
 

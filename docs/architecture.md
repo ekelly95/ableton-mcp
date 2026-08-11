@@ -79,20 +79,24 @@ Encoded in `tests/mock_live.py` with provenance comments — keep them in sync:
    commands their declared budget + grace instead of its flat timeout.
 10. `duplicate_clip_slot(i)` copies into slot i+1.
 
-## Automation envelopes: PROVEN feasible from the remote script (spike, 2026-08-11)
+## Automation envelopes (2.2 — built on the 2026-08-11 spike findings)
 
-All of it works on real Live 12.4.3 — no Max for Live required (this leapfrogs
-every community project once built):
-- `clip.automation_envelope(param)` → None when absent
-- `clip.create_automation_envelope(param)` → envelope object
-- `envelope.insert_step(time, length, value)` → confirmed by
-  `envelope.value_at_time` reading back the exact values
-- Also available: `clip.automation_envelopes`, `clip.has_envelopes` (+
-  listener), `clip.clear_envelope`, `clip.clear_all_envelopes`,
-  `envelope.create_event`, `envelope.events_in_range`,
-  `envelope.delete_events_in_range`
-Future core feature ("clip envelopes") — design tools batch-first per house
-rules; the spike branch that proved this was throwaway.
+Spike-verified on real Live 12.4.3, no Max for Live required:
+- `clip.automation_envelope(param)` → None when absent (CONFIRMED)
+- `clip.create_automation_envelope(param)` → envelope object (CONFIRMED)
+- `envelope.insert_step(time, length, value)` + `value_at_time` round-trip
+  exactly (CONFIRMED); values are in the parameter's NATIVE range — the tools
+  normalize 0-1 on the wire like device parameters
+- `clip.clear_all_envelopes()` no-arg (CONFIRMED); `clip.clear_envelope(param)`
+  signature VERIFY at checkpoint
+- Unused for now: `envelope.create_event/events_in_range/delete_events_in_range`
+  (shape unknown — v1 writes steps, reads via value_at_time sampling),
+  `clip.automation_envelopes` plural (shape unknown — no enumerate tool yet)
+
+Tools: `set_clip_envelope` (points → steps; each holds to the next point;
+device param XOR mixer volume/pan target; session or arrangement clip),
+`get_clip_envelope` (sampled read), `clear_clip_envelopes` (destructive; one
+target or all). Envelopes work on audio clips too, not just MIDI.
 
 ## Client discipline (`mcp_server/client.py`)
 

@@ -109,9 +109,7 @@ def _bridge_status(client: AbletonClient, drift: _DriftCheck) -> dict:
     }
 
 
-def build_server(
-    client: AbletonClient | None = None, tap: TapClient | None = None
-) -> Server:
+def build_server(client: AbletonClient | None = None, tap: TapClient | None = None) -> Server:
     ableton = client if client is not None else AbletonClient()
     tap_client = tap if tap is not None else TapClient()
     drift = _DriftCheck()

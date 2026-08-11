@@ -48,7 +48,7 @@ state = {}
 @step("ping: version + command count")
 def check_ping(client):
     result = client.send("ping")
-    assert result["pong"] and result["version"] == "2.1.0", result
+    assert result["pong"] and result["version"] == "2.2.0", result
     return f"v{result['version']}, {result['command_count']} commands"
 
 
@@ -378,6 +378,60 @@ def send_looping(client, command, **params):
     return result
 
 
+@step("clip envelopes: LP sweep write/read + mixer volume + guarded clear")
+def check_envelopes(client):
+    ramp = [
+        {"time": 0.0, "value": 1.0},
+        {"time": 1.0, "value": 0.7},
+        {"time": 2.0, "value": 0.4},
+        {"time": 3.0, "value": 0.12},
+    ]
+    result = client.send(
+        "set_clip_envelope",
+        track_index=state["track"],
+        slot_index=0,
+        device_index=0,
+        parameter="LP Freq",
+        points=ramp,
+    )
+    assert result["points_written"] == 4, result
+
+    read = client.send(
+        "get_clip_envelope",
+        track_index=state["track"],
+        slot_index=0,
+        device_index=0,
+        parameter="LP Freq",
+        samples=5,
+    )
+    assert read["exists"] is True, read
+    values = [p["value"] for p in read["points"]]
+    assert values[0] > values[2] > values[3], f"sweep not descending: {values}"
+
+    client.send(
+        "set_clip_envelope",
+        track_index=state["track"],
+        slot_index=0,
+        mixer_parameter="volume",
+        points=[{"time": 0.0, "value": 0.85}],
+    )
+    cleared = client.send(
+        "clear_clip_envelopes",
+        track_index=state["track"],
+        slot_index=0,
+        mixer_parameter="volume",
+    )
+    assert cleared == {"cleared": "Volume"}, cleared  # VERIFY: clear_envelope(param) signature
+    gone = client.send(
+        "get_clip_envelope",
+        track_index=state["track"],
+        slot_index=0,
+        mixer_parameter="volume",
+    )
+    assert gone["exists"] is False, gone
+    return "LP sweep written+verified (left in for the finale!); volume env set+cleared"
+
+
 @step("locator 'Chorus' at beat 32 + collision refusal")
 def check_locator(client):
     client.send("transport_control", action="stop")
@@ -517,6 +571,7 @@ def main():
         check_arrangement_note_edit,
         check_direct_arrangement,
         check_arrangement_record,
+        check_envelopes,
         check_locator,
         check_import_audio,
         check_finale,

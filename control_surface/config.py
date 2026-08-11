@@ -7,7 +7,7 @@ Single source of the project version: pyproject.toml must match VERSION
 import os
 from pathlib import Path
 
-VERSION: str = "2.1.0"
+VERSION: str = "2.2.0"
 CONTROL_SURFACE_NAME: str = "AbletonMCP"
 
 # IPC: TCP on Windows (no Unix sockets), Unix socket elsewhere
