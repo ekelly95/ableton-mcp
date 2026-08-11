@@ -112,6 +112,31 @@ def test_set_track_send_out_of_range(registry, ctx, song):
         run_command(registry, ctx, "set_track", track_index=0, sends=[{"index": 9, "value": 0.5}])
 
 
+def test_master_batch_rejection_leaves_volume_unchanged(registry, ctx, song):
+    # Validate-then-write: the mute rejection must fire BEFORE the volume
+    # write (the old code renamed/re-volumed master, then raised).
+    original = song.master_track.mixer_device.volume.value
+    with pytest.raises(LiveAPIError, match="cannot be muted"):
+        run_command(registry, ctx, "set_track", track_type="master", volume=0.5, mute=True)
+    assert song.master_track.mixer_device.volume.value == original
+
+
+def test_bad_send_index_leaves_earlier_fields_unwritten(registry, ctx, song):
+    original_name = song.tracks[0].name
+    original_send = song.tracks[0].mixer_device.sends[0].value
+    with pytest.raises(LiveAPIError, match="Send index"):
+        run_command(
+            registry,
+            ctx,
+            "set_track",
+            track_index=0,
+            name="New Name",
+            sends=[{"index": 0, "value": 0.7}, {"index": 9, "value": 0.5}],
+        )
+    assert song.tracks[0].name == original_name
+    assert song.tracks[0].mixer_device.sends[0].value == original_send
+
+
 def test_create_track_rejects_bad_type(registry, ctx, song):
     with pytest.raises(ValidationError):
         run_command(registry, ctx, "create_track", type="warp")

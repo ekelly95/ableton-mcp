@@ -2,8 +2,13 @@
 
 from typing import Any
 
+from ..errors import PartialApplyError
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.pitch import SHARP_NAMES, root_name_to_pitch_class
+
+# Parked-playhead tolerance in beats — same semantics as create_locator's
+# two-phase check.
+_SEEK_EPSILON = 0.01
 
 
 def _transport_state(song: Any) -> dict[str, Any]:
@@ -72,12 +77,39 @@ def get_transport_state(ctx) -> dict[str, Any]:
         ),
     ],
     category="transport",
-    description="Start, stop, or continue playback, optionally jumping to a position (in beats).",
+    description=(
+        "Start, stop, or continue playback, optionally jumping to a position "
+        "(in beats). A position jump from a stopped transport takes two "
+        "internal round-trips — invisible to the caller."
+    ),
 )
 def transport_control(ctx, action: str, position: float | None = None) -> dict[str, Any]:
     song = ctx.song
-    if position is not None:
+    if position is not None and abs(song.current_song_time - position) > _SEEK_EPSILON:
+        # Verified on real Live 12.4 (see create_locator): a current_song_time
+        # write does NOT take effect within the same scheduled task. Starting
+        # playback in the task that issues the seek would play from the OLD
+        # playhead — so seek first, act on the repeat call.
+        if song.is_playing and action in ("play", "continue"):
+            # Already playing: the seek IS the whole action — no dependent
+            # write follows, so no second phase. Deliberately no re-call of
+            # start_playing (restart semantics on a playing transport are
+            # unverified).
+            song.current_song_time = position
+            state = _transport_state(song)
+            state["requested_position"] = position
+            state["note"] = "Seek issued while playing; it lands on the next timer tick."
+            return state
+        if action == "stop":
+            song.stop_playing()
         song.current_song_time = position
+        return {
+            "phase": "seeking",
+            "note": (
+                "Playhead seek issued; call transport_control again with the "
+                "same arguments to complete the action."
+            ),
+        }
     if action == "play":
         song.start_playing()
     elif action == "continue":
@@ -157,33 +189,58 @@ def set_transport(
     back_to_arranger=None,
 ) -> dict[str, Any]:
     song = ctx.song
-    if tempo is not None:
-        song.tempo = tempo
-    if signature_numerator is not None:
-        song.signature_numerator = signature_numerator
-    if signature_denominator is not None:
-        song.signature_denominator = signature_denominator
-    if loop_enabled is not None:
-        song.loop = loop_enabled
-    if loop_start is not None:
-        song.loop_start = loop_start
-    if loop_length is not None:
-        song.loop_length = loop_length
-    if metronome is not None:
-        song.metronome = metronome
-    if scale_root is not None:
-        song.root_note = root_name_to_pitch_class(scale_root)
+
+    # Pure-Python validation first: a bad root name used to raise mid-batch,
+    # after tempo/signature/loop had already been written.
+    pitch_class = root_name_to_pitch_class(scale_root) if scale_root is not None else None
+
+    # scale_name is the only field Live itself validates (silent-keep on
+    # unknown names, surfaced by read-back) — write it FIRST so its failure
+    # leaves every other field untouched.
     if scale_name is not None:
         song.scale_name = scale_name
-        # VERIFY at checkpoint: invalid names may silently no-op in Live —
-        # read back and surface the failure instead of pretending.
+        # VERIFY at checkpoint (invalid-scale step): assumed Live silently
+        # keeps the old scale on unknown names; the read-back turns that into
+        # a typed error instead of pretending.
         if song.scale_name != scale_name:
             raise LiveAPIError(
                 f"Live rejected scale name '{scale_name}' (kept '{song.scale_name}'). "
                 f"Use a name from Live's scale chooser exactly."
             )
+
+    applied: list[str] = ["scale_name"] if scale_name is not None else []
+
+    def _write(field: str, setter) -> None:
+        try:
+            setter()
+        except Exception as e:
+            raise PartialApplyError(field, str(e), applied) from e
+        applied.append(field)
+
+    if pitch_class is not None:
+        _write("scale_root", lambda: setattr(song, "root_note", pitch_class))
     if scale_mode is not None:
-        song.scale_mode = scale_mode
+        _write("scale_mode", lambda: setattr(song, "scale_mode", scale_mode))
+    if tempo is not None:
+        _write("tempo", lambda: setattr(song, "tempo", tempo))
+    if signature_numerator is not None:
+        _write(
+            "signature_numerator",
+            lambda: setattr(song, "signature_numerator", signature_numerator),
+        )
+    if signature_denominator is not None:
+        _write(
+            "signature_denominator",
+            lambda: setattr(song, "signature_denominator", signature_denominator),
+        )
+    if loop_enabled is not None:
+        _write("loop_enabled", lambda: setattr(song, "loop", loop_enabled))
+    if loop_start is not None:
+        _write("loop_start", lambda: setattr(song, "loop_start", loop_start))
+    if loop_length is not None:
+        _write("loop_length", lambda: setattr(song, "loop_length", loop_length))
+    if metronome is not None:
+        _write("metronome", lambda: setattr(song, "metronome", metronome))
     if back_to_arranger is not None:
-        song.back_to_arranger = back_to_arranger
+        _write("back_to_arranger", lambda: setattr(song, "back_to_arranger", back_to_arranger))
     return _transport_state(song)

@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from ..errors import PartialApplyError
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import get_track, resolve_track
 from ..utils.normalize import denormalize_parameter, normalize_parameter
@@ -252,26 +253,16 @@ def set_track(
     track = resolve_track(song, track_type, track_index)
     mixer = track.mixer_device
 
-    if name is not None:
-        track.name = name
-    if color_index is not None:
-        track.color_index = color_index
-    if volume is not None:
-        mixer.volume.value = denormalize_parameter(mixer.volume, volume)
-    if pan is not None:
-        mixer.panning.value = denormalize_parameter(mixer.panning, pan)
-    if arm is not None:
-        if track_type != "track" or not track.can_be_armed:
-            raise LiveAPIError("This track cannot be armed")
-        track.arm = arm
-    if mute is not None:
-        if track_type == "master":
-            raise LiveAPIError("The master track cannot be muted")
-        track.mute = mute
-    if solo is not None:
-        if track_type == "master":
-            raise LiveAPIError("The master track cannot be soloed")
-        track.solo = solo
+    # Every check that can fail runs BEFORE the first write, so a rejected
+    # field (arm on a return track, sends on master, a bad send index) cannot
+    # leave earlier fields already applied.
+    if arm is not None and (track_type != "track" or not track.can_be_armed):
+        raise LiveAPIError("This track cannot be armed")
+    if mute is not None and track_type == "master":
+        raise LiveAPIError("The master track cannot be muted")
+    if solo is not None and track_type == "master":
+        raise LiveAPIError("The master track cannot be soloed")
+    resolved_sends: list[tuple[Any, float]] = []
     if sends is not None:
         if track_type == "master":
             raise LiveAPIError("The master track has no sends")
@@ -285,6 +276,38 @@ def set_track(
                     f"Send index {send_index} out of range (track has {len(send_params)} sends)"
                 )
             param = send_params[send_index]
-            param.value = denormalize_parameter(param, float(item["value"]))
+            resolved_sends.append((param, denormalize_parameter(param, float(item["value"]))))
+
+    applied: list[str] = []
+
+    def _write(field: str, setter) -> None:
+        try:
+            setter()
+        except Exception as e:
+            raise PartialApplyError(field, str(e), applied) from e
+        applied.append(field)
+
+    if name is not None:
+        _write("name", lambda: setattr(track, "name", name))
+    if color_index is not None:
+        _write("color_index", lambda: setattr(track, "color_index", color_index))
+    if volume is not None:
+        _write(
+            "volume",
+            lambda: setattr(mixer.volume, "value", denormalize_parameter(mixer.volume, volume)),
+        )
+    if pan is not None:
+        _write(
+            "pan",
+            lambda: setattr(mixer.panning, "value", denormalize_parameter(mixer.panning, pan)),
+        )
+    if arm is not None:
+        _write("arm", lambda: setattr(track, "arm", arm))
+    if mute is not None:
+        _write("mute", lambda: setattr(track, "mute", mute))
+    if solo is not None:
+        _write("solo", lambda: setattr(track, "solo", solo))
+    for param, native in resolved_sends:
+        _write(f"send '{param.name}'", lambda p=param, n=native: setattr(p, "value", n))
 
     return serialize_track(track_index if track_index is not None else 0, track, track_type)
