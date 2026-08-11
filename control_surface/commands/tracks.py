@@ -2,13 +2,14 @@
 
 from typing import Any
 
-from ..errors import PartialApplyError
+from ..config import MAX_COLOR_INDEX
+from ..errors import batch_writer
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import get_track, resolve_track
 from ..utils.normalize import denormalize_parameter, normalize_parameter
 
 
-def _serialize_clip_summary(slot_index: int, slot: Any) -> dict[str, Any]:
+def serialize_clip_summary(slot_index: int, slot: Any) -> dict[str, Any]:
     info: dict[str, Any] = {
         "slot_index": slot_index,
         "has_clip": slot.has_clip,
@@ -69,7 +70,7 @@ def serialize_track(
         ]
     if include_clips:
         info["clip_slots"] = [
-            _serialize_clip_summary(i, slot) for i, slot in enumerate(track.clip_slots)
+            serialize_clip_summary(i, slot) for i, slot in enumerate(track.clip_slots)
         ]
     return info
 
@@ -250,7 +251,9 @@ def delete_track(ctx, track_index: int) -> dict[str, Any]:
             description="Required unless track_type is 'master'",
         ),
         ParamSchema("name", ParamType.STRING, required=False),
-        ParamSchema("color_index", ParamType.INT, required=False, min_value=0, max_value=69),
+        ParamSchema(
+            "color_index", ParamType.INT, required=False, min_value=0, max_value=MAX_COLOR_INDEX
+        ),
         ParamSchema(
             "volume",
             ParamType.FLOAT,
@@ -299,7 +302,7 @@ def set_track(
     arm: bool | None = None,
     mute: bool | None = None,
     solo: bool | None = None,
-    sends: list | None = None,
+    sends: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     song = ctx.song
     track = resolve_track(song, track_type, track_index)
@@ -331,13 +334,7 @@ def set_track(
             resolved_sends.append((param, denormalize_parameter(param, float(item["value"]))))
 
     applied: list[str] = []
-
-    def _write(field: str, setter) -> None:
-        try:
-            setter()
-        except Exception as e:
-            raise PartialApplyError(field, str(e), applied) from e
-        applied.append(field)
+    _write = batch_writer(applied)
 
     if name is not None:
         _write("name", lambda: setattr(track, "name", name))

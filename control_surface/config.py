@@ -61,6 +61,9 @@ else:
 LOG_FILE_MAX_SIZE: int = 10 * 1024 * 1024
 LOG_BACKUP_COUNT: int = 5
 
+# Live's clip/track color palette runs 0-69 (LOM).
+MAX_COLOR_INDEX: int = 69
+
 # Payload bounds: reads run on Live's main thread, so responses must stay
 # small enough not to stall the UI (see docs/architecture.md).
 MAX_NOTES_PER_READ: int = 2000

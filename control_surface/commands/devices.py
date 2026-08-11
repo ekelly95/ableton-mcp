@@ -2,9 +2,9 @@
 
 from typing import Any
 
-from ..errors import PartialApplyError
+from ..errors import batch_writer
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
-from ..utils.live_helpers import get_device, get_track
+from ..utils.live_helpers import get_device, get_track, resolve_device_parameter
 from ..utils.normalize import denormalize_parameter, normalize_parameter
 
 # LOM DeviceParameter.automation_state values.
@@ -136,8 +136,6 @@ def set_device_parameters(
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     device = get_device(track, device_index)
-    params = list(device.parameters)
-    by_name = {p.name.lower(): p for p in params}
 
     # Resolve and validate EVERY selector and value before the first write, so
     # a bad later entry cannot leave the batch half-applied.
@@ -145,19 +143,7 @@ def set_device_parameters(
     for item in parameters or []:
         if "parameter" not in item or "value" not in item:
             raise LiveAPIError("Each entry needs 'parameter' (name or index) and 'value'")
-        selector = item["parameter"]
-        if isinstance(selector, int) or (isinstance(selector, str) and selector.isdigit()):
-            idx = int(selector)
-            if not 0 <= idx < len(params):
-                raise LiveAPIError(
-                    f"Parameter index {idx} out of range (device has {len(params)} parameters)"
-                )
-            param = params[idx]
-        else:
-            param = by_name.get(str(selector).lower())
-            if param is None:
-                names = [p.name for p in params[:30]]
-                raise LiveAPIError(f"No parameter named '{selector}'. Available: {names}")
+        param = resolve_device_parameter(device, item["parameter"])
         try:
             value = float(item["value"])
         except (TypeError, ValueError):
@@ -175,7 +161,7 @@ def set_device_parameters(
     if enabled is not None:
         # Live's is_active is get/observe-only (and also reflects an enclosing
         # Rack's switch); the writable control is the Device On parameter.
-        device_on = by_name.get("device on")
+        device_on = next((p for p in device.parameters if p.name.lower() == "device on"), None)
         if device_on is None:
             raise LiveAPIError(
                 f"Device '{device.name}' has no 'Device On' parameter — cannot toggle enabled"
@@ -183,21 +169,24 @@ def set_device_parameters(
 
     changed = []
     applied: list[str] = []
+    _write = batch_writer(applied)
     for param, value in resolved:
-        try:
-            param.value = denormalize_parameter(param, value)
-        except Exception as e:
-            raise PartialApplyError(f"parameter '{param.name}'", str(e), applied) from e
-        applied.append(param.name)
+        _write(
+            param.name,
+            lambda p=param, v=value: setattr(p, "value", denormalize_parameter(p, v)),
+            label=f"parameter '{param.name}'",
+        )
         changed.append(
             {"name": param.name, "value": normalize_parameter(param), "display_value": str(param)}
         )
 
     if device_on is not None:
-        try:
-            device_on.value = denormalize_parameter(device_on, 1.0 if enabled else 0.0)
-        except Exception as e:
-            raise PartialApplyError("enabled", str(e), applied) from e
+        _write(
+            "enabled",
+            lambda: setattr(
+                device_on, "value", denormalize_parameter(device_on, 1.0 if enabled else 0.0)
+            ),
+        )
 
     if re_enable_automation:
         # Restore automation control for exactly the parameters this batch

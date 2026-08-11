@@ -101,3 +101,24 @@ def get_device(track: Any, device_index: int) -> Any:
             f"Device index {device_index} out of range (track has {len(devices)} devices)"
         )
     return devices[device_index]
+
+
+# How many parameter names an unknown-name error lists as suggestions.
+PARAM_SUGGESTION_CAP = 30
+
+
+def resolve_device_parameter(device: Any, selector: Any) -> Any:
+    """A device parameter by integer index or case-insensitive name."""
+    params = list(device.parameters)
+    if isinstance(selector, int) or (isinstance(selector, str) and str(selector).isdigit()):
+        idx = int(selector)
+        if not 0 <= idx < len(params):
+            raise LiveAPIError(
+                f"Parameter index {idx} out of range (device has {len(params)} parameters)"
+            )
+        return params[idx]
+    match = next((p for p in params if p.name.lower() == str(selector).lower()), None)
+    if match is None:
+        names = [p.name for p in params[:PARAM_SUGGESTION_CAP]]
+        raise LiveAPIError(f"No parameter named '{selector}'. Available: {names}")
+    return match

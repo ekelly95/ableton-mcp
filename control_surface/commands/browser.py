@@ -10,6 +10,9 @@ from ..config import MAX_BROWSER_ITEMS
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import get_track
 
+# How many child names a not-found/not-loadable error lists as suggestions.
+_SUGGESTION_CAP = 20
+
 # Stable, useful roots. Attribute names on Live's Browser object.
 ROOTS = [
     "instruments",
@@ -42,7 +45,7 @@ def _navigate(browser: Any, path: list[str]) -> Any:
         children = list(node.children)
         match = next((c for c in children if c.name.lower() == segment.lower()), None)
         if match is None:
-            available = [c.name for c in children[:20]]
+            available = [c.name for c in children[:_SUGGESTION_CAP]]
             raise LiveAPIError(
                 f"'{segment}' not found under '{node.name}'. First entries: {available}"
             )
@@ -139,7 +142,7 @@ def load_item(ctx, path: list[str], track_index: int | None = None) -> dict[str,
     node = _navigate(browser, path)
 
     if not node.is_loadable:
-        children = [c.name for c in list(node.children)[:20]]
+        children = [c.name for c in list(node.children)[:_SUGGESTION_CAP]]
         raise LiveAPIError(f"'{node.name}' is a folder, not loadable. Its entries: {children}")
 
     if track_index is not None:

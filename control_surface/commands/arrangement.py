@@ -14,8 +14,9 @@ import os
 from typing import Any
 
 from ..config import AUDIO_EXTENSIONS, MAX_ARRANGEMENT_CLIPS_PER_READ, SEEK_EPSILON
+from ..errors import ValidationError
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
-from ..utils.live_helpers import get_arrangement_clip, get_track
+from ..utils.live_helpers import get_arrangement_clip, get_clip, get_clip_slot, get_track
 
 # Exact-match tolerance for confirming/guarding clip and cue positions.
 _TIME_EPSILON = 1e-3
@@ -35,6 +36,23 @@ def _serialize_arrangement_clip(index: int, clip: Any) -> dict[str, Any]:
         "is_audio_clip": clip.is_audio_clip,
         "looping": clip.looping,
     }
+
+
+def _serialize_locators(song: Any) -> list[dict[str, Any]]:
+    return [{"name": cue.name, "time": cue.time} for cue in song.cue_points]
+
+
+def _find_clip_at(track: Any, time: float, want: Any = None) -> tuple[int, Any] | None:
+    """(index, clip) whose start_time is within _TIME_EPSILON of `time`, or None.
+
+    The confirm-by-rescan used after Live calls that return nothing useful
+    (the arrangement clip list is time-ordered); `want` optionally filters,
+    e.g. to MIDI clips only.
+    """
+    for i, clip in enumerate(track.arrangement_clips):
+        if abs(clip.start_time - time) < _TIME_EPSILON and (want is None or want(clip)):
+            return i, clip
+    return None
 
 
 def _track_arrangement(track_index: int, track: Any) -> dict[str, Any]:
@@ -89,7 +107,7 @@ def get_arrangement(ctx, track_index: int | None = None) -> dict[str, Any]:
 
     return {
         "tracks": tracks,
-        "locators": [{"name": cue.name, "time": cue.time} for cue in song.cue_points],
+        "locators": _serialize_locators(song),
         "song_length": song.song_length,
         "record_mode": song.record_mode,
         "back_to_arranger": song.back_to_arranger,
@@ -130,15 +148,7 @@ def create_arrangement_clip(
         # LOM: errors on frozen tracks, out-of-range times, or recording tracks
         raise LiveAPIError(f"Live refused to create the clip: {e}") from e
 
-    clips = list(track.arrangement_clips)
-    placed = next(
-        (
-            (i, c)
-            for i, c in enumerate(clips)
-            if abs(c.start_time - start_time) < _TIME_EPSILON and c.is_midi_clip
-        ),
-        None,
-    )
+    placed = _find_clip_at(track, start_time, lambda c: c.is_midi_clip)
     if placed is None:
         raise LiveAPIError(
             f"Clip creation at {start_time} could not be confirmed — re-read with get_arrangement"
@@ -214,8 +224,6 @@ def arrangement_record(ctx, enabled: bool) -> dict[str, Any]:
 def place_clip_in_arrangement(
     ctx, track_index: int, slot_index: int, destination_time: float
 ) -> dict[str, Any]:
-    from ..utils.live_helpers import get_clip
-
     song = ctx.song
     track = get_track(song, track_index)
     session_clip = get_clip(track, slot_index)
@@ -223,38 +231,26 @@ def place_clip_in_arrangement(
     returned = track.duplicate_clip_to_arrangement(session_clip, destination_time)
 
     # LOM says the new clip is returned; fall back to an epsilon start-time
-    # re-scan if a Live version hands back nothing (list is time-ordered).
-    placed = returned
-    if placed is None:
-        placed = next(
-            (
-                c
-                for c in track.arrangement_clips
-                if abs(c.start_time - destination_time) < _TIME_EPSILON
-            ),
-            None,
-        )
+    # re-scan if a Live version hands back nothing.
+    if returned is not None:
+        index = next((i for i, c in enumerate(track.arrangement_clips) if c is returned), -1)
+        placed = (index, returned)
+    else:
+        placed = _find_clip_at(track, destination_time)
     if placed is None:
         raise LiveAPIError(
             f"Clip placement at {destination_time} could not be confirmed — "
             f"re-read with get_arrangement"
         )
 
-    clips = list(track.arrangement_clips)
-    placed_index = next(
-        (i for i, c in enumerate(clips) if c is placed),
-        None,
-    )
-
     # Only the placed clip plus a count: serializing the whole track's timeline
     # here grew without bound on real Sets (the read-path 500-clip cap never
     # applied to this write path) and could blow the response size limit AFTER
     # the placement had already succeeded.
+    placed_index, placed_clip = placed
     return {
-        "placed": _serialize_arrangement_clip(
-            placed_index if placed_index is not None else -1, placed
-        ),
-        "arrangement_clip_count": len(clips),
+        "placed": _serialize_arrangement_clip(placed_index, placed_clip),
+        "arrangement_clip_count": len(list(track.arrangement_clips)),
         "back_to_arranger": song.back_to_arranger,
     }
 
@@ -300,9 +296,6 @@ def import_audio(
     position: float | None = None,
     slot_index: int | None = None,
 ) -> dict[str, Any]:
-    from ..errors import ValidationError
-    from ..utils.live_helpers import get_clip_slot
-
     if (position is None) == (slot_index is None):
         raise ValidationError(
             "Provide exactly one of position (arrangement) or slot_index (session)"
@@ -326,31 +319,32 @@ def import_audio(
         )
 
     if slot_index is not None:
-        slot = get_clip_slot(track, slot_index)
-        if slot.has_clip:
-            raise LiveAPIError(f"Slot {slot_index} already has a clip")
-        slot.create_audio_clip(file_path)
-        return {
-            "imported": {
-                "track_index": track_index,
-                "slot_index": slot_index,
-                "name": slot.clip.name if slot.has_clip else "",
-                "is_audio_clip": True,
-                "view": "session",
-            }
-        }
+        return _import_to_session(track, track_index, slot_index, file_path)
+    return _import_to_arrangement(track, file_path, position)
 
+
+def _import_to_session(
+    track: Any, track_index: int, slot_index: int, file_path: str
+) -> dict[str, Any]:
+    slot = get_clip_slot(track, slot_index)
+    if slot.has_clip:
+        raise LiveAPIError(f"Slot {slot_index} already has a clip")
+    slot.create_audio_clip(file_path)
+    return {
+        "imported": {
+            "track_index": track_index,
+            "slot_index": slot_index,
+            "name": slot.clip.name if slot.has_clip else "",
+            "is_audio_clip": True,
+            "view": "session",
+        }
+    }
+
+
+def _import_to_arrangement(track: Any, file_path: str, position: float) -> dict[str, Any]:
     track.create_audio_clip(file_path, position)
 
-    clips = list(track.arrangement_clips)
-    placed = next(
-        (
-            (i, c)
-            for i, c in enumerate(clips)
-            if abs(c.start_time - position) < _TIME_EPSILON and c.is_audio_clip
-        ),
-        None,
-    )
+    placed = _find_clip_at(track, position, lambda c: c.is_audio_clip)
     if placed is None:
         raise LiveAPIError("Import could not be confirmed — re-read with get_arrangement")
 
@@ -477,5 +471,5 @@ def create_locator(ctx, time: float, name: str | None = None) -> dict[str, Any]:
 
     return {
         "locator": {"name": created.name, "time": created.time},
-        "locators": [{"name": c.name, "time": c.time} for c in song.cue_points],
+        "locators": _serialize_locators(song),
     }

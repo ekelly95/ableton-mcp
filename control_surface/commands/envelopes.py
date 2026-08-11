@@ -1,4 +1,4 @@
-"""Clip automation envelopes — the feature the 2026-08-11 spike proved feasible.
+"""Clip automation envelopes: draw, read, and clear parameter automation.
 
 Values cross the wire normalized 0-1 (like device parameters) and are
 denormalized into the target parameter's native range. Envelope targets are
@@ -15,9 +15,14 @@ envelope times would be silently wrong.
 
 from typing import Any
 
-from ..errors import PartialApplyError, ValidationError
+from ..errors import ValidationError, batch_writer
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
-from ..utils.live_helpers import get_device, get_track, resolve_clip_ref
+from ..utils.live_helpers import (
+    get_device,
+    get_track,
+    resolve_clip_ref,
+    resolve_device_parameter,
+)
 from ..utils.normalize import denormalize_parameter, normalize_parameter
 
 # Session-slot addressing shared with clips.py; the arrangement counterpart is
@@ -101,20 +106,7 @@ def _resolve_target_parameter(
     if device_index is None or parameter is None:
         raise ValidationError("Device targets need BOTH device_index and parameter")
 
-    device = get_device(track, device_index)
-    params = list(device.parameters)
-    if isinstance(parameter, int) or (isinstance(parameter, str) and str(parameter).isdigit()):
-        idx = int(parameter)
-        if not 0 <= idx < len(params):
-            raise LiveAPIError(
-                f"Parameter index {idx} out of range (device has {len(params)} parameters)"
-            )
-        return params[idx]
-    match = next((p for p in params if p.name.lower() == str(parameter).lower()), None)
-    if match is None:
-        names = [p.name for p in params[:30]]
-        raise LiveAPIError(f"No parameter named '{parameter}'. Available: {names}")
-    return match
+    return resolve_device_parameter(get_device(track, device_index), parameter)
 
 
 def _get_or_create_envelope(clip: Any, param: Any) -> Any:
@@ -169,7 +161,7 @@ def set_clip_envelope(
     device_index: int | None = None,
     parameter: Any = None,
     mixer_parameter: str | None = None,
-    points: list[dict[str, Any]] = None,
+    points: list[dict[str, Any]] | None = None,
     clear_first: bool = True,
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
@@ -220,27 +212,26 @@ def set_clip_envelope(
             )
 
     ordered = sorted(parsed)
-    written = 0
+    applied: list[str] = []
+    _write = batch_writer(applied)
     for i, (start, value) in enumerate(ordered):
         if i + 1 < len(ordered):
             length = max(ordered[i + 1][0] - start, 0.01)
         else:
             length = max(clip.length - start, 0.01)
         native = denormalize_parameter(param, value)
-        try:
-            # Event-level APIs (create_event / events_in_range, incl. curve
-            # coefficients) exist in Live 12.4 but are intentionally unused —
-            # v1 writes steps; see docs/architecture.md.
-            envelope.insert_step(start, length, native)
-        except Exception as e:
-            raise PartialApplyError(
-                f"point {i} (time {start})", str(e), [f"{written} earlier points"]
-            ) from e
-        written += 1
+        # Event-level APIs (create_event / events_in_range, incl. curve
+        # coefficients) exist in Live 12.4 but are intentionally unused —
+        # v1 writes steps; see docs/architecture.md.
+        _write(
+            f"point {i}",
+            lambda s=start, ln=length, n=native: envelope.insert_step(s, ln, n),
+            label=f"point {i} (time {start})",
+        )
 
     return {
         "parameter": param.name,
-        "points_written": written,
+        "points_written": len(applied),
         "clip_length": clip.length,
     }
 

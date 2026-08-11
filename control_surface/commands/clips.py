@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from ..config import MAX_NOTES_PER_READ
-from ..errors import PartialApplyError, ValidationError
+from ..config import MAX_COLOR_INDEX, MAX_NOTES_PER_READ
+from ..errors import ValidationError, batch_writer
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import (
     get_clip,
@@ -13,6 +13,7 @@ from ..utils.live_helpers import (
     resolve_clip_ref,
 )
 from ..utils.pitch import midi_to_pitch_name, pitch_to_midi
+from .tracks import serialize_clip_summary
 
 # Shared by the five commands that address a clip in EITHER view.
 _SLOT_XOR = ParamSchema(
@@ -85,25 +86,7 @@ def get_clips(ctx, track_index: int | None = None) -> dict[str, Any]:
 
     result = []
     for index, track in tracks:
-        slots = []
-        for slot_index, slot in enumerate(track.clip_slots):
-            info: dict[str, Any] = {
-                "slot_index": slot_index,
-                "has_clip": slot.has_clip,
-                "is_playing": slot.is_playing,
-                "is_triggered": slot.is_triggered,
-            }
-            if slot.has_clip:
-                clip = slot.clip
-                info["clip"] = {
-                    "name": clip.name,
-                    "length": clip.length,
-                    "looping": clip.looping,
-                    "is_midi_clip": clip.is_midi_clip,
-                    "is_playing": clip.is_playing,
-                    "color_index": clip.color_index,
-                }
-            slots.append(info)
+        slots = [serialize_clip_summary(i, slot) for i, slot in enumerate(track.clip_slots)]
         result.append({"track_index": index, "track_name": track.name, "clip_slots": slots})
 
     scenes = [{"scene_index": i, "name": scene.name} for i, scene in enumerate(song.scenes)]
@@ -168,11 +151,8 @@ def duplicate_clip(ctx, track_index: int, slot_index: int) -> dict[str, Any]:
 )
 def delete_clip(ctx, track_index: int, slot_index: int) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    slot = get_clip_slot(track, slot_index)
-    if not slot.has_clip:
-        raise LiveAPIError(f"Slot {slot_index} has no clip")
-    name = slot.clip.name
-    slot.delete_clip()
+    name = get_clip(track, slot_index).name
+    get_clip_slot(track, slot_index).delete_clip()
     return {"deleted": name, "track_index": track_index, "slot_index": slot_index}
 
 
@@ -183,7 +163,9 @@ def delete_clip(ctx, track_index: int, slot_index: int) -> dict[str, Any]:
         _SLOT_XOR,
         _ARR_XOR,
         ParamSchema("name", ParamType.STRING, required=False),
-        ParamSchema("color_index", ParamType.INT, required=False, min_value=0, max_value=69),
+        ParamSchema(
+            "color_index", ParamType.INT, required=False, min_value=0, max_value=MAX_COLOR_INDEX
+        ),
         ParamSchema("looping", ParamType.BOOL, required=False),
         ParamSchema("loop_start", ParamType.FLOAT, required=False, min_value=0),
         ParamSchema("loop_end", ParamType.FLOAT, required=False, min_value=0),
@@ -225,15 +207,7 @@ def set_clip(
             )
 
     applied: list[str] = []
-
-    def _write(field: str, setter) -> None:
-        try:
-            setter()
-        except RuntimeError as e:
-            # Live-side refusals arrive as RuntimeError; keep the taxonomy typed
-            # and tell the caller which earlier writes already landed.
-            raise PartialApplyError(field, str(e), applied) from e
-        applied.append(field)
+    _write = batch_writer(applied)
 
     if name is not None:
         _write("name", lambda: setattr(clip, "name", name))
@@ -284,10 +258,8 @@ def set_clip(
 )
 def launch_clip(ctx, track_index: int, slot_index: int) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    slot = get_clip_slot(track, slot_index)
-    if not slot.has_clip:
-        raise LiveAPIError(f"Slot {slot_index} has no clip to launch")
-    slot.fire()
+    get_clip(track, slot_index)
+    get_clip_slot(track, slot_index).fire()
     return {"launched": True, "track_index": track_index, "slot_index": slot_index}
 
 
@@ -447,7 +419,7 @@ def add_notes(
     track_index: int,
     slot_index: int | None = None,
     arrangement_clip_index: int | None = None,
-    notes: list[dict[str, Any]] = None,
+    notes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     import Live  # inside Live's runtime only; tests install a mock module
 
@@ -514,7 +486,7 @@ def update_notes(
     track_index: int,
     slot_index: int | None = None,
     arrangement_clip_index: int | None = None,
-    modifications: list[dict[str, Any]] = None,
+    modifications: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
@@ -606,8 +578,8 @@ def remove_notes(
         clip.remove_notes_by_id(tuple(note_ids))
     elif region_given:
         clip.remove_notes_extended(
-            from_pitch if from_pitch is not None else 0,
-            pitch_span if pitch_span is not None else 128,
+            from_pitch if from_pitch is not None else _ALL_PITCHES[0],
+            pitch_span if pitch_span is not None else _ALL_PITCHES[1],
             from_time if from_time is not None else 0.0,
             time_span if time_span is not None else _MAX_TIME_SPAN,
         )

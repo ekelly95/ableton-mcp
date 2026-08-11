@@ -8,7 +8,10 @@ surfaces naturally as the second connection queueing behind the first.
 Wire protocol (unchanged from 1.0):
     frame    = 4-byte big-endian length + UTF-8 JSON
     request  = {"type": <command>, "params": {...}, "id": <uuid>}
-    response = {"status": "success"|"error", "result"|... , "id": <uuid>}
+    response = {"status": "success", "result": <any>, "id": <uuid>}
+             | {"status": "error", "error": <str>, "error_type": <name>,
+                "id": <uuid>} plus, when applicable: "param" (ValidationError),
+                "applied" (PartialApplyError), "timeout" (marshal timeouts)
 """
 
 import json
@@ -287,9 +290,9 @@ class SocketServer:
             try:
                 chunk = sock.recv(min(SOCKET_BUFFER_SIZE, size - len(data)))
             except TimeoutError:
-                # Dead branch while client sockets have no timeout (:200 sets
-                # None), but if one is ever configured this must not busy-spin
-                # through shutdown.
+                # Dead branch while client sockets have no timeout (the accept
+                # handler calls settimeout(None)), but if one is ever
+                # configured this must not busy-spin through shutdown.
                 if not self._running:
                     return None
                 continue
@@ -384,59 +387,52 @@ class SocketServer:
             self._operation_logger.log(command_type, params, result, duration_ms)
 
         except ValidationError as e:
-            duration_ms = (time.time() - start_time) * 1000
-            response["status"] = "error"
-            response["error"] = str(e)
-            response["error_type"] = "ValidationError"
+            self._fail(response, e, "ValidationError", command_type, params, start_time)
             if e.param:
                 response["param"] = e.param
-            self._operation_logger.log_error(
-                command_type or "unknown", params, str(e), "ValidationError", duration_ms
-            )
 
         except LiveAPIError as e:
-            duration_ms = (time.time() - start_time) * 1000
-            response["status"] = "error"
-            response["error"] = str(e)
             # type name, not the literal "LiveAPIError": PartialApplyError is a
             # subclass and its identity plus `applied` list must reach the wire
             # so a caller can tell which writes landed before the failure.
-            response["error_type"] = type(e).__name__
+            self._fail(response, e, type(e).__name__, command_type, params, start_time)
             applied = getattr(e, "applied", None)
             if applied is not None:
                 response["applied"] = applied
-            self._operation_logger.log_error(
-                command_type or "unknown", params, str(e), type(e).__name__, duration_ms
-            )
 
         except MainThreadExecutionError as e:
-            duration_ms = (time.time() - start_time) * 1000
-            response["status"] = "error"
-            response["error"] = str(e)
-            response["error_type"] = "MainThreadExecutionError"
+            self._fail(response, e, "MainThreadExecutionError", command_type, params, start_time)
             response["timeout"] = e.timeout
-            self._operation_logger.log_error(
-                command_type or "unknown",
-                params,
-                str(e),
-                "MainThreadExecutionError",
-                duration_ms,
-            )
 
         except Exception as e:
-            duration_ms = (time.time() - start_time) * 1000
             tb = traceback.format_exc()
-            response["status"] = "error"
-            response["error"] = str(e)
-            response["error_type"] = type(e).__name__
             logger.error(f"Command error: {e}\n{tb}")
-            self._operation_logger.log_error(
-                command_type or "unknown",
-                params,
-                str(e),
-                type(e).__name__,
-                duration_ms,
-                stack_trace=tb,
+            self._fail(
+                response, e, type(e).__name__, command_type, params, start_time, stack_trace=tb
             )
 
         return response
+
+    def _fail(
+        self,
+        response: dict[str, Any],
+        error: Exception,
+        error_type: str,
+        command_type: Any,
+        params: dict[str, Any],
+        start_time: float,
+        stack_trace: str | None = None,
+    ) -> None:
+        """Fill in the error half of a response and journal it."""
+        duration_ms = (time.time() - start_time) * 1000
+        response["status"] = "error"
+        response["error"] = str(error)
+        response["error_type"] = error_type
+        self._operation_logger.log_error(
+            command_type or "unknown",
+            params,
+            str(error),
+            error_type,
+            duration_ms,
+            stack_trace=stack_trace,
+        )

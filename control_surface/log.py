@@ -1,8 +1,9 @@
 """Logging for the AbletonMCP control surface.
 
 Two channels:
-- get_logger(): rotating file log plus print() so messages reach Live's Log.txt.
-  print() is safe here because this code runs inside Live, never over MCP stdio.
+- get_logger(): rotating file log plus a stderr echo — stderr reaches Live's
+  Log.txt, and stdout stays untouched (it belongs to MCP stdio when this
+  package is imported by the server process).
 - OperationLogger: one JSONL line per executed command (params, result, timing)
   so a session can be replayed and debugged after the fact.
 """

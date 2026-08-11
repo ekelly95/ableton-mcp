@@ -8,6 +8,8 @@ Install: copy this folder as "AbletonMCP" into Live's Remote Scripts location
 "AbletonMCP" under Preferences → Link/Tempo/MIDI → Control Surface.
 """
 
+import sys
+
 from .config import CONTROL_SURFACE_NAME, VERSION
 
 __version__ = VERSION
@@ -34,7 +36,9 @@ except ImportError:
             callback()
 
         def show_message(self, message):
-            print(f"[Live Message] {message}")
+            # stderr, never stdout: outside Live this package is imported by
+            # the MCP server process, whose stdout carries the MCP transport.
+            print(f"[Live Message] {message}", file=sys.stderr)
 
         def disconnect(self):
             pass

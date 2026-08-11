@@ -22,6 +22,7 @@ from .config import COMMAND_TIMEOUTS
 from .errors import LiveAPIError as LiveAPIError
 from .errors import ValidationError as ValidationError
 from .log import get_logger
+from .utils.pitch import pitch_to_midi
 
 logger = get_logger("registry")
 
@@ -48,6 +49,65 @@ class ParamType(Enum):
     OBJECT = "object"
     OBJECT_LIST = "object_list"
     ANY = "any"
+
+
+NOTE_OBJECT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "pitch": {
+            "anyOf": [
+                {"type": "integer", "minimum": 0, "maximum": 127},
+                {"type": "string"},
+            ],
+            "description": (
+                "MIDI number 0-127 OR a name like 'C3', 'F#4', 'Bb2'. "
+                "ABLETON convention: C3 = 60 (not C4)."
+            ),
+        },
+        "start_time": {"type": "number", "minimum": 0, "description": "In beats"},
+        "duration": {"type": "number", "exclusiveMinimum": 0, "description": "In beats"},
+        "velocity": {"type": "number", "minimum": 0, "maximum": 127, "default": 100},
+        "mute": {"type": "boolean", "default": False},
+        "probability": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 1.0,
+            "description": "Chance the note plays (Live 11+ probability)",
+        },
+        "velocity_deviation": {
+            "type": "number",
+            "minimum": -127,
+            "maximum": 127,
+            "default": 0,
+            "description": "Random velocity range added per play",
+        },
+        "release_velocity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 127,
+            "default": 64,
+        },
+    },
+    "required": ["pitch", "start_time", "duration"],
+}
+
+# to_json_schema copies its entry shallowly and only adds top-level keys, so
+# sharing the nested dicts here is safe.
+_JSON_TYPE_MAP: dict[ParamType, dict[str, Any]] = {
+    ParamType.INT: {"type": "integer"},
+    ParamType.FLOAT: {"type": "number"},
+    ParamType.STRING: {"type": "string"},
+    ParamType.BOOL: {"type": "boolean"},
+    ParamType.INT_LIST: {"type": "array", "items": {"type": "integer"}},
+    ParamType.FLOAT_LIST: {"type": "array", "items": {"type": "number"}},
+    ParamType.STRING_LIST: {"type": "array", "items": {"type": "string"}},
+    ParamType.NOTE: NOTE_OBJECT_SCHEMA,
+    ParamType.NOTE_LIST: {"type": "array", "items": NOTE_OBJECT_SCHEMA},
+    ParamType.OBJECT: {"type": "object"},
+    ParamType.OBJECT_LIST: {"type": "array", "items": {"type": "object"}},
+    ParamType.ANY: {},
+}
 
 
 @dataclass
@@ -167,8 +227,6 @@ class ParamSchema:
             if note.get(required_field) is None:
                 raise ValidationError(f"Note missing '{required_field}'", param=self.name)
 
-        from .utils.pitch import pitch_to_midi
-
         validated = {
             "pitch": pitch_to_midi(note["pitch"], param=self.name),
             "start_time": float(note["start_time"]),
@@ -216,63 +274,7 @@ class ParamSchema:
         return validated
 
     def to_json_schema(self) -> dict[str, Any]:
-        note_object_schema = {
-            "type": "object",
-            "properties": {
-                "pitch": {
-                    "anyOf": [
-                        {"type": "integer", "minimum": 0, "maximum": 127},
-                        {"type": "string"},
-                    ],
-                    "description": (
-                        "MIDI number 0-127 OR a name like 'C3', 'F#4', 'Bb2'. "
-                        "ABLETON convention: C3 = 60 (not C4)."
-                    ),
-                },
-                "start_time": {"type": "number", "minimum": 0, "description": "In beats"},
-                "duration": {"type": "number", "exclusiveMinimum": 0, "description": "In beats"},
-                "velocity": {"type": "number", "minimum": 0, "maximum": 127, "default": 100},
-                "mute": {"type": "boolean", "default": False},
-                "probability": {
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 1,
-                    "default": 1.0,
-                    "description": "Chance the note plays (Live 11+ probability)",
-                },
-                "velocity_deviation": {
-                    "type": "number",
-                    "minimum": -127,
-                    "maximum": 127,
-                    "default": 0,
-                    "description": "Random velocity range added per play",
-                },
-                "release_velocity": {
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 127,
-                    "default": 64,
-                },
-            },
-            "required": ["pitch", "start_time", "duration"],
-        }
-
-        type_mapping: dict[ParamType, dict[str, Any]] = {
-            ParamType.INT: {"type": "integer"},
-            ParamType.FLOAT: {"type": "number"},
-            ParamType.STRING: {"type": "string"},
-            ParamType.BOOL: {"type": "boolean"},
-            ParamType.INT_LIST: {"type": "array", "items": {"type": "integer"}},
-            ParamType.FLOAT_LIST: {"type": "array", "items": {"type": "number"}},
-            ParamType.STRING_LIST: {"type": "array", "items": {"type": "string"}},
-            ParamType.NOTE: note_object_schema,
-            ParamType.NOTE_LIST: {"type": "array", "items": note_object_schema},
-            ParamType.OBJECT: {"type": "object"},
-            ParamType.OBJECT_LIST: {"type": "array", "items": {"type": "object"}},
-            ParamType.ANY: {},
-        }
-
-        schema: dict[str, Any] = dict(type_mapping.get(self.param_type, {}))
+        schema: dict[str, Any] = dict(_JSON_TYPE_MAP.get(self.param_type, {}))
 
         if self.item_schema is not None:
             if self.param_type == ParamType.OBJECT_LIST:

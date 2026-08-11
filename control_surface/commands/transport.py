@@ -3,7 +3,7 @@
 from typing import Any
 
 from ..config import SEEK_EPSILON
-from ..errors import PartialApplyError
+from ..errors import batch_writer
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.pitch import SHARP_NAMES, root_name_to_pitch_class
 
@@ -180,17 +180,17 @@ def transport_control(ctx, action: str, position: float | None = None) -> dict[s
 )
 def set_transport(
     ctx,
-    tempo=None,
-    signature_numerator=None,
-    signature_denominator=None,
-    loop_enabled=None,
-    loop_start=None,
-    loop_length=None,
-    metronome=None,
-    scale_root=None,
-    scale_name=None,
-    scale_mode=None,
-    back_to_arranger=None,
+    tempo: float | None = None,
+    signature_numerator: int | None = None,
+    signature_denominator: int | None = None,
+    loop_enabled: bool | None = None,
+    loop_start: float | None = None,
+    loop_length: float | None = None,
+    metronome: bool | None = None,
+    scale_root: str | None = None,
+    scale_name: str | None = None,
+    scale_mode: bool | None = None,
+    back_to_arranger: bool | None = None,
 ) -> dict[str, Any]:
     song = ctx.song
 
@@ -213,13 +213,7 @@ def set_transport(
             )
 
     applied: list[str] = ["scale_name"] if scale_name is not None else []
-
-    def _write(field: str, setter) -> None:
-        try:
-            setter()
-        except Exception as e:
-            raise PartialApplyError(field, str(e), applied) from e
-        applied.append(field)
+    _write = batch_writer(applied)
 
     if pitch_class is not None:
         _write("scale_root", lambda: setattr(song, "root_note", pitch_class))
