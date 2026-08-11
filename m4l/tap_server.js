@@ -23,7 +23,8 @@ try {
 
 var TAP_PROTOCOL_VERSION = 1;
 var HOST = "127.0.0.1"; // loopback only: no firewall prompt, local trust model
-var PORT = 9878;
+// Env override exists for tests only (inside Max there is no env to set).
+var PORT = parseInt(process.env.ABLETON_TAP_PORT || "9878", 10);
 var MAX_MESSAGE_SIZE = 1024 * 1024;
 var WINDOW_MS = 5000; // rolling stats window
 var SILENCE_MS = 3000; // all-zero for this long => receiving_audio false
@@ -37,13 +38,29 @@ var state = {
   rms: 0, // linear RMS of the mono sum
   peak: [0, 0], // linear peak L, R
   lastNonZeroAt: 0,
-  history: [] // {t, rms, peak0, peak1}
+  history: [], // {t, rms, peak0, peak1}
+  msgsOk: 0,
+  msgsBad: 0,
+  lastBadSample: null
 };
 
+// Max message args normally arrive as numbers, but a patch defect can send
+// strings/garbage — coerce hard and count, so ping can diagnose remotely.
+function num(value) {
+  var f = typeof value === "number" ? value : parseFloat(value);
+  if (typeof f !== "number" || isNaN(f) || !isFinite(f)) {
+    state.msgsBad += 1;
+    if (state.lastBadSample === null) state.lastBadSample = String(value);
+    return null;
+  }
+  state.msgsOk += 1;
+  return f;
+}
+
 function toDb(linear) {
-  if (!linear || linear <= 0) return DB_FLOOR;
+  if (typeof linear !== "number" || isNaN(linear) || linear <= 0) return DB_FLOOR;
   var db = 20 * Math.log10(linear);
-  if (db < DB_FLOOR) return DB_FLOOR;
+  if (isNaN(db) || db < DB_FLOOR) return DB_FLOOR;
   return Math.round(db * 10) / 10;
 }
 
@@ -60,24 +77,28 @@ function pushHistory() {
 }
 
 maxApi.addHandler("band", function (index, value) {
-  var i = Math.floor(index);
-  if (i >= 0 && i < state.bands.length) {
-    state.bands[i] = value;
-    noteActivity(value);
+  var i = Math.floor(num(index) || 0);
+  var v = num(value);
+  if (v !== null && i >= 0 && i < state.bands.length) {
+    state.bands[i] = v;
+    noteActivity(v);
   }
 });
 
 maxApi.addHandler("rms", function (value) {
-  state.rms = value;
-  noteActivity(value);
+  var v = num(value);
+  if (v === null) return;
+  state.rms = v;
+  noteActivity(v);
   pushHistory(); // rms arrives at a steady ~10 Hz; use it as the history clock
 });
 
 maxApi.addHandler("peak", function (channel, value) {
-  var ch = Math.floor(channel);
-  if (ch === 0 || ch === 1) {
-    state.peak[ch] = value;
-    noteActivity(value);
+  var ch = Math.floor(num(channel) || 0);
+  var v = num(value);
+  if (v !== null && (ch === 0 || ch === 1)) {
+    state.peak[ch] = v;
+    noteActivity(v);
   }
 });
 
@@ -130,7 +151,10 @@ function handleRequest(request) {
         pong: true,
         name: "AbletonMCP Tap",
         tap_protocol_version: TAP_PROTOCOL_VERSION,
-        uptime_seconds: Math.round((Date.now() - startedAt) / 1000)
+        uptime_seconds: Math.round((Date.now() - startedAt) / 1000),
+        msgs_ok: state.msgsOk,
+        msgs_bad: state.msgsBad,
+        last_bad_sample: state.lastBadSample
       }
     };
   }

@@ -51,6 +51,19 @@ or (lab MCP server) call the `get_audio_levels` tool, optionally with
 - Both listeners (9877 bridge, 9878 tap) are unauthenticated localhost
   services — same single-user trust model, loopback only.
 
+## Build lessons (verified the hard way, 2026-08-11)
+
+- Message boxes MUST contain raw `$1` — a backslash before it makes Max send
+  the literal text "$1" instead of the number (the ping counters
+  `msgs_ok/msgs_bad/last_bad_sample` exist to catch exactly this class).
+- `tap_server.js` must sit NEXT TO the saved .amxd (or be frozen in — but
+  freezing only embeds it if Max could FIND it at freeze time, so copy first).
+- Exactly ONE tap device per set: a second instance loses the port race and
+  serves nothing, while you keep talking to whichever one bound first —
+  possibly on the wrong track.
+- The device must be in an AUDIO path that actually carries the mix — the
+  Main track. On an empty MIDI track it dutifully reports silence forever.
+
 ## Troubleshooting
 
 - Status `PORT BUSY` / Max Window shows bind failure → a second Tap device

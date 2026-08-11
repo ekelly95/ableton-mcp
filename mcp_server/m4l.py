@@ -158,10 +158,18 @@ def get_audio_levels(tap: TapClient, duration_seconds: float = 0) -> dict[str, A
             time.sleep(0.25)
             samples.append(tap.send("get_levels"))
 
+        def _db(value: Any) -> float:
+            # Defensive: a defective device build can emit null levels.
+            return value if isinstance(value, (int, float)) else -70.0
+
         last = samples[-1]
         n_bands = len(last.get("bands", []))
         band_max = [
-            max(s["bands"][i]["level_db"] for s in samples if len(s.get("bands", [])) > i)
+            max(
+                _db(s["bands"][i]["level_db"])
+                for s in samples
+                if len(s.get("bands", [])) > i
+            )
             for i in range(n_bands)
         ]
         return {
@@ -169,8 +177,10 @@ def get_audio_levels(tap: TapClient, duration_seconds: float = 0) -> dict[str, A
             "sampled_seconds": round(min(float(duration_seconds), 10.0), 2),
             "samples": len(samples),
             "receiving_audio": any(s.get("receiving_audio") for s in samples),
-            "rms_db_max": max(s.get("rms_db", -70.0) for s in samples),
-            "peak_db_max": max(max(s.get("peak_db", [-70.0])) for s in samples),
+            "rms_db_max": max(_db(s.get("rms_db")) for s in samples),
+            "peak_db_max": max(
+                max(_db(p) for p in (s.get("peak_db") or [-70.0])) for s in samples
+            ),
             "clipping": any(s.get("clipping") for s in samples),
             "bands_max": [
                 {"hz": last["bands"][i]["hz"], "level_db": band_max[i]}

@@ -183,14 +183,20 @@ class TestOverProtocol:
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_node_tap_server_framing_conformance():
     """Drive the REAL Node script with TapClient — cross-language framing."""
+    import os
+
+    # Not 9878: a real tap inside a running Live would collide (and answer!).
+    test_port = 19878
+    env = dict(os.environ, ABLETON_TAP_PORT=str(test_port))
     proc = subprocess.Popen(
         ["node", str(REPO_ROOT / "m4l" / "tap_server.js")],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=REPO_ROOT,
+        env=env,
     )
     try:
-        client = TapClient()  # real port 9878
+        client = TapClient(port=test_port)
         result = None
         for _ in range(20):  # allow bind retries/startup
             time.sleep(0.25)
@@ -209,7 +215,7 @@ def test_node_tap_server_framing_conformance():
         assert levels["rms_db"] == -70.0  # clamp floor with no signal
 
         # Two concurrent clients must both be served (multi-client by design).
-        second = TapClient()
+        second = TapClient(port=test_port)
         assert second.send("ping")["pong"] is True
     finally:
         proc.terminate()
