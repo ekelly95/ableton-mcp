@@ -95,6 +95,7 @@ def _track_arrangement(track_index: int, track: Any) -> dict[str, Any]:
             "song_length": {"type": "number"},
             "record_mode": {"type": "boolean"},
             "back_to_arranger": {"type": "boolean"},
+            "arrangement_overdub": {"type": "boolean"},
         },
     },
 )

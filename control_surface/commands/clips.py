@@ -364,6 +364,7 @@ def delete_scene(ctx, scene_index: int) -> dict[str, Any]:
             "notes": {"type": "array"},
             "note_count": {"type": "integer"},
             "truncated": {"type": "boolean"},
+            "clip_length": {"type": "number", "description": "In beats"},
         },
     },
 )

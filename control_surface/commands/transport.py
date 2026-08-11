@@ -38,7 +38,10 @@ def _transport_state(song: Any) -> dict[str, Any]:
     params=[],
     category="transport",
     read_only=True,
-    description="Get playback state: playing, tempo, time signature, metronome, loop, position.",
+    description=(
+        "Get playback state: playing, tempo, time signature, metronome, loop, "
+        "position, key/scale, record mode, back-to-arranger."
+    ),
     output_schema={
         "type": "object",
         "properties": {
@@ -49,6 +52,9 @@ def _transport_state(song: Any) -> dict[str, Any]:
             "metronome": {"type": "boolean"},
             "loop": {"type": "object"},
             "current_song_time": {"type": "number", "description": "In beats"},
+            "scale": {"type": "object"},
+            "record_mode": {"type": "boolean"},
+            "back_to_arranger": {"type": "boolean"},
         },
     },
 )
