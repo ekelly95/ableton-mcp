@@ -9,6 +9,7 @@ Two channels:
 
 import json
 import logging
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -34,11 +35,17 @@ def _utc_now_iso() -> str:
 
 
 class _LivePrintHandler(logging.Handler):
-    """Print to stdout so messages appear in Live's Log.txt."""
+    """Console logging via stderr, never stdout.
+
+    stderr on purpose: this module is also imported by the MCP server process
+    (registry import chain), where any stdout write corrupts the MCP stdio
+    transport. Inside Live, stderr reaches Log.txt like stdout does (VERIFY at
+    P4 checkpoint; the rotating file log is the primary channel regardless).
+    """
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            print(f"[{CONTROL_SURFACE_NAME}] {self.format(record)}")
+            print(f"[{CONTROL_SURFACE_NAME}] {self.format(record)}", file=sys.stderr)
         except Exception:
             pass
 
@@ -71,7 +78,7 @@ def get_logger(name: str) -> logging.Logger:
         )
         logger.addHandler(file_handler)
     except Exception as e:
-        print(f"[{CONTROL_SURFACE_NAME}] Warning: file logging unavailable: {e}")
+        print(f"[{CONTROL_SURFACE_NAME}] Warning: file logging unavailable: {e}", file=sys.stderr)
 
     print_handler = _LivePrintHandler()
     print_handler.setLevel(logging.INFO)
