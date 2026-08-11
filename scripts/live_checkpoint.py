@@ -22,13 +22,18 @@ results = []
 def step(name):
     def decorator(func):
         def wrapper(client):
+            # The result is recorded from the STEP's outcome alone; printing
+            # happens after, so a console hiccup can never flip a passed step
+            # to FAIL (a cp1252 console once choked on '→' in a detail string
+            # and double-counted the step).
             try:
                 detail = func(client)
-                results.append((PASS, name, detail or ""))
-                print(f"  {PASS}  {name}" + (f" — {detail}" if detail else ""), flush=True)
             except Exception as e:
                 results.append((FAIL, name, str(e)))
                 print(f"  {FAIL}  {name} — {type(e).__name__}: {e}", flush=True)
+                return
+            results.append((PASS, name, detail or ""))
+            print(f"  {PASS}  {name}" + (f" — {detail}" if detail else ""), flush=True)
 
         return wrapper
 
@@ -708,6 +713,10 @@ WHOLE_RUN_BUDGET_SECONDS = 240
 
 
 def main():
+    # Windows consoles are often cp1252; never let an unencodable character
+    # in a detail string crash a print.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
     print("P4 checkpoint against real Ableton Live\n", flush=True)
     # Fail fast: 8s per command (heavy commands still get their declared
     # COMMAND_TIMEOUTS budget on this same connection).

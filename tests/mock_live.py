@@ -603,6 +603,7 @@ class MockSong:
         self.record_mode = False
         self.back_to_arranger = False
         self.arrangement_overdub = False
+        self.last_play_call: str | None = None
         self.scenes: list[MockScene] = [MockScene(f"Scene {i + 1}") for i in range(scene_count)]
         self.tracks: list[MockTrack] = [
             MockTrack(name=f"{i + 1} Track", slot_count=scene_count, send_count=return_count)
@@ -674,12 +675,19 @@ class MockSong:
         self.cue_points.append(MockCuePoint(time=self.current_song_time))
 
     def start_playing(self) -> None:
+        # CONFIRMED on real Live 12.4.3 (2.3 checkpoint): starts from the
+        # INSERT/START MARKER, not current_song_time — a play-from-position
+        # landed at the marker, not the seek target. transport_control
+        # therefore calls continue_playing after an explicit seek. The mock
+        # records the verb for tests but does not model the marker itself.
+        self.last_play_call = "start"
         self.is_playing = True
 
     def stop_playing(self) -> None:
         self.is_playing = False
 
     def continue_playing(self) -> None:
+        self.last_play_call = "continue"
         self.is_playing = True
 
     def stop_all_clips(self) -> None:

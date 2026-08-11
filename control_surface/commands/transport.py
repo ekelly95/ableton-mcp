@@ -66,7 +66,7 @@ def get_transport_state(ctx) -> dict[str, Any]:
             "action",
             ParamType.STRING,
             enum_values=["play", "stop", "continue"],
-            description="play starts from the current position marker; continue resumes from where playback stopped",
+            description="play starts from Live's start marker (from `position` if given); continue resumes from where playback stopped",
         ),
         ParamSchema(
             "position",
@@ -111,7 +111,14 @@ def transport_control(ctx, action: str, position: float | None = None) -> dict[s
             ),
         }
     if action == "play":
-        song.start_playing()
+        if position is not None:
+            # CONFIRMED on real Live 12.4.3 (2.3 checkpoint): start_playing
+            # starts from Live's INSERT/START MARKER, not the playhead — the
+            # seeked position would be ignored. continue_playing resumes from
+            # the playhead the two-phase seek just parked.
+            song.continue_playing()
+        else:
+            song.start_playing()
     elif action == "continue":
         song.continue_playing()
     else:

@@ -16,6 +16,7 @@ def test_get_transport_state(registry, ctx, song):
 def test_play_stop_continue(registry, ctx, song):
     state = run_command(registry, ctx, "transport_control", action="play")
     assert state["is_playing"] is True
+    assert song.last_play_call == "start"  # no position: Live's play-button semantics
     state = run_command(registry, ctx, "transport_control", action="stop")
     assert state["is_playing"] is False
     state = run_command(registry, ctx, "transport_control", action="continue")
@@ -37,6 +38,9 @@ def test_play_with_position_is_two_phase(registry, ctx, song):
     assert second["is_playing"] is True
     assert second["current_song_time"] == 16.0
     assert song.current_song_time == 16.0
+    # start_playing would jump to Live's insert marker, discarding the seek —
+    # after an explicit position the handler must resume via continue_playing.
+    assert song.last_play_call == "continue"
 
 
 def test_play_from_current_position_is_single_phase(registry, ctx, song):
