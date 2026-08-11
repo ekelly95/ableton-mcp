@@ -60,7 +60,6 @@ def check_ping(client):
 @step("get_session_overview")
 def check_overview(client):
     overview = client.send("get_session_overview")
-    state["original_tempo"] = overview["transport"]["tempo"]
     return (
         f"{len(overview['tracks'])} tracks, {len(overview['scenes'])} scenes, "
         f"tempo {overview['transport']['tempo']}"
@@ -482,7 +481,6 @@ def check_import_audio(client):
 
     created = client.send("create_track", type="audio")
     state["audio_track"] = created["track_index"]
-    state["wav_path"] = wav_path
     result = client.send(
         "import_audio",
         track_index=state["audio_track"],

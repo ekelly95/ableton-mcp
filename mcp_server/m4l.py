@@ -1,4 +1,4 @@
-"""LAB (m4l-lab branch): Max for Live tap client + audio-levels tool.
+"""Max for Live tap client + audio-levels tool.
 
 TapClient deliberately does NOT subclass AbletonClient: that client's resend
 logic consults the command REGISTRY (tap commands aren't in it) and its

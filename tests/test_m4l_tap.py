@@ -1,4 +1,4 @@
-"""LAB: TapClient, the get_audio_levels tool, and Node framing conformance."""
+"""TapClient, the get_audio_levels tool, and Node framing conformance."""
 
 import json
 import os

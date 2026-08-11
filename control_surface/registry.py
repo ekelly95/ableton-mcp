@@ -50,10 +50,6 @@ class ParamType(Enum):
     ANY = "any"
 
 
-# ValidationError / LiveAPIError live in errors.py (imported above) and are
-# re-exported here so command modules keep importing them from the registry.
-
-
 @dataclass
 class ParamSchema:
     name: str

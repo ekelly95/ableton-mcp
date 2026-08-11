@@ -26,5 +26,5 @@ async def test_stdio_handshake_and_tools():
             names = {t.name for t in result.tools}
             assert "get_session_overview" in names
             assert "add_notes" in names
-            # lab: +2 = get_bridge_status + get_audio_levels
+            # +2 = get_bridge_status + get_audio_levels
             assert len(names) == len(REGISTRY) + 2

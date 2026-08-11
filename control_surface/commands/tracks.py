@@ -182,7 +182,7 @@ def get_track_meters(ctx) -> dict[str, Any]:
     category="tracks",
     description="Create a MIDI, audio, or return track.",
 )
-def create_track(ctx, type: str, index: int = -1) -> dict[str, Any]:  # noqa: A002
+def create_track(ctx, type: str, index: int = -1) -> dict[str, Any]:
     song = ctx.song
     if type == "return":
         song.create_return_track()

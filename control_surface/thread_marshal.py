@@ -60,8 +60,6 @@ class ExecutionResult:
     success: bool
     result: Any = None
     error: str | None = None
-    error_type: str | None = None
-    traceback: str | None = None
     exception: BaseException | None = None
     expired: bool = False
 
@@ -122,12 +120,7 @@ class ThreadMarshaler:
                         journal("expired", detail)
                     else:
                         response_queue.put(
-                            ExecutionResult(
-                                success=False,
-                                error=detail,
-                                error_type="Expired",
-                                expired=True,
-                            )
+                            ExecutionResult(success=False, error=detail, expired=True)
                         )
                 return
             try:
@@ -136,13 +129,7 @@ class ThreadMarshaler:
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.error(f"Main thread execution error in {func_name}: {e}\n{tb}")
-                outcome = ExecutionResult(
-                    success=False,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    traceback=tb,
-                    exception=e,
-                )
+                outcome = ExecutionResult(success=False, error=str(e), exception=e)
             with state_lock:
                 if abandoned[0]:
                     # Residual race: the task STARTED before its deadline but

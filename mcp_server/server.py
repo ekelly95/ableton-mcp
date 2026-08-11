@@ -1,14 +1,13 @@
 """MCP server: exposes the control surface registry as MCP tools.
 
 Tools are generated from control_surface's REGISTRY — imported directly, the
-single source of truth. Nothing here defines a tool schema by hand except
-get_bridge_status, which is server-local by nature (it reports whether Live
-is reachable, so it cannot live inside Live).
+single source of truth. Nothing here defines a tool schema by hand except the
+two tools that cannot run inside Live: get_bridge_status (reports whether Live
+is reachable) and get_audio_levels (mcp_server/m4l.py, the optional tap).
 
 All logging goes to stderr: stdout belongs to the MCP stdio transport.
 """
 
-import json
 import logging
 import sys
 from typing import Any
@@ -25,7 +24,7 @@ from control_surface.commands import REGISTRY  # noqa: E402 - after logging setu
 from control_surface.config import VERSION  # noqa: E402
 
 from .client import AbletonClient, AbletonConnectionError, CommandError  # noqa: E402
-from .m4l import AUDIO_LEVELS_TOOL, TapClient, get_audio_levels  # noqa: E402 - lab extension
+from .m4l import AUDIO_LEVELS_TOOL, TapClient, get_audio_levels  # noqa: E402
 
 BRIDGE_STATUS_TOOL = types.Tool(
     name="get_bridge_status",
@@ -61,7 +60,7 @@ def registry_tools() -> list[types.Tool]:
             )
         )
     tools.append(BRIDGE_STATUS_TOOL)
-    tools.append(AUDIO_LEVELS_TOOL)  # lab: always listed; gracefully absent
+    tools.append(AUDIO_LEVELS_TOOL)  # always listed; answers available:false without the tap
     return tools
 
 
@@ -157,8 +156,3 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
         return {"result": result}
 
     return server
-
-
-def summarize_tools() -> str:
-    """For diagnostics: names only."""
-    return json.dumps([t.name for t in registry_tools()], indent=2)

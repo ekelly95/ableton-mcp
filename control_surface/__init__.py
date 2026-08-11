@@ -11,16 +11,14 @@ Install: copy this folder as "AbletonMCP" into Live's Remote Scripts location
 from .config import CONTROL_SURFACE_NAME, VERSION
 
 __version__ = VERSION
+# Live's entry points; everything else this module exposes is internal wiring.
 __all__ = ["AbletonMCP", "create_instance"]
 
 # _Framework exists only inside Live; the fallback keeps this package
 # importable for tests and for the MCP server's registry import.
 try:
     from _Framework.ControlSurface import ControlSurface
-
-    _LIVE_ENVIRONMENT = True
 except ImportError:
-    _LIVE_ENVIRONMENT = False
 
     class ControlSurface:
         def __init__(self, c_instance):

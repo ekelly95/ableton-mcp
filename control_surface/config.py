@@ -57,7 +57,6 @@ LOG_BACKUP_COUNT: int = 5
 # small enough not to stall the UI (see docs/architecture.md).
 MAX_NOTES_PER_READ: int = 2000
 MAX_BROWSER_ITEMS: int = 200
-MAX_BROWSER_DEPTH: int = 4
 MAX_ARRANGEMENT_CLIPS_PER_READ: int = 500
 
 # Where generated/imported samples are expected to live (a convention, not a

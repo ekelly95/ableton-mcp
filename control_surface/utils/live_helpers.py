@@ -58,13 +58,6 @@ def get_clip(track: Any, slot_index: int) -> Any:
     return slot.clip
 
 
-def get_midi_clip(track: Any, slot_index: int) -> Any:
-    clip = get_clip(track, slot_index)
-    if not clip.is_midi_clip:
-        raise LiveAPIError(f"Clip in slot {slot_index} is not a MIDI clip")
-    return clip
-
-
 def get_arrangement_clip(track: Any, index: int) -> Any:
     clips = list(track.arrangement_clips)
     if not 0 <= index < len(clips):
