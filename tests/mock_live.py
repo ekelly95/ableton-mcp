@@ -218,6 +218,18 @@ class MockClipSlot:
         self.clip = MockClip(length=length, is_midi_clip=self._track.has_midi_input)
         self.has_clip = True
 
+    def create_audio_clip(self, path: str) -> None:
+        """LOM-confirmed: session audio import. Errors on non-audio tracks;
+        empty-slot requirement assumed (VERIFY at checkpoint)."""
+        if self._track.has_midi_input:
+            raise RuntimeError("Clip slot doesn't belong to an audio track")
+        if self.has_clip:
+            raise RuntimeError("Slot already has a clip")
+        clip = MockClip(length=1.0, name=path.rsplit("\\", 1)[-1], is_midi_clip=False)
+        clip.file_path = path
+        self.clip = clip
+        self.has_clip = True
+
     def delete_clip(self) -> None:
         if not self.has_clip:
             raise RuntimeError("Slot has no clip")
@@ -295,8 +307,25 @@ class MockTrack:
         # (LOM-confirmed; the fallback re-scan in place_clip relies on this).
         self.arrangement_clips.sort(key=lambda c: c.start_time)
 
-    def duplicate_clip_to_arrangement(self, clip: MockClip, destination_time: float) -> MockClip:
-        """LOM-documented: RETURNS the newly created arrangement clip."""
+    def create_midi_clip(self, start_time: float, length: float) -> None:
+        """LOM-confirmed: creates an empty MIDI clip directly in the arrangement.
+        Errors on non-MIDI/frozen tracks. Return value undocumented — assumed
+        None; callers re-scan (VERIFY at checkpoint)."""
+        if not self.has_midi_input:
+            raise RuntimeError("create_midi_clip called on a non-MIDI track")
+        clip = MockClip(length=length, is_midi_clip=True)
+        clip.start_time = start_time
+        clip.end_time = start_time + length
+        self._insert_arrangement_clip(clip)
+
+    # Test hook: force the undocumented-return fallback path in place_clip.
+    duplicate_returns_none = False
+
+    def duplicate_clip_to_arrangement(self, clip: MockClip, destination_time: float):
+        """The LOM does NOT document a return value (audit-verified — an earlier
+        reviewer overstated this). The mock returns the clone by default and can
+        return None via duplicate_returns_none to exercise the re-scan fallback.
+        Real Live's behaviour: observed at checkpoint, see comment there."""
         clone = MockClip(length=clip.length, name=clip.name, is_midi_clip=clip.is_midi_clip)
         clone.looping = clip.looping
         clone.loop_start = clip.loop_start
@@ -317,6 +346,8 @@ class MockTrack:
                 )
             )
         self._insert_arrangement_clip(clone)
+        if self.duplicate_returns_none:
+            return None
         return clone
 
     def create_audio_clip(self, file_path: str, position: float) -> MockClip:

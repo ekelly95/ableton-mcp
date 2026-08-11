@@ -61,12 +61,19 @@ class TestScale:
         with pytest.raises(LiveAPIError, match="rejected scale name"):
             run_command(registry, ctx, "set_transport", scale_name="Klingon Phrygian")
 
-    def test_record_and_back_to_arranger_flags(self, registry, ctx, song):
-        state = run_command(
-            registry, ctx, "set_transport", record_mode=True, back_to_arranger=False
-        )
-        assert state["record_mode"] is True
+    def test_back_to_arranger_flag(self, registry, ctx, song):
+        state = run_command(registry, ctx, "set_transport", back_to_arranger=False)
         assert state["back_to_arranger"] is False
+
+    def test_record_mode_is_its_own_destructive_tool(self, registry, ctx, song):
+        result = run_command(registry, ctx, "arrangement_record", enabled=True)
+        assert result["record_mode"] is True
+        assert song.record_mode is True
+        run_command(registry, ctx, "arrangement_record", enabled=False)
+        assert song.record_mode is False
+        schema = registry.get("arrangement_record")
+        assert schema.destructive is True
+        assert "record_mode" not in {p.name for p in registry.get("set_transport").params}
 
 
 class TestPitchNamesInNotes:
@@ -164,6 +171,48 @@ class TestArrangement:
         )
         assert result["remaining"] == 0
 
+    def test_delete_guard_is_mandatory(self, registry, ctx, song, with_session_clip):
+        run_command(registry, ctx, "place_clip_in_arrangement", track_index=0, slot_index=0, destination_time=4.0)
+        with pytest.raises(ValidationError, match="Required parameter missing"):
+            run_command(
+                registry, ctx, "delete_arrangement_clip",
+                track_index=0, arrangement_clip_index=0,
+            )
+
+    def test_create_arrangement_clip_direct(self, registry, ctx, song):
+        result = run_command(
+            registry, ctx, "create_arrangement_clip",
+            track_index=0, start_time=16.0, length_beats=8.0,
+        )
+        assert result["created"]["start_time"] == 16.0
+        assert result["created"]["is_midi_clip"] is True
+
+        run_command(
+            registry, ctx, "add_notes",
+            track_index=0, arrangement_clip_index=0,
+            notes=[{"pitch": "C3", "start_time": 0.0, "duration": 1.0}],
+        )
+        notes = run_command(
+            registry, ctx, "get_notes", track_index=0, arrangement_clip_index=0
+        )["notes"]
+        assert notes[0]["pitch_name"] == "C3"
+
+    def test_create_arrangement_clip_needs_midi_track(self, registry, ctx, song):
+        song.tracks[1].has_midi_input = False
+        with pytest.raises(LiveAPIError, match="not a MIDI track"):
+            run_command(
+                registry, ctx, "create_arrangement_clip",
+                track_index=1, start_time=0.0, length_beats=4.0,
+            )
+
+    def test_place_clip_fallback_when_no_return(self, registry, ctx, song, with_session_clip):
+        song.tracks[0].duplicate_returns_none = True
+        result = run_command(
+            registry, ctx, "place_clip_in_arrangement",
+            track_index=0, slot_index=0, destination_time=12.0,
+        )
+        assert result["placed"]["start_time"] == 12.0
+
     def test_locator_create_and_collision(self, registry, ctx, song):
         result = run_command(registry, ctx, "create_locator", time=32.0, name="Chorus")
         assert result["locator"] == {"name": "Chorus", "time": 32.0}
@@ -214,4 +263,36 @@ class TestImportAudio:
             run_command(
                 registry, ctx, "import_audio",
                 track_index=0, file_path=str(wav_file), position=0.0,
+            )
+
+    def test_session_import(self, registry, ctx, song, wav_file, audio_track):
+        result = run_command(
+            registry, ctx, "import_audio",
+            track_index=audio_track, file_path=str(wav_file), slot_index=0,
+        )
+        assert result["imported"]["view"] == "session"
+        assert song.tracks[audio_track].clip_slots[0].has_clip
+
+    def test_session_import_occupied_slot(self, registry, ctx, song, wav_file, audio_track):
+        run_command(
+            registry, ctx, "import_audio",
+            track_index=audio_track, file_path=str(wav_file), slot_index=0,
+        )
+        with pytest.raises(LiveAPIError, match="already has a clip"):
+            run_command(
+                registry, ctx, "import_audio",
+                track_index=audio_track, file_path=str(wav_file), slot_index=0,
+            )
+
+    def test_import_xor_enforced(self, registry, ctx, song, wav_file, audio_track):
+        with pytest.raises(ValidationError, match="exactly one"):
+            run_command(
+                registry, ctx, "import_audio",
+                track_index=audio_track, file_path=str(wav_file),
+            )
+        with pytest.raises(ValidationError, match="exactly one"):
+            run_command(
+                registry, ctx, "import_audio",
+                track_index=audio_track, file_path=str(wav_file),
+                position=0.0, slot_index=0,
             )

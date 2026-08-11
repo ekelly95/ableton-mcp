@@ -10,16 +10,17 @@ definitions are now generated from one place, never written by hand).
 
 ## What Claude can do with it
 
-33 tools: read the whole session at a glance; create/rename/mix tracks; create,
+35 tools: read the whole session at a glance; create/rename/mix tracks; create,
 duplicate, launch and edit clips; write MIDI notes by name ("C3", "F#4" —
 Ableton convention, C3=60) with per-note chance and velocity spread; edit
 single notes precisely without rewriting the clip; set the song's key and
-scale; **build songs on the Arrangement timeline** (stamp session loops onto
-it, drop named locators, edit timeline clips); import audio files from disk
-onto the timeline (the landing pad for any future sample generation —
-generators just write a file to `samples\`); browse Live's library and load
-instruments/effects; turn any device knob; control tempo, loop, metronome,
-playback and arrangement recording.
+scale; **build songs on the Arrangement timeline** (create MIDI clips directly
+on it, stamp session loops onto it, drop named locators, edit timeline clips);
+import audio files from disk into the session or onto the timeline (the
+landing pad for any future sample generation — generators just write a file to
+`samples\`); browse Live's library and load instruments/effects; turn any
+device knob; control tempo, loop, metronome, playback and (via its own
+guarded tool) arrangement recording.
 
 ## Parts
 
@@ -56,7 +57,7 @@ isn't enabled in Preferences.
 cd C:/dev/ableton-mcp && .venv/Scripts/python.exe -m pytest
 ```
 
-125 tests run without Live (a mock stands in — see `tests/mock_live.py`, which
+The test suite runs without Live (a mock stands in — see `tests/mock_live.py`, which
 encodes real-Live behaviour verified on 12.4.3). `scripts/live_checkpoint.py`
 re-verifies everything against a running Live and leaves an audible "MCP Test"
 track behind. See `docs/architecture.md` for design decisions and what was

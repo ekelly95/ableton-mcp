@@ -441,7 +441,13 @@ def add_notes(
                 "type": "object",
                 "properties": {
                     "note_id": {"type": "integer"},
-                    "pitch": {"type": "integer", "minimum": 0, "maximum": 127},
+                    "pitch": {
+                        "anyOf": [
+                            {"type": "integer", "minimum": 0, "maximum": 127},
+                            {"type": "string"},
+                        ],
+                        "description": "MIDI number or name like 'C3' (Ableton convention: C3=60)",
+                    },
                     "start_time": {"type": "number", "minimum": 0},
                     "duration": {"type": "number", "exclusiveMinimum": 0},
                     "velocity": {"type": "number", "minimum": 0, "maximum": 127},

@@ -14,9 +14,11 @@ class ScriptedServer:
     """Tiny localhost server whose per-connection behaviour is scripted.
 
     behaviours: list of strings, one per accepted connection:
-      "serve"      — answer requests normally until the client disconnects
-      "drop"       — accept, then immediately close (simulates dead socket)
-      "stall"      — accept, read the request, never answer
+      "serve"         — answer requests normally until the client disconnects
+      "drop"          — accept, then immediately close (simulates dead socket)
+      "stall"         — accept, read the request, never answer
+      "read_then_die" — read (and record) ONE request, then close without
+                        replying: the request WAS delivered, response lost
     """
 
     def __init__(self, behaviours):
@@ -45,6 +47,8 @@ class ScriptedServer:
                     if request is None:
                         break
                     self.requests_received.append(request)
+                    if behaviour == "read_then_die":
+                        break  # delivered but no response — connection dies
                     if behaviour == "stall":
                         continue  # swallow it, never reply
                     response = {
@@ -116,10 +120,11 @@ def test_command_error_taxonomy():
 
 def test_reconnects_once_after_dead_socket():
     # First connection dies immediately (Live restarted); second serves.
+    # Uses a read-only command: only those are eligible for auto-resend.
     server = ScriptedServer(["drop", "serve"])
     client = AbletonClient(port=server.port)
     try:
-        assert client.send("recovered") == {"echo": "recovered"}
+        assert client.send("get_tracks") == {"echo": "get_tracks"}
     finally:
         client.close()
         server.close()
@@ -139,6 +144,43 @@ def test_timeout_does_not_resend():
             client.send("slow_thing")
         # The stalled server got the request exactly once — no dangerous resend.
         assert len(server.requests_received) == 1
+    finally:
+        client.close()
+        server.close()
+
+
+def test_read_only_command_resends_after_delivered_but_lost_response():
+    # get_session_overview is read_only in the registry → safe to resend.
+    server = ScriptedServer(["read_then_die", "serve"])
+    client = AbletonClient(port=server.port)
+    try:
+        result = client.send("get_session_overview")
+        assert result == {"echo": "get_session_overview"}
+        assert len(server.requests_received) == 2  # original + safe resend
+    finally:
+        client.close()
+        server.close()
+
+
+def test_write_command_never_resends_after_delivered_but_lost_response():
+    # delete_track is destructive → the client must refuse to auto-resend.
+    server = ScriptedServer(["read_then_die", "serve"])
+    client = AbletonClient(port=server.port)
+    try:
+        with pytest.raises(AbletonConnectionError, match="may or may not have executed"):
+            client.send("delete_track", track_index=0)
+        assert len(server.requests_received) == 1  # delivered exactly once
+    finally:
+        client.close()
+        server.close()
+
+
+def test_wire_specials_resend():
+    server = ScriptedServer(["read_then_die", "serve"])
+    client = AbletonClient(port=server.port)
+    try:
+        assert client.send("ping") == {"echo": "ping"}
+        assert len(server.requests_received) == 2
     finally:
         client.close()
         server.close()

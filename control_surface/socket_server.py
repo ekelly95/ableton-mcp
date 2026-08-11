@@ -19,7 +19,11 @@ import threading
 import time
 import traceback
 import uuid
+from collections import OrderedDict
 from typing import Any, Dict, Optional
+
+# Ring size for request-id deduplication (idempotent replay protection).
+RECENT_RESPONSES_MAX = 64
 
 from .config import (
     HEADER_SIZE,
@@ -84,6 +88,9 @@ class SocketServer:
         self._server_thread: Optional[threading.Thread] = None
         self._running = False
         self._lock = threading.Lock()
+        # id -> response: a client that lost the response and resends the SAME
+        # request must get the cached answer, not a second execution.
+        self._recent_responses: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 
     @property
     def bound_port(self) -> Optional[int]:
@@ -248,10 +255,24 @@ class SocketServer:
         sock.sendall(struct.pack(">I", len(body)) + body)
 
     def _process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        request_id = message.get("id", str(uuid.uuid4()))
+
+        cached = self._recent_responses.get(request_id)
+        if cached is not None:
+            logger.warning(f"Duplicate request id {request_id} — replaying cached response")
+            return cached
+
+        response = self._execute_message(message, request_id)
+
+        self._recent_responses[request_id] = response
+        while len(self._recent_responses) > RECENT_RESPONSES_MAX:
+            self._recent_responses.popitem(last=False)
+        return response
+
+    def _execute_message(self, message: Dict[str, Any], request_id: str) -> Dict[str, Any]:
         start_time = time.time()
         command_type = message.get("type")
         params = message.get("params", {})
-        request_id = message.get("id", str(uuid.uuid4()))
         response: Dict[str, Any] = {"id": request_id}
 
         try:

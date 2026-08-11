@@ -147,6 +147,31 @@ class TestEndToEnd:
             assert result.structuredContent["connected"] is True
             assert result.structuredContent["schema_in_sync"] is True
 
+    async def test_pitch_name_survives_real_input_validation(self):
+        """Audit finding: the ADVERTISED schema must accept 'A3' in update_notes
+        modifications — direct-handler tests bypass the SDK's input validation,
+        which is exactly where this used to break."""
+        fake = FakeAbletonClient()
+        async with await self._session(fake) as session:
+            result = await session.call_tool(
+                "update_notes",
+                {
+                    "track_index": 0,
+                    "slot_index": 0,
+                    "modifications": [{"note_id": 1, "pitch": "A3", "velocity": 90}],
+                },
+            )
+            assert result.isError is False, result.content[0].text
+            sent_command, sent_params = fake.sent[-1]
+            assert sent_command == "update_notes"
+            assert sent_params["modifications"][0]["pitch"] == "A3"
+
+    async def test_delete_arrangement_clip_requires_guard_in_schema(self):
+        async with await self._session(FakeAbletonClient()) as session:
+            tools = {t.name: t for t in (await session.list_tools()).tools}
+            required = tools["delete_arrangement_clip"].inputSchema["required"]
+            assert "expected_start_time" in required
+
 
 def test_importing_server_writes_nothing_to_stdout():
     code = "import mcp_server.server; import mcp_server"

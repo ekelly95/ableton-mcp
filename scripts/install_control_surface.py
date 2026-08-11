@@ -97,8 +97,14 @@ def main() -> None:
         print(f"  {e}")
         sys.exit(2)
 
+    version = "unknown"
+    for line in (SOURCE / "config.py").read_text(encoding="utf-8").splitlines():
+        if line.startswith("VERSION"):
+            version = line.split('"')[1]
+            break
+
     file_count = sum(1 for _ in target.rglob("*.py"))
-    print(f"Installed {TARGET_NAME} ({file_count} files) to:")
+    print(f"Installed {TARGET_NAME} v{version} ({file_count} files) to:")
     print(f"  {target}")
     print()
     print("Next steps:")
@@ -106,7 +112,7 @@ def main() -> None:
     print("  2. Options > Preferences > Link, Tempo & MIDI.")
     print(f"  3. In a Control Surface dropdown, pick '{TARGET_NAME}'.")
     print("     Leave Input/Output set to None.")
-    print(f"  4. Live's status bar should show '{TARGET_NAME} v2.0.0 ready'.")
+    print(f"  4. Live's status bar should show '{TARGET_NAME} v{version} ready'.")
 
 
 if __name__ == "__main__":

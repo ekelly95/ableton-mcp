@@ -22,6 +22,9 @@ class ImmediateControlSurface:
         return None
 
 
+EXECUTION_COUNTS = {"counter": 0}
+
+
 def build_test_registry() -> CommandRegistry:
     registry = CommandRegistry()
 
@@ -32,6 +35,11 @@ def build_test_registry() -> CommandRegistry:
     )
     def echo(ctx, value):
         return {"echoed": value}
+
+    @registry.register("count_executions")
+    def count_executions(ctx):
+        EXECUTION_COUNTS["counter"] += 1
+        return {"count": EXECUTION_COUNTS["counter"]}
 
     @registry.register(
         "guarded",
@@ -149,6 +157,24 @@ def test_list_commands_and_tools(server):
     names = [t["name"] for t in tools["result"]["tools"]]
     assert "echo" in names
     assert tools["result"]["schema_hash"]
+
+
+def test_duplicate_request_id_executes_once(server):
+    """A resent request (same id) must replay the cached response, not re-run."""
+    EXECUTION_COUNTS["counter"] = 0
+    message = {"type": "count_executions", "params": {}, "id": "dedupe-test-1"}
+    first = send_request(server.bound_port, message)
+    second = send_request(server.bound_port, message)
+    assert first["status"] == "success"
+    assert first["result"]["count"] == 1
+    assert second == first  # cached replay, handler ran exactly once
+    assert EXECUTION_COUNTS["counter"] == 1
+
+    # A NEW id executes normally afterwards.
+    third = send_request(
+        server.bound_port, {"type": "count_executions", "params": {}, "id": "dedupe-test-2"}
+    )
+    assert third["result"]["count"] == 2
 
 
 def test_oversized_message_rejected_then_server_survives(server):

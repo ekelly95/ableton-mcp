@@ -14,7 +14,21 @@ import threading
 import uuid
 from typing import Any, Dict, Optional
 
+from control_surface.commands import REGISTRY
 from control_surface.config import COMMAND_TIMEOUTS
+
+# Answered by the socket server without touching Live state.
+WIRE_SPECIALS = {"ping", "list_commands", "get_mcp_tools"}
+
+
+def _safe_to_resend(command: str) -> bool:
+    """Only read-only commands may be resent automatically: a connection that
+    dies while we wait for the response means the request WAS delivered and may
+    have executed — resending a write could run it twice."""
+    if command in WIRE_SPECIALS:
+        return True
+    schema = REGISTRY.get(command)
+    return schema is not None and schema.read_only
 
 HEADER_SIZE = 4
 MAX_MESSAGE_SIZE = 16 * 1024 * 1024
@@ -112,15 +126,20 @@ class AbletonClient:
             self._socket.settimeout(effective_timeout)
             try:
                 response = self._round_trip(request)
-            except OSError:
-                # One reconnect-and-resend: covers Live restarts and half-open
-                # sockets left by a Live crash. Resending is safe on OSError
-                # because the request never completed on the serial server.
-                # Timeouts deliberately do NOT land here (they raise
-                # AbletonConnectionError): the command may still be running
-                # inside Live and a resend would queue it twice.
-                logger.warning(f"Connection lost during '{command}', reconnecting once...")
+            except OSError as e:
                 self._disconnect()
+                if not _safe_to_resend(command):
+                    # The request may have been delivered and executed before
+                    # the connection died; resending could run a write twice.
+                    # (The control surface also dedupes by request id, but a
+                    # Live restart clears that — so writes never auto-resend.)
+                    raise AbletonConnectionError(
+                        f"Connection lost after sending '{command}' — it may or may "
+                        f"not have executed. Verify the current state with "
+                        f"get_session_overview or the relevant get_* tool, then "
+                        f"retry deliberately. ({e})"
+                    ) from e
+                logger.warning(f"Connection lost during '{command}', reconnecting once...")
                 self._connect()
                 response = self._round_trip(request)
 

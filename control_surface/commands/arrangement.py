@@ -1,13 +1,13 @@
 """Arrangement view: the timeline where songs are built.
 
-The workflow this enables: compose loops in Session view, then STAMP them onto
-the timeline with place_clip_in_arrangement. There is no Live API to create an
-empty MIDI clip directly in the arrangement — session-then-duplicate is the
-only path (LOM-confirmed), and tool descriptions say so.
+Two composition routes (both LOM-confirmed): create an empty MIDI clip
+directly on the timeline with create_arrangement_clip and write notes into it,
+or compose loops in Session view and STAMP them with place_clip_in_arrangement.
 
 Arrangement clip indices are POSITIONAL (time-ordered) and shift when clips
 are added/deleted — valid only against a fresh get_arrangement read. The
-destructive delete takes an expected_start_time guard for exactly that reason.
+destructive delete REQUIRES an expected_start_time guard for exactly that
+reason.
 """
 
 import os
@@ -96,6 +96,74 @@ def get_arrangement(ctx, track_index: Optional[int] = None) -> Dict[str, Any]:
 
 
 @REGISTRY.register(
+    "create_arrangement_clip",
+    params=[
+        ParamSchema("track_index", ParamType.INT, min_value=0),
+        ParamSchema(
+            "start_time",
+            ParamType.FLOAT,
+            min_value=0,
+            description="Timeline position in beats (bar N at 4/4 starts at (N-1)*4)",
+        ),
+        ParamSchema("length_beats", ParamType.FLOAT, min_value=0.25),
+    ],
+    category="arrangement",
+    description=(
+        "Create an EMPTY MIDI clip directly on the Arrangement timeline of a "
+        "MIDI track, then write notes into it with add_notes using "
+        "arrangement_clip_index. The direct composition route — no session "
+        "slot needed."
+    ),
+)
+def create_arrangement_clip(
+    ctx, track_index: int, start_time: float, length_beats: float
+) -> Dict[str, Any]:
+    track = get_track(ctx.song, track_index)
+    if not track.has_midi_input:
+        raise LiveAPIError(f"Track {track_index} is not a MIDI track")
+
+    try:
+        track.create_midi_clip(start_time, length_beats)
+    except RuntimeError as e:
+        # LOM: errors on frozen tracks, out-of-range times, or recording tracks
+        raise LiveAPIError(f"Live refused to create the clip: {e}") from e
+
+    clips = list(track.arrangement_clips)
+    placed = next(
+        (
+            (i, c)
+            for i, c in enumerate(clips)
+            if abs(c.start_time - start_time) < _TIME_EPSILON and c.is_midi_clip
+        ),
+        None,
+    )
+    if placed is None:
+        raise LiveAPIError(
+            f"Clip creation at {start_time} could not be confirmed — "
+            f"re-read with get_arrangement"
+        )
+    index, clip = placed
+    return {"created": _serialize_arrangement_clip(index, clip)}
+
+
+@REGISTRY.register(
+    "arrangement_record",
+    params=[ParamSchema("enabled", ParamType.BOOL)],
+    category="arrangement",
+    destructive=True,
+    description=(
+        "Toggle the Arrangement Record button. DESTRUCTIVE: playing while this "
+        "is on OVERWRITES the arrangement timeline with whatever happens in the "
+        "session. Turn it off as soon as the take is done."
+    ),
+)
+def arrangement_record(ctx, enabled: bool) -> Dict[str, Any]:
+    song = ctx.song
+    song.record_mode = enabled
+    return {"record_mode": song.record_mode, "is_playing": song.is_playing}
+
+
+@REGISTRY.register(
     "place_clip_in_arrangement",
     params=[
         ParamSchema("track_index", ParamType.INT, min_value=0),
@@ -114,12 +182,11 @@ def get_arrangement(ctx, track_index: Optional[int] = None) -> Dict[str, Any]:
     ],
     category="arrangement",
     description=(
-        "Copy a Session clip onto the Arrangement timeline. THE way to build a "
-        "song: compose loops in session slots, stamp them here. Placing over an "
-        "existing clip truncates it. There is no way to create MIDI directly in "
-        "the arrangement — always go via a session clip. If the timeline sounds "
-        "wrong afterwards, check back_to_arranger in the response: true means "
-        "session clips are still overriding the timeline (fix via set_transport)."
+        "Copy a Session clip onto the Arrangement timeline (the loop-then-stamp "
+        "route; create_arrangement_clip is the direct route). Placing over an "
+        "existing clip truncates it. If the timeline sounds wrong afterwards, "
+        "check back_to_arranger in the response: true means session clips are "
+        "still overriding the timeline (fix via set_transport)."
     ),
 )
 def place_clip_in_arrangement(
@@ -180,20 +247,43 @@ def place_clip_in_arrangement(
         ParamSchema(
             "position",
             ParamType.FLOAT,
+            required=False,
             min_value=0,
-            description="Timeline position in beats",
+            description="Arrangement route: timeline position in beats — exactly one of position / slot_index",
+        ),
+        ParamSchema(
+            "slot_index",
+            ParamType.INT,
+            required=False,
+            min_value=0,
+            description="Session route: empty clip slot on the audio track — exactly one of the two",
         ),
     ],
     category="arrangement",
     description=(
-        "Import an audio file from disk as a clip on the Arrangement timeline of "
-        "an AUDIO track. The bridge half of sample generation: any tool that "
-        f"writes an audio file (convention: under {SAMPLES_DIR}) can land it in "
-        "the set with this. First import of a file may take a while (Live "
-        "analyzes it). Arrangement-only — Live's API has no session-slot import."
+        "Import an audio file from disk onto an AUDIO track — either onto the "
+        "Arrangement timeline (position, in beats) or into a Session slot "
+        "(slot_index); give exactly one. The bridge half of sample generation: "
+        f"any tool that writes an audio file (convention: under {SAMPLES_DIR}) "
+        "can land it in the set with this. First import of a file may take a "
+        "while (Live analyzes it)."
     ),
 )
-def import_audio(ctx, track_index: int, file_path: str, position: float) -> Dict[str, Any]:
+def import_audio(
+    ctx,
+    track_index: int,
+    file_path: str,
+    position: Optional[float] = None,
+    slot_index: Optional[int] = None,
+) -> Dict[str, Any]:
+    from ..errors import ValidationError
+    from ..utils.live_helpers import get_clip_slot
+
+    if (position is None) == (slot_index is None):
+        raise ValidationError(
+            "Provide exactly one of position (arrangement) or slot_index (session)"
+        )
+
     track = get_track(ctx.song, track_index)
 
     if not os.path.isabs(file_path):
@@ -213,6 +303,21 @@ def import_audio(ctx, track_index: int, file_path: str, position: float) -> Dict
             f"(create one with create_track type=audio)"
         )
 
+    if slot_index is not None:
+        slot = get_clip_slot(track, slot_index)
+        if slot.has_clip:
+            raise LiveAPIError(f"Slot {slot_index} already has a clip")
+        slot.create_audio_clip(file_path)
+        return {
+            "imported": {
+                "track_index": track_index,
+                "slot_index": slot_index,
+                "name": slot.clip.name if slot.has_clip else "",
+                "is_audio_clip": True,
+                "view": "session",
+            }
+        }
+
     track.create_audio_clip(file_path, position)
 
     clips = list(track.arrangement_clips)
@@ -228,7 +333,9 @@ def import_audio(ctx, track_index: int, file_path: str, position: float) -> Dict
         raise LiveAPIError("Import could not be confirmed — re-read with get_arrangement")
 
     index, clip = placed
-    return {"imported": _serialize_arrangement_clip(index, clip)}
+    result = _serialize_arrangement_clip(index, clip)
+    result["view"] = "arrangement"
+    return {"imported": result}
 
 
 @REGISTRY.register(
@@ -244,28 +351,33 @@ def import_audio(ctx, track_index: int, file_path: str, position: float) -> Dict
         ParamSchema(
             "expected_start_time",
             ParamType.FLOAT,
-            required=False,
+            required=True,
             min_value=0,
             description=(
-                "Safety check: the start_time you saw for this clip. If the index "
-                "has gone stale, the delete errors instead of removing the wrong clip."
+                "REQUIRED safety check: the start_time you saw for this clip in "
+                "get_arrangement. If the index has gone stale, the delete errors "
+                "instead of removing the wrong clip."
             ),
         ),
     ],
     category="arrangement",
     destructive=True,
-    description="Delete a clip from the timeline. Destructive — pass expected_start_time as a stale-index guard.",
+    description=(
+        "Delete a clip from the timeline. Destructive. Indices go stale on any "
+        "timeline change, so expected_start_time (from get_arrangement) is "
+        "mandatory — a mismatch aborts the delete."
+    ),
 )
 def delete_arrangement_clip(
     ctx,
     track_index: int,
     arrangement_clip_index: int,
-    expected_start_time: Optional[float] = None,
+    expected_start_time: float,
 ) -> Dict[str, Any]:
     track = get_track(ctx.song, track_index)
     clip = get_arrangement_clip(track, arrangement_clip_index)
 
-    if expected_start_time is not None and abs(clip.start_time - expected_start_time) > _TIME_EPSILON:
+    if abs(clip.start_time - expected_start_time) > _TIME_EPSILON:
         raise LiveAPIError(
             f"Stale index: clip {arrangement_clip_index} starts at {clip.start_time}, "
             f"not {expected_start_time}. Re-read with get_arrangement."

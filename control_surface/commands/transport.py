@@ -127,12 +127,6 @@ def transport_control(ctx, action: str, position: Optional[float] = None) -> Dic
             description="Highlight the scale in Live's editors and snap MIDI tools to it",
         ),
         ParamSchema(
-            "record_mode",
-            ParamType.BOOL,
-            required=False,
-            description="Arrangement record button. WARNING: recording while playing overwrites the arrangement",
-        ),
-        ParamSchema(
             "back_to_arranger",
             ParamType.BOOL,
             required=False,
@@ -142,8 +136,10 @@ def transport_control(ctx, action: str, position: Optional[float] = None) -> Dic
     category="transport",
     description=(
         "Set any of: tempo (BPM), time signature, loop region (beats), metronome, "
-        "song key/scale (the tonal anchor for everything composed), arrangement "
-        "record mode, back-to-arranger. Batch-friendly: pass several at once."
+        "song key/scale (the tonal anchor for everything composed), "
+        "back-to-arranger. Batch-friendly: pass several at once. Arrangement "
+        "recording lives in its own tool (arrangement_record) because it is "
+        "destructive."
     ),
 )
 def set_transport(
@@ -158,7 +154,6 @@ def set_transport(
     scale_root=None,
     scale_name=None,
     scale_mode=None,
-    record_mode=None,
     back_to_arranger=None,
 ) -> Dict[str, Any]:
     song = ctx.song
@@ -189,8 +184,6 @@ def set_transport(
             )
     if scale_mode is not None:
         song.scale_mode = scale_mode
-    if record_mode is not None:
-        song.record_mode = record_mode
     if back_to_arranger is not None:
         song.back_to_arranger = back_to_arranger
     return _transport_state(song)

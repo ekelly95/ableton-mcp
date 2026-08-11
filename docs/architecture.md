@@ -101,10 +101,13 @@ structuredContent + JSON text. Errors raise → proper isError tool results.
 
 ## Arrangement view (2.1)
 
-- Session-then-stamp is the ONLY composition path: Live's API cannot create an
-  empty MIDI clip in the arrangement. `place_clip_in_arrangement` uses
-  `Track.duplicate_clip_to_arrangement` (LOM: returns the new clip; fallback
-  re-scan matches start_time with epsilon — the list is time-ordered).
+- TWO composition routes (both LOM-confirmed): `create_arrangement_clip` →
+  `Track.create_midi_clip(start_time, length)` creates empty MIDI directly on
+  the timeline (the direct/autonomous route; audit correction — we first
+  believed this was impossible); and `place_clip_in_arrangement` →
+  `Track.duplicate_clip_to_arrangement` (loop-then-stamp; its return value is
+  UNdocumented, so the code uses the return when truthy and otherwise re-scans
+  by start_time with epsilon — the list is time-ordered).
 - Arrangement clip indices are POSITIONAL and go stale on any change; the
   destructive delete takes `expected_start_time` as a stale-index guard.
 - Note commands address a clip in EITHER view: exactly one of `slot_index` /
@@ -117,11 +120,27 @@ structuredContent + JSON text. Errors raise → proper isError tool results.
 
 ## Sample-generation seam (2.1)
 
-`import_audio` → `Track.create_audio_clip(abs_path, position)` (arrangement
-only, audio tracks only, absolute paths only — Live resolves relative paths
-against its install dir). Generation providers are deliberately CLIENT-side:
-anything that writes an audio file (convention: `samples\`) lands it with this
-one command. No provider dependency ever goes into the bridge.
+`import_audio` lands an audio file on an audio track — arrangement route
+(`Track.create_audio_clip(abs_path, position)`) or session route
+(`ClipSlot.create_audio_clip(abs_path)`, audit correction: session import IS
+possible); absolute paths only — Live resolves relative paths against its
+install dir. Generation providers are deliberately CLIENT-side: anything that
+writes an audio file (convention: `samples\`) lands it with this one command.
+No provider dependency ever goes into the bridge.
+
+## Reliability protocol (audit hardening)
+
+- Client auto-resends after a dead connection ONLY for read-only commands
+  (registry flags): a response-read failure means the request WAS delivered
+  and may have executed. Writes surface "may or may not have executed —
+  verify state, retry deliberately."
+- The control surface dedupes by request id (ring of 64): a resent id replays
+  the cached response instead of executing twice. A Live restart clears the
+  ring — which is why the client-side gate exists as well.
+- `arrangement_record` is its own destructive-annotated tool, kept out of
+  set_transport on purpose (record + play overwrites the timeline).
+- `delete_arrangement_clip` REQUIRES `expected_start_time` — positional
+  indices go stale, and a destructive command must not accept a stale one.
 
 ## Pitch names & key/scale (2.1)
 
@@ -140,8 +159,9 @@ one command. No provider dependency ever goes into the bridge.
 - **Run-arbitrary-code-in-Live escape hatch** (the 2026 community trend).
   Deferred: crash risk inside Live needs deliberate sandboxing design. The
   registry makes it one more command when wanted.
-- **Arrangement view, quantize, routing, capture MIDI, warp control,
-  return-track deletion.** Session-view-first on purpose.
+- **Quantize, routing, capture MIDI, warp control, return-track deletion,
+  arrangement clip move/resize** (delete+re-place is the v1 workaround).
+  (Arrangement view itself shipped in 2.1.)
 - **Multi-client socket server.** One serial client is a feature (predictable
   ordering); the MCP server is the only intended client.
 - Old project's melody/drum generators, hand-written tools.py, thread-affinity

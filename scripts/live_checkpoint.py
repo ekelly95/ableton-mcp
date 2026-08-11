@@ -222,15 +222,14 @@ def check_browse(client):
 def check_load(client):
     if not state.get("instrument"):
         raise AssertionError("no loadable instrument found under instruments root")
-    slow_client = AbletonClient(timeout=60.0)
-    try:
-        result = slow_client.send(
-            "load_item",
-            path=["instruments", state["instrument"]],
-            track_index=state["track"],
-        )
-    finally:
-        slow_client.close()
+    # Same connection on purpose: a second client would queue behind this one
+    # on the serial server and execute AFTER the script exits (audit finding).
+    # The client grants heavy commands their full COMMAND_TIMEOUTS budget.
+    result = client.send(
+        "load_item",
+        path=["instruments", state["instrument"]],
+        track_index=state["track"],
+    )
     assert result["loaded"] == state["instrument"], result
     assert result["devices_now"], "no device appeared on the track"
     return f"loaded {result['loaded']} → devices on track: {result['devices_now']}"
@@ -333,6 +332,35 @@ def check_arrangement_note_edit(client):
     return "vector fetch-modify-apply works on timeline clips too"
 
 
+@step("create_arrangement_clip: direct MIDI on timeline + notes into it")
+def check_direct_arrangement(client):
+    result = client.send(
+        "create_arrangement_clip",
+        track_index=state["track"], start_time=16.0, length_beats=4.0,
+    )
+    assert result["created"]["is_midi_clip"] is True, result
+    idx = result["created"]["arrangement_clip_index"]
+    client.send(
+        "add_notes",
+        track_index=state["track"], arrangement_clip_index=idx,
+        notes=[{"pitch": "C4", "start_time": 0.0, "duration": 2.0}],
+    )
+    notes = client.send(
+        "get_notes", track_index=state["track"], arrangement_clip_index=idx
+    )["notes"]
+    assert notes and notes[0]["pitch"] == 72, notes
+    return "empty MIDI clip created at beat 16, note written directly (audit route)"
+
+
+@step("arrangement_record: toggle on/off without playing")
+def check_arrangement_record(client):
+    on = client.send("arrangement_record", enabled=True)
+    assert on["record_mode"] is True, on
+    off = client.send("arrangement_record", enabled=False)
+    assert off["record_mode"] is False, off
+    return "record button toggles; never played while armed"
+
+
 @step("locator 'Chorus' at beat 32 + collision refusal")
 def check_locator(client):
     result = client.send("create_locator", time=32.0, name="Chorus")
@@ -367,18 +395,23 @@ def check_import_audio(client):
 
     created = client.send("create_track", type="audio")
     state["audio_track"] = created["track_index"]
-    slow_client = AbletonClient(timeout=130.0)
-    try:
-        result = slow_client.send(
-            "import_audio",
-            track_index=state["audio_track"],
-            file_path=wav_path,
-            position=8.0,
-        )
-    finally:
-        slow_client.close()
+    state["wav_path"] = wav_path
+    result = client.send(
+        "import_audio",
+        track_index=state["audio_track"],
+        file_path=wav_path,
+        position=8.0,
+    )
     assert result["imported"]["is_audio_clip"] is True, result
-    return f"440Hz tone on timeline at beat 8 (track {state['audio_track']})"
+
+    session_result = client.send(
+        "import_audio",
+        track_index=state["audio_track"],
+        file_path=wav_path,
+        slot_index=0,
+    )
+    assert session_result["imported"]["view"] == "session", session_result
+    return f"440Hz tone: timeline at beat 8 AND session slot 0 (track {state['audio_track']})"
 
 
 @step("audible finale: play the ARRANGEMENT from the top for 5 seconds")
@@ -436,11 +469,12 @@ WHOLE_RUN_BUDGET_SECONDS = 240
 
 def main():
     print("P4 checkpoint against real Ableton Live\n", flush=True)
-    # Fail fast: 8s per command instead of the production 90s, so a stall
-    # (modal dialog in Live, wedged connection) is visible, not a silent hang.
+    # Fail fast: 8s per command (heavy commands still get their declared
+    # COMMAND_TIMEOUTS budget on this same connection).
     client = AbletonClient(timeout=8.0)
     started = time.time()
-    for check in [
+
+    main_steps = [
         check_ping,
         check_overview,
         check_create_track,
@@ -462,17 +496,29 @@ def main():
         check_pitch_names,
         check_place_arrangement,
         check_arrangement_note_edit,
+        check_direct_arrangement,
+        check_arrangement_record,
         check_locator,
         check_import_audio,
         check_finale,
-        check_arrangement_cleanup,
         check_validation,
         check_live_error,
-    ]:
+    ]
+    # Cleanup runs REGARDLESS of the time budget: an aborted run must not
+    # leave the user's set littered (audit finding).
+    cleanup_steps = [check_arrangement_cleanup]
+
+    for check in main_steps:
         if time.time() - started > WHOLE_RUN_BUDGET_SECONDS:
-            results.append((FAIL, "run budget exceeded", "remaining steps skipped"))
-            print(f"  SKIP  whole-run budget of {WHOLE_RUN_BUDGET_SECONDS}s exceeded — stopping here", flush=True)
+            results.append((FAIL, "run budget exceeded", "remaining main steps skipped"))
+            print(
+                f"  SKIP  whole-run budget of {WHOLE_RUN_BUDGET_SECONDS}s exceeded — "
+                f"skipping to cleanup",
+                flush=True,
+            )
             break
+        check(client)
+    for check in cleanup_steps:
         check(client)
     client.close()
 
