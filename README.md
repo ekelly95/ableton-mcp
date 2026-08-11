@@ -26,6 +26,14 @@ call import_audio); browse Live's library and load instruments/effects; turn
 any device knob; control tempo, loop, metronome, playback and (via its own
 guarded tool) arrangement recording.
 
+## Optional: audio ears (Suite / Max for Live only)
+
+The `get_audio_levels` tool lets the AI *hear* the set — loudness, peaks,
+clipping, and an 8-band frequency picture — via the "AbletonMCP Tap" Max for
+Live device on the Main track. Build-once instructions:
+[m4l/README-lab.md](m4l/README-lab.md). Without the device the tool simply
+reports `available: false`; everything else works on any Live edition.
+
 ## How it works
 
 ```
