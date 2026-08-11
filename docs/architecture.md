@@ -197,6 +197,11 @@ No provider dependency ever goes into the bridge.
   per-install ProgramData; copies OVER existing files (never rmtree — OneDrive
   and Ableton's indexer hold locks even when Live is closed).
 - After any control_surface change: re-run install script AND restart Live.
+- After any VERSION bump in pyproject.toml: re-run `uv pip install -e ".[dev]"`
+  in BOTH venvs (main and lab). The editable-install hooks are version-named
+  and go stale — the symptom is Claude Desktop's launch dying instantly with
+  "ModuleNotFoundError: No module named 'mcp_server'" while repo-cwd tests
+  stay green (they import from the working directory and never notice).
 - JSONL operation journal: `%TEMP%\ableton_mcp_logs\operations.jsonl` — every
   command with params, result, duration; the replay/debug channel.
 - `scripts/live_checkpoint.py` is the real-Live regression harness (leaves an
