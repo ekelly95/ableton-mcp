@@ -69,14 +69,33 @@ def main() -> None:
     target_root = pick_target()
     target = target_root / TARGET_NAME
 
+    # Copy-over instead of delete-and-recreate: __pycache__ dirs are often
+    # locked by OneDrive sync or Ableton's indexer even after Live quits.
+    # Stale .pyc files are harmless — Python recompiles on source mtime change.
     if target.exists():
-        shutil.rmtree(target)
+        stale = [
+            p
+            for p in target.rglob("*.py")
+            if not (SOURCE / p.relative_to(target)).exists()
+        ]
+        for p in stale:
+            try:
+                p.unlink()
+            except PermissionError:
+                print(f"Locked (quit Live and retry): {p}")
+                sys.exit(2)
 
-    shutil.copytree(
-        SOURCE,
-        target,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
+    try:
+        shutil.copytree(
+            SOURCE,
+            target,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            dirs_exist_ok=True,
+        )
+    except PermissionError as e:
+        print("A source file is locked — is Ableton Live still running?")
+        print(f"  {e}")
+        sys.exit(2)
 
     file_count = sum(1 for _ in target.rglob("*.py"))
     print(f"Installed {TARGET_NAME} ({file_count} files) to:")

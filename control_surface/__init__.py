@@ -84,14 +84,10 @@ class AbletonMCP(ControlSurface):
         super().disconnect()
         logger.info("Disconnected")
 
-    def update_display(self):
-        pass
-
-    def refresh_state(self):
-        pass
-
-    def build_midi_map(self, midi_map_handle):
-        pass
+    # Deliberately NOT overriding update_display/refresh_state/build_midi_map:
+    # _Framework pumps scheduled messages inside update_display, so an empty
+    # override silently kills thread marshaling (found at the P4 checkpoint —
+    # every marshaled command timed out while ping still answered).
 
 
 def create_instance(c_instance):

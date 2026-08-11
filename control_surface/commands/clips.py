@@ -425,8 +425,12 @@ def update_notes(
     clip = get_midi_clip(track, slot_index)
 
     # Fetch-modify-apply: note objects can't be constructed by scripts, only
-    # obtained from the clip, mutated, and handed back.
-    all_notes = {n.note_id: n for n in _fetch_all_notes(clip)}
+    # obtained from the clip, mutated, and handed back. Verified in real Live
+    # 12.4: apply_note_modifications rejects a Python tuple of notes — it needs
+    # the native vector get_notes_extended returned, so we mutate notes inside
+    # that vector and pass the vector itself back.
+    note_vector = _fetch_all_notes(clip)
+    all_notes = {n.note_id: n for n in note_vector}
 
     editable = {
         "pitch": int,
@@ -459,7 +463,7 @@ def update_notes(
         )
 
     if touched:
-        clip.apply_note_modifications(tuple(touched))
+        clip.apply_note_modifications(note_vector)
 
     return {"updated": len(touched)}
 

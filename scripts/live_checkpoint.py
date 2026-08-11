@@ -25,10 +25,10 @@ def step(name):
             try:
                 detail = func(client)
                 results.append((PASS, name, detail or ""))
-                print(f"  {PASS}  {name}" + (f" — {detail}" if detail else ""))
+                print(f"  {PASS}  {name}" + (f" — {detail}" if detail else ""), flush=True)
             except Exception as e:
                 results.append((FAIL, name, str(e)))
-                print(f"  {FAIL}  {name} — {type(e).__name__}: {e}")
+                print(f"  {FAIL}  {name} — {type(e).__name__}: {e}", flush=True)
         return wrapper
     return decorator
 
@@ -124,7 +124,7 @@ def check_update_notes(client):
     return "fetch-modify-apply works; ids stable across edits"
 
 
-@step("remove_notes by region, re-add")
+@step("remove_notes: by region, then by note_id")
 def check_remove_notes(client):
     result = client.send(
         "remove_notes",
@@ -134,10 +134,20 @@ def check_remove_notes(client):
         time_span=10.0,
     )
     assert result["note_count"] == 3, result
-    client.send(
-        "add_notes", track_index=state["track"], slot_index=0, notes=[NOTES[3]]
+
+    remaining = client.send("get_notes", track_index=state["track"], slot_index=0)["notes"]
+    result = client.send(
+        "remove_notes",
+        track_index=state["track"],
+        slot_index=0,
+        note_ids=[remaining[0]["note_id"]],
     )
-    return None
+    assert result["note_count"] == 2, result
+
+    client.send(
+        "add_notes", track_index=state["track"], slot_index=0, notes=[NOTES[0], NOTES[3]]
+    )
+    return "region removal and by-id removal both verified"
 
 
 @step("duplicate_clip into next slot")
@@ -160,6 +170,7 @@ def check_launch(client):
 
 @step("transport: tempo set + play + stop + restore")
 def check_transport(client):
+    original = client.send("get_transport_state")["tempo"]
     client.send("set_transport", tempo=100.0)
     st = client.send("get_transport_state")
     assert st["tempo"] == 100.0, st
@@ -168,9 +179,9 @@ def check_transport(client):
     st = client.send("get_transport_state")
     playing = st["is_playing"]
     client.send("transport_control", action="stop")
-    client.send("set_transport", tempo=state["original_tempo"])
+    client.send("set_transport", tempo=original)
     assert playing, "transport did not report playing"
-    return f"tempo restored to {state['original_tempo']}"
+    return f"tempo restored to {original}"
 
 
 @step("create + delete second track (destructive path)")
@@ -190,6 +201,71 @@ def check_scenes(client):
     final = len(client.send("get_clips")["scenes"])
     assert final == before, f"scene count {final} != {before}"
     return None
+
+
+@step("browse: roots and instruments level")
+def check_browse(client):
+    roots = client.send("browse")
+    names = [i["name"] for i in roots["items"]]
+    assert "instruments" in names, names
+    level = client.send("browse", path=["instruments"])
+    assert level["items"], "instruments listing came back empty"
+    loadable = [i for i in level["items"] if i["is_loadable"]]
+    state["instrument"] = next(
+        (i["name"] for i in loadable if i["name"].lower() == "drift"),
+        loadable[0]["name"] if loadable else None,
+    )
+    return f"{len(level['items'])} items under instruments; will load '{state['instrument']}'"
+
+
+@step("load_item: instrument onto MCP Test track (may take a while first time)")
+def check_load(client):
+    if not state.get("instrument"):
+        raise AssertionError("no loadable instrument found under instruments root")
+    slow_client = AbletonClient(timeout=130.0)
+    try:
+        result = slow_client.send(
+            "load_item",
+            path=["instruments", state["instrument"]],
+            track_index=state["track"],
+        )
+    finally:
+        slow_client.close()
+    assert result["loaded"] == state["instrument"], result
+    assert result["devices_now"], "no device appeared on the track"
+    return f"loaded {result['loaded']} → devices on track: {result['devices_now']}"
+
+
+@step("get_devices + set_device_parameters round-trip")
+def check_devices(client):
+    devices = client.send("get_devices", track_index=state["track"])["devices"]
+    assert devices, "expected the loaded instrument in the device list"
+    detail = client.send(
+        "get_devices", track_index=state["track"], device_index=0
+    )["device"]
+    assert detail["parameters"], "device reported no parameters"
+    target = next(
+        (p for p in detail["parameters"][1:] if not p["is_quantized"]),
+        None,
+    )
+    if target is None:
+        return "no continuous parameter to tweak (skipped set)"
+    changed = client.send(
+        "set_device_parameters",
+        track_index=state["track"],
+        device_index=0,
+        parameters=[{"parameter": target["index"], "value": 0.7}],
+    )["changed"]
+    assert abs(changed[0]["value"] - 0.7) < 0.02, changed
+    return f"set '{changed[0]['name']}' to 0.7 (display: {changed[0]['display_value']})"
+
+
+@step("audible finale: fire the clip for 4 seconds")
+def check_finale(client):
+    client.send("launch_clip", track_index=state["track"], slot_index=0)
+    time.sleep(4.0)
+    client.send("stop_clips", track_index=state["track"])
+    return "if speakers are on, that was your C-minor arpeggio"
 
 
 @step("validation error taxonomy over the wire")
@@ -213,8 +289,10 @@ def check_live_error(client):
 
 
 def main():
-    print("P4 checkpoint against real Ableton Live\n")
-    client = AbletonClient()
+    print("P4 checkpoint against real Ableton Live\n", flush=True)
+    # Fail fast: 15s per command instead of the production 90s, so a stall
+    # (modal dialog in Live, wedged connection) is visible, not a silent hang.
+    client = AbletonClient(timeout=15.0)
     for check in [
         check_ping,
         check_overview,
@@ -230,6 +308,10 @@ def main():
         check_transport,
         check_delete_track,
         check_scenes,
+        check_browse,
+        check_load,
+        check_devices,
+        check_finale,
         check_validation,
         check_live_error,
     ]:

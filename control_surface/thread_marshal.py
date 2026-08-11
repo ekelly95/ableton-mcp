@@ -93,7 +93,9 @@ class ThreadMarshaler:
                 )
 
         try:
-            self._control_surface.schedule_message(0, task)
+            # Delay of 1 tick (~100ms), not 0: some _Framework versions assert
+            # delay_in_ticks > 0, and 1 lands on the same next pump anyway.
+            self._control_surface.schedule_message(1, task)
         except Exception as e:
             raise MainThreadExecutionError(
                 f"Failed to schedule task: {e}",

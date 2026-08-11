@@ -4,6 +4,6 @@ Importing this package registers every command with the global REGISTRY.
 """
 
 from ..registry import REGISTRY
-from . import clips, meta, tracks, transport
+from . import browser, clips, devices, meta, tracks, transport
 
-__all__ = ["REGISTRY", "clips", "meta", "tracks", "transport"]
+__all__ = ["REGISTRY", "browser", "clips", "devices", "meta", "tracks", "transport"]

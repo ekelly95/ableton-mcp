@@ -40,11 +40,14 @@ def serialize_track(
         "type": track_type,
         "name": track.name,
         "color_index": track.color_index,
-        "muted": track.mute,
-        "soloed": track.solo,
         "volume": normalize_parameter(mixer.volume),
         "pan": normalize_parameter(mixer.panning),
     }
+    # Verified in real Live 12.4: the master ("Main") track has no mute/solo
+    # properties at all — reading them raises.
+    if track_type != "master":
+        info["muted"] = track.mute
+        info["soloed"] = track.solo
     if track_type == "track":
         info["is_midi"] = track.has_midi_input
         info["can_be_armed"] = track.can_be_armed

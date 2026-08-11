@@ -97,6 +97,15 @@ class MockParameter:
         return f"{self.value:.2f}"
 
 
+class MockNoteVector(list):
+    """Stands in for Live's native MidiNoteVector.
+
+    Verified in real Live 12.4: apply_note_modifications rejects plain Python
+    tuples/lists of notes with a C++ signature error — only the vector object
+    returned by get_notes_extended converts. The mock enforces the same rule.
+    """
+
+
 class MockClip:
     def __init__(self, length: float = 4.0, name: str = "", is_midi_clip: bool = True):
         self.name = name
@@ -117,9 +126,10 @@ class MockClip:
 
     def get_notes_extended(
         self, from_pitch: int, pitch_span: int, from_time: float, time_span: float
-    ) -> Tuple[MockMidiNote, ...]:
-        """VERIFY #1: argument order is pitch-first (unlike legacy get_notes)."""
-        return tuple(
+    ) -> "MockNoteVector":
+        """CONFIRMED in real Live 12.4: argument order is pitch-first (the
+        P4 region-removal step deleted exactly the right note)."""
+        return MockNoteVector(
             n
             for n in self._notes
             if from_pitch <= n.pitch < from_pitch + pitch_span
@@ -145,7 +155,14 @@ class MockClip:
             )
 
     def apply_note_modifications(self, notes) -> None:
-        """VERIFY #4: accepts notes previously fetched; matches by note_id."""
+        """CONFIRMED in real Live 12.4: only accepts the native vector from
+        get_notes_extended (a tuple raises a C++ signature error)."""
+        if not isinstance(notes, MockNoteVector):
+            raise TypeError(
+                "Python argument types did not match C++ signature: "
+                "apply_note_modifications expects the vector returned by "
+                "get_notes_extended, not a Python tuple/list"
+            )
         by_id = {n.note_id: n for n in self._notes}
         for modified in notes:
             target = by_id.get(modified.note_id)
@@ -264,6 +281,9 @@ class MockTrack:
         for slot in self.clip_slots:
             slot.stop()
 
+    def delete_device(self, device_index: int) -> None:
+        del self.devices[device_index]
+
     def duplicate_clip_slot(self, slot_index: int) -> None:
         """VERIFY: assumed to copy the clip into the NEXT slot, failing if occupied."""
         source = self.clip_slots[slot_index]
@@ -332,8 +352,12 @@ class MockSong:
             for i in range(return_count)
         ]
         self.master_track = MockTrack(
-            name="Master", has_midi_input=False, slot_count=0, can_be_armed=False
+            name="Main", has_midi_input=False, slot_count=0, can_be_armed=False
         )
+        # CONFIRMED in real Live 12.4: the Main (master) track has no
+        # mute/solo/arm properties — reading them raises. Mirror that.
+        for missing_attr in ("mute", "solo", "arm"):
+            delattr(self.master_track, missing_attr)
         self.view = MockSongView()
 
     def start_playing(self) -> None:
@@ -387,7 +411,60 @@ class MockSong:
             del track.clip_slots[index]
 
 
+class MockBrowserItem:
+    def __init__(self, name: str, children=None, is_loadable: bool = False):
+        self.name = name
+        self.children = children or []
+        self.is_loadable = is_loadable
+        self.is_folder = not is_loadable
+
+
+def _default_browser_tree():
+    return {
+        "instruments": MockBrowserItem(
+            "Instruments",
+            children=[
+                MockBrowserItem("Drift", is_loadable=True),
+                MockBrowserItem("Operator", is_loadable=True),
+                MockBrowserItem(
+                    "Drum Rack",
+                    children=[MockBrowserItem("Kit-Core 909", is_loadable=True)],
+                ),
+            ],
+        ),
+        "sounds": MockBrowserItem("Sounds", children=[]),
+        "drums": MockBrowserItem("Drums", children=[]),
+        "audio_effects": MockBrowserItem(
+            "Audio Effects", children=[MockBrowserItem("Reverb", is_loadable=True)]
+        ),
+        "midi_effects": MockBrowserItem("MIDI Effects", children=[]),
+        "samples": MockBrowserItem("Samples", children=[]),
+        "packs": MockBrowserItem("Packs", children=[]),
+        "user_library": MockBrowserItem("User Library", children=[]),
+    }
+
+
+class MockBrowser:
+    """Loading targets the SELECTED track — mirrors Live's browser.load_item."""
+
+    def __init__(self, song: MockSong):
+        self._song = song
+        for attr, item in _default_browser_tree().items():
+            setattr(self, attr, item)
+
+    def load_item(self, item: MockBrowserItem) -> None:
+        if not item.is_loadable:
+            raise RuntimeError(f"'{item.name}' is not loadable")
+        target = self._song.view.selected_track
+        if target is None:
+            raise RuntimeError("No track selected")
+        target.devices.append(MockDevice(name=item.name, class_name=item.name))
+
+
 class MockApplication:
+    def __init__(self, song: Optional[MockSong] = None):
+        self.browser = MockBrowser(song) if song is not None else None
+
     def get_major_version(self) -> int:
         return 12
 
@@ -400,7 +477,7 @@ class MockControlSurface:
 
     def __init__(self, song: Optional[MockSong] = None):
         self._song = song if song is not None else MockSong()
-        self._app = MockApplication()
+        self._app = MockApplication(self._song)
         self.messages: List[str] = []
 
     def schedule_message(self, delay, callback):
