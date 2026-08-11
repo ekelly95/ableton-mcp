@@ -13,11 +13,15 @@ reason.
 import os
 from typing import Any
 
-from ..config import AUDIO_EXTENSIONS, MAX_ARRANGEMENT_CLIPS_PER_READ
+from ..config import AUDIO_EXTENSIONS, MAX_ARRANGEMENT_CLIPS_PER_READ, SEEK_EPSILON
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import get_arrangement_clip, get_track
 
+# Exact-match tolerance for confirming/guarding clip and cue positions.
 _TIME_EPSILON = 1e-3
+# Wider than _TIME_EPSILON: Live may snap a new cue slightly off the
+# requested time, so confirming one needs more slack than an exact match.
+_CUE_SNAP_EPSILON = 0.05
 
 
 def _serialize_arrangement_clip(index: int, clip: Any) -> dict[str, Any]:
@@ -441,7 +445,7 @@ def create_locator(ctx, time: float, name: str | None = None) -> dict[str, Any]:
     # issues the seek and returns {"phase": "seeking"}; the caller repeats the
     # call, and phase 2 (playhead now parked at the target) drops the cue.
     # The MCP server and the checkpoint loop on "seeking" transparently.
-    if abs(song.current_song_time - time) > 0.01:
+    if abs(song.current_song_time - time) > SEEK_EPSILON:
         song.current_song_time = time
         return {
             "phase": "seeking",
@@ -464,7 +468,7 @@ def create_locator(ctx, time: float, name: str | None = None) -> dict[str, Any]:
     after = list(song.cue_points)
     created = next((c for c in after if c not in before), None)
     if created is None:
-        created = next((c for c in after if abs(c.time - time) < 0.05), None)
+        created = next((c for c in after if abs(c.time - time) < _CUE_SNAP_EPSILON), None)
     if created is None:
         raise LiveAPIError(f"Locator at {time} could not be confirmed")
 

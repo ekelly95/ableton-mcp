@@ -23,7 +23,12 @@ logger = logging.getLogger("ableton-mcp")
 from control_surface.commands import REGISTRY  # noqa: E402 - after logging setup
 from control_surface.config import VERSION  # noqa: E402
 
-from .client import AbletonClient, AbletonConnectionError, CommandError  # noqa: E402
+from .client import (  # noqa: E402
+    NOT_RUNNING_HINT,
+    AbletonClient,
+    AbletonConnectionError,
+    CommandError,
+)
 from .m4l import AUDIO_LEVELS_TOOL, TapClient, get_audio_levels  # noqa: E402
 
 BRIDGE_STATUS_TOOL = types.Tool(
@@ -94,9 +99,8 @@ def _bridge_status(client: AbletonClient, drift: _DriftCheck) -> dict:
             "connected": False,
             "package_version": VERSION,
             "hint": (
-                "Start Ableton Live and enable the AbletonMCP control surface under "
-                "Preferences > Link, Tempo & MIDI. If it is enabled, re-run "
-                "scripts/install_control_surface.py and restart Live."
+                f"{NOT_RUNNING_HINT} If it is enabled, re-run "
+                f"scripts/install_control_surface.py and restart Live."
             ),
         }
     in_sync = drift.check(ping_result)
@@ -133,15 +137,8 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
         def _dispatch() -> Any:
             if not drift.done:
                 drift.check(ableton.ping())
-            result = ableton.send(name, **arguments)
-            # Two-phase commands (create_locator): Live applies playhead seeks
-            # only between requests, so the control surface asks to be called
-            # again. Loop here so the model sees a single tool call.
-            attempts = 0
-            while isinstance(result, dict) and result.get("phase") == "seeking" and attempts < 4:
-                attempts += 1
-                result = ableton.send(name, **arguments)
-            return result
+            # Resolves two-phase seeks so the model sees a single tool call.
+            return ableton.send_resolving_seek(name, **arguments)
 
         try:
             result = await anyio.to_thread.run_sync(_dispatch)

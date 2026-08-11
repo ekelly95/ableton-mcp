@@ -2,13 +2,10 @@
 
 from typing import Any
 
+from ..config import SEEK_EPSILON
 from ..errors import PartialApplyError
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.pitch import SHARP_NAMES, root_name_to_pitch_class
-
-# Parked-playhead tolerance in beats — same semantics as create_locator's
-# two-phase check.
-_SEEK_EPSILON = 0.01
 
 
 def _transport_state(song: Any) -> dict[str, Any]:
@@ -85,7 +82,7 @@ def get_transport_state(ctx) -> dict[str, Any]:
 )
 def transport_control(ctx, action: str, position: float | None = None) -> dict[str, Any]:
     song = ctx.song
-    if position is not None and abs(song.current_song_time - position) > _SEEK_EPSILON:
+    if position is not None and abs(song.current_song_time - position) > SEEK_EPSILON:
         # Verified on real Live 12.4 (see create_locator): a current_song_time
         # write does NOT take effect within the same scheduled task. Starting
         # playback in the task that issues the seek would play from the OLD

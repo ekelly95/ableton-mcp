@@ -57,6 +57,11 @@ class FakeAbletonClient:
             raise CommandError("Track index 99 out of range", error_type="LiveAPIError")
         return {"ok": True, "command": command}
 
+    # The server dispatches through the seek-resolving wrapper; canned
+    # responses never enter the "seeking" phase, so a single send suffices.
+    def send_resolving_seek(self, command, **params):
+        return self.send(command, **params)
+
 
 class TestToolGeneration:
     def test_every_registry_command_is_a_tool(self):

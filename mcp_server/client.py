@@ -15,7 +15,13 @@ import uuid
 from typing import Any
 
 from control_surface.commands import REGISTRY
-from control_surface.config import COMMAND_TIMEOUTS
+from control_surface.config import (
+    COMMAND_TIMEOUTS,
+    HEADER_SIZE,
+    MAX_MESSAGE_SIZE,
+    TCP_HOST,
+    TCP_PORT,
+)
 
 # Answered by the socket server without touching Live state.
 WIRE_SPECIALS = {"ping", "list_commands", "get_mcp_tools"}
@@ -31,16 +37,14 @@ def _safe_to_resend(command: str) -> bool:
     return schema is not None and schema.read_only
 
 
-HEADER_SIZE = 4
-MAX_MESSAGE_SIZE = 16 * 1024 * 1024
-
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 9877
 DEFAULT_TIMEOUT = 45.0
 # Client-side grace on top of the control surface's own per-command timeout,
 # so Live's timeout error (the informative one) wins the race when both fire.
 TIMEOUT_GRACE = 15.0
 CONNECT_TIMEOUT = 5.0
+# Two-phase seeks resolve on the next ~100ms tick; more retries than this
+# means the playhead is not settling and the caller should see the raw phase.
+SEEK_RESEND_LIMIT = 4
 
 logger = logging.getLogger("ableton-mcp.client")
 
@@ -84,8 +88,8 @@ class CommandError(Exception):
 class AbletonClient:
     def __init__(
         self,
-        host: str = DEFAULT_HOST,
-        port: int = DEFAULT_PORT,
+        host: str = TCP_HOST,
+        port: int = TCP_PORT,
         timeout: float = DEFAULT_TIMEOUT,
     ):
         self.host = host
@@ -161,6 +165,24 @@ class AbletonClient:
             param=response.get("param"),
             applied=response.get("applied"),
         )
+
+    def send_resolving_seek(self, command: str, **params: Any) -> Any:
+        """send(), repeated while the control surface answers {"phase": "seeking"}.
+
+        Two-phase commands (create_locator, transport_control with a position)
+        apply the playhead seek between scheduled tasks and ask to be called
+        again; looping here lets callers see a single round trip.
+        """
+        result = self.send(command, **params)
+        attempts = 0
+        while (
+            isinstance(result, dict)
+            and result.get("phase") == "seeking"
+            and attempts < SEEK_RESEND_LIMIT
+        ):
+            attempts += 1
+            result = self.send(command, **params)
+        return result
 
     def ping(self) -> dict[str, Any] | None:
         try:

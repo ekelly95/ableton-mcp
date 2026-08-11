@@ -13,9 +13,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from control_surface.config import VERSION  # noqa: E402
 from mcp_server.client import AbletonClient, CommandError  # noqa: E402
 
 PASS, FAIL = "PASS", "FAIL"
+WHOLE_RUN_BUDGET_SECONDS = 240
 results = []
 
 
@@ -53,7 +55,7 @@ state = {}
 @step("ping: version + command count")
 def check_ping(client):
     result = client.send("ping")
-    assert result["pong"] and result["version"] == "2.3.0", result
+    assert result["pong"] and result["version"] == VERSION, result
     return f"v{result['version']}, {result['command_count']} commands"
 
 
@@ -376,16 +378,6 @@ def check_arrangement_record(client):
     return "record arms/disarms (confirmed next-tick); never played while armed"
 
 
-def send_looping(client, command, **params):
-    """Repeat two-phase commands until they leave the 'seeking' phase."""
-    result = client.send(command, **params)
-    attempts = 0
-    while isinstance(result, dict) and result.get("phase") == "seeking" and attempts < 4:
-        attempts += 1
-        result = client.send(command, **params)
-    return result
-
-
 @step("clip envelopes: LP sweep write/read + mixer volume + guarded clear")
 def check_envelopes(client):
     ramp = [
@@ -448,11 +440,11 @@ def check_locator(client):
     # so find a beat nothing occupies yet.
     taken = {loc["time"] for loc in client.send("get_arrangement")["locators"]}
     target = next(t for t in (32.0, 36.0, 40.0, 44.0, 48.0, 52.0) if t not in taken)
-    result = send_looping(client, "create_locator", time=target, name="Chorus")
+    result = client.send_resolving_seek("create_locator", time=target, name="Chorus")
     assert result["locator"]["time"] == target, result
     assert result["locator"]["name"] == "Chorus", result
     try:
-        send_looping(client, "create_locator", time=target, name="Verse")
+        client.send_resolving_seek("create_locator", time=target, name="Verse")
         raise AssertionError("collision was not refused")
     except CommandError as e:
         assert "already exists" in e.message, e
@@ -644,7 +636,7 @@ def check_meters(client):
 @step("play from beat 8: two-phase seek lands before playback starts")
 def check_play_from_position(client):
     client.send("transport_control", action="stop")
-    result = send_looping(client, "transport_control", action="play", position=8.0)
+    result = client.send_resolving_seek("transport_control", action="play", position=8.0)
     assert result.get("phase") != "seeking", "seeking never resolved"
     time.sleep(0.5)
     st = client.send("get_transport_state")
@@ -660,7 +652,7 @@ def check_play_from_position(client):
 def check_finale(client):
     client.send("set_transport", back_to_arranger=False)
     # position=0.0 is a real seek by now — two-phase, so loop on 'seeking'.
-    send_looping(client, "transport_control", action="play", position=0.0)
+    client.send_resolving_seek("transport_control", action="play", position=0.0)
     time.sleep(5.0)
     client.send("transport_control", action="stop")
     return "that was the timeline: the placed loops, then the 440Hz tone at beat 8"
@@ -705,9 +697,6 @@ def check_live_error(client):
     except CommandError as e:
         assert e.error_type == "LiveAPIError", e
         return "out-of-range rejected with LiveAPIError"
-
-
-WHOLE_RUN_BUDGET_SECONDS = 240
 
 
 def main():

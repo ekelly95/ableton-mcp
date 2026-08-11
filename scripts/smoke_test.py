@@ -4,54 +4,33 @@ Run:  python scripts/smoke_test.py
 """
 
 import json
-import socket
-import struct
 import sys
-import uuid
+from pathlib import Path
 
-HOST, PORT = "127.0.0.1", 9877
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-
-def send(sock: socket.socket, command: str, **params) -> dict:
-    body = json.dumps({"type": command, "params": params, "id": str(uuid.uuid4())}).encode()
-    sock.sendall(struct.pack(">I", len(body)) + body)
-    header = b""
-    while len(header) < 4:
-        chunk = sock.recv(4 - len(header))
-        if not chunk:
-            raise ConnectionError("connection closed")
-        header += chunk
-    length = struct.unpack(">I", header)[0]
-    payload = b""
-    while len(payload) < length:
-        chunk = sock.recv(length - len(payload))
-        if not chunk:
-            raise ConnectionError("connection closed")
-        payload += chunk
-    return json.loads(payload.decode())
+from mcp_server.client import AbletonClient, AbletonConnectionError, CommandError  # noqa: E402
 
 
 def main() -> None:
+    client = AbletonClient(timeout=10.0)
     try:
-        sock = socket.create_connection((HOST, PORT), timeout=10)
-    except OSError as e:
-        print(
-            f"FAIL: cannot connect to {HOST}:{PORT} — is Live running with AbletonMCP enabled? ({e})"
-        )
+        result = client.send("ping")
+    except (AbletonConnectionError, CommandError) as e:
+        print(f"FAIL: {e}")
         sys.exit(1)
+    finally:
+        client.close()
 
-    with sock:
-        response = send(sock, "ping")
-        print(json.dumps(response, indent=2))
-        result = response.get("result", {})
-        if response.get("status") == "success" and result.get("pong"):
-            print(
-                f"\nOK: AbletonMCP v{result.get('version')} responding, "
-                f"{result.get('command_count')} commands registered."
-            )
-        else:
-            print("\nFAIL: unexpected response")
-            sys.exit(1)
+    print(json.dumps(result, indent=2))
+    if isinstance(result, dict) and result.get("pong"):
+        print(
+            f"\nOK: AbletonMCP v{result.get('version')} responding, "
+            f"{result.get('command_count')} commands registered."
+        )
+    else:
+        print("\nFAIL: unexpected response")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

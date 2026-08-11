@@ -2,6 +2,10 @@
 
 Single source of the project version: pyproject.toml must match VERSION
 (enforced by tests/test_version_sync.py).
+
+Placement rule: constants shared across modules or processes (wire protocol,
+timeouts, payload caps) live here; a knob used by exactly one module stays in
+that module.
 """
 
 import os
@@ -39,6 +43,10 @@ COMMAND_TIMEOUTS: dict = {
     "create_scene": 60.0,
     "add_notes": 60.0,
 }
+
+# Parked-playhead tolerance in beats for the two-phase seek protocol
+# (create_locator and transport_control position seeks share the semantics).
+SEEK_EPSILON: float = 0.01
 
 # Socket server behaviour
 SOCKET_BACKLOG: int = 5

@@ -9,6 +9,7 @@ Probes, in order of preference:
 Run:  python scripts/install_control_surface.py
 """
 
+import importlib.util
 import os
 import shutil
 import sys
@@ -63,6 +64,16 @@ def pick_target() -> Path:
     sys.exit(1)
 
 
+def load_version() -> str:
+    # config.py imports nothing beyond the stdlib (test_import_purity.py keeps
+    # it that way), so load it by path — importing the package __init__ from
+    # here would be heavier and could leave __pycache__ noise in the source.
+    spec = importlib.util.spec_from_file_location("ableton_mcp_config", SOURCE / "config.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.VERSION
+
+
 def main() -> None:
     if not SOURCE.is_dir():
         print(f"Source not found: {SOURCE}")
@@ -95,11 +106,7 @@ def main() -> None:
         print(f"  {e}")
         sys.exit(2)
 
-    version = "unknown"
-    for line in (SOURCE / "config.py").read_text(encoding="utf-8").splitlines():
-        if line.startswith("VERSION"):
-            version = line.split('"')[1]
-            break
+    version = load_version()
 
     file_count = sum(1 for _ in target.rglob("*.py"))
     print(f"Installed {TARGET_NAME} v{version} ({file_count} files) to:")
