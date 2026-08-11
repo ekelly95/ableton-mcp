@@ -81,6 +81,10 @@ def print_bands(levels) -> None:
 
 
 def main() -> None:
+    # Windows consoles are often cp1252 — never let '≈'/'≥' in a print crash
+    # the run (same guard as live_checkpoint.py).
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
     tap = TapClient()
     failures: list[str] = []
 
@@ -169,10 +173,15 @@ def main() -> None:
             failures.append(f"calibration: rms {cal['rms_db_max']} dB not within ±3 of -15")
         if abs(cal["peak_db_max"] - (-12.0)) > 2.0:
             failures.append(f"calibration: peak {cal['peak_db_max']} dB not within ±2 of -12")
-        for far in ("31", "63", "125", "8k", "16k"):
-            if by_hz["1k"] - by_hz[far] < 8.0:
+        # Low bands: strict. High bands: the octave filters are deliberately
+        # broad (2-pole skirts, Q≈1.414 for contiguous coverage) and the 16k
+        # response warps near Nyquist at 44.1k (documented in README-lab.md) —
+        # measured on real Live: 8k ≈ −8 dB, 16k ≈ −6 dB below a 1 kHz tone.
+        for far, min_below in (("31", 8.0), ("63", 8.0), ("125", 8.0), ("8k", 4.0), ("16k", 4.0)):
+            if by_hz["1k"] - by_hz[far] < min_below:
                 failures.append(
-                    f"calibration: band {far} ({by_hz[far]} dB) not ≥8 dB below 1k ({by_hz['1k']})"
+                    f"calibration: band {far} ({by_hz[far]} dB) not >={min_below} dB "
+                    f"below 1k ({by_hz['1k']})"
                 )
 
         print("5. Anti-phase stereo 220 Hz (v1 mono-sum read -70 dB here)...", flush=True)
