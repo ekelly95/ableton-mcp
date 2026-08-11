@@ -1,64 +1,99 @@
 # ableton-mcp
 
-Claude controls Ableton Live. You describe what you want — a drum groove, a
-chord progression, a filter sweep — and Claude builds it in your Live session
-while you watch.
+AI agents control Ableton Live. You describe what you want — a drum groove, a
+chord progression, a filter sweep, a song arrangement — and your AI assistant
+builds it in your Live session while you watch. Works with any MCP client:
+Claude Desktop, Claude Code, Codex, or anything else that speaks the Model
+Context Protocol over stdio.
 
-This is the 2026 rebuild of the 2025 project, keeping its architecture
-(two halves talking over a local socket) and fixing what killed it (the tool
-definitions are now generated from one place, never written by hand).
+**Status: experimental, Windows-only for now** (macOS support is roadmap: the
+Live-side script already supports Unix sockets, but the client and installer
+don't yet). Verified end-to-end against Ableton Live 12.4 on Windows 11.
+Works with **any Live edition** — Intro, Standard, or Suite; no Max for Live
+required.
 
-## What Claude can do with it
+## What the AI can do with it
 
-35 tools: read the whole session at a glance; create/rename/mix tracks; create,
-duplicate, launch and edit clips; write MIDI notes by name ("C3", "F#4" —
-Ableton convention, C3=60) with per-note chance and velocity spread; edit
-single notes precisely without rewriting the clip; set the song's key and
-scale; **build songs on the Arrangement timeline** (create MIDI clips directly
-on it, stamp session loops onto it, drop named locators, edit timeline clips);
-import audio files from disk into the session or onto the timeline (the
-landing pad for any future sample generation — generators just write a file to
-`samples\`); browse Live's library and load instruments/effects; turn any
-device knob; control tempo, loop, metronome, playback and (via its own
+35 tools: read the whole session at a glance; create/rename/mix tracks;
+create, duplicate, launch and edit clips; write MIDI notes by name ("C3",
+"F#4" — Ableton convention, C3=60) with per-note chance and velocity spread;
+edit single notes precisely by ID without rewriting the clip; set the song's
+key and scale; build songs on the Arrangement timeline (create MIDI clips
+directly on it, stamp session loops onto it, drop named locators, edit
+timeline clips); import audio files into the session or onto the timeline
+(the landing pad for sample generation — generators just write a file and
+call import_audio); browse Live's library and load instruments/effects; turn
+any device knob; control tempo, loop, metronome, playback and (via its own
 guarded tool) arrangement recording.
 
-## Parts
+## How it works
 
-- `control_surface/` — runs **inside Live** (installed as a "Control Surface")
-- `mcp_server/` — runs next to Claude Desktop / Claude Code, talks to the above
-- One copy of the truth: the MCP server generates its tools from the same
-  registry the control surface executes.
+```
+AI client ── MCP (stdio) ── mcp_server ── TCP 127.0.0.1:9877 ── control surface inside Live
+```
 
-## Setup (already done on this machine)
+Two halves, one source of truth: every tool is generated from the command
+registry that the Live-side script executes — nothing is defined twice, and a
+schema-hash handshake warns if the two ever drift apart. See
+[docs/architecture.md](docs/architecture.md) for design decisions and
+verified Live API facts.
 
-1. `python scripts/install_control_surface.py` — copies the Live-side part to
-   your User Library. **Re-run after every code change, then restart Live.**
-2. In Live: Options → Preferences → Link, Tempo & MIDI → set a Control Surface
-   dropdown to **AbletonMCP** (Input/Output: None). One-time.
-3. Claude Desktop: `ableton` entry in `%APPDATA%\Claude\claude_desktop_config.json`
-   pointing at `.venv\Scripts\ableton-mcp.exe`. Restart Claude Desktop after edits.
+## Setup
 
-Only run ONE Claude app against it at a time (the bridge serves one client).
+Requirements: Windows, Python 3.11+, Ableton Live 11.1+ (12.x verified).
+
+```bash
+git clone <this-repo> && cd ableton-mcp
+python -m venv .venv
+.venv\Scripts\pip install -e ".[dev]"
+python scripts/install_control_surface.py
+```
+
+Then, one-time, in Ableton Live: **Options → Preferences → Link, Tempo &
+MIDI**, set a free Control Surface dropdown to **AbletonMCP** (Input/Output:
+None), and restart Live. Re-run the install script + restart Live after any
+update.
+
+Register with your MCP client — e.g. Claude Desktop
+(`%APPDATA%\Claude\claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "ableton": {
+      "command": "C:\\path\\to\\ableton-mcp\\.venv\\Scripts\\ableton-mcp.exe",
+      "args": []
+    }
+  }
+}
+```
+
+Run only ONE MCP client against it at a time (the bridge serves one client,
+serially, on purpose).
 
 ## Health check
 
-Ask Claude to run `get_bridge_status`, or from a terminal:
+Ask the AI to run `get_bridge_status`, or from a terminal:
 
 ```bash
-cd C:/dev/ableton-mcp && .venv/Scripts/python.exe scripts/smoke_test.py
+.venv/Scripts/python.exe scripts/smoke_test.py
 ```
 
-"Cannot connect" almost always means Live isn't running or the control surface
-isn't enabled in Preferences.
+"Cannot connect" almost always means Live isn't running or the control
+surface isn't enabled in Preferences.
 
 ## Development
 
 ```bash
-cd C:/dev/ableton-mcp && .venv/Scripts/python.exe -m pytest
+.venv/Scripts/python.exe -m pytest
 ```
 
-The test suite runs without Live (a mock stands in — see `tests/mock_live.py`, which
-encodes real-Live behaviour verified on 12.4.3). `scripts/live_checkpoint.py`
-re-verifies everything against a running Live and leaves an audible "MCP Test"
-track behind. See `docs/architecture.md` for design decisions and what was
-deliberately left out.
+The test suite runs without Live — a mock stands in (`tests/mock_live.py`),
+encoding real-Live behaviour verified on 12.4 with provenance comments.
+`scripts/live_checkpoint.py` re-verifies the full surface against a running
+Live and leaves an audible "MCP Test" track behind. Generated samples go in
+`samples/` (override with `ABLETON_MCP_SAMPLES_DIR`).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

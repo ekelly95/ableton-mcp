@@ -11,16 +11,16 @@ reason.
 """
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from ..config import AUDIO_EXTENSIONS, MAX_ARRANGEMENT_CLIPS_PER_READ, SAMPLES_DIR
+from ..config import AUDIO_EXTENSIONS, MAX_ARRANGEMENT_CLIPS_PER_READ
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import get_arrangement_clip, get_track
 
 _TIME_EPSILON = 1e-3
 
 
-def _serialize_arrangement_clip(index: int, clip: Any) -> Dict[str, Any]:
+def _serialize_arrangement_clip(index: int, clip: Any) -> dict[str, Any]:
     return {
         "arrangement_clip_index": index,
         "name": clip.name,
@@ -33,7 +33,7 @@ def _serialize_arrangement_clip(index: int, clip: Any) -> Dict[str, Any]:
     }
 
 
-def _track_arrangement(track_index: int, track: Any) -> Dict[str, Any]:
+def _track_arrangement(track_index: int, track: Any) -> dict[str, Any]:
     clips = list(track.arrangement_clips)
     truncated = len(clips) > MAX_ARRANGEMENT_CLIPS_PER_READ
     return {
@@ -76,7 +76,7 @@ def _track_arrangement(track_index: int, track: Any) -> Dict[str, Any]:
         },
     },
 )
-def get_arrangement(ctx, track_index: Optional[int] = None) -> Dict[str, Any]:
+def get_arrangement(ctx, track_index: int | None = None) -> dict[str, Any]:
     song = ctx.song
     if track_index is not None:
         tracks = [_track_arrangement(track_index, get_track(song, track_index))]
@@ -85,9 +85,7 @@ def get_arrangement(ctx, track_index: Optional[int] = None) -> Dict[str, Any]:
 
     return {
         "tracks": tracks,
-        "locators": [
-            {"name": cue.name, "time": cue.time} for cue in song.cue_points
-        ],
+        "locators": [{"name": cue.name, "time": cue.time} for cue in song.cue_points],
         "song_length": song.song_length,
         "record_mode": song.record_mode,
         "back_to_arranger": song.back_to_arranger,
@@ -117,7 +115,7 @@ def get_arrangement(ctx, track_index: Optional[int] = None) -> Dict[str, Any]:
 )
 def create_arrangement_clip(
     ctx, track_index: int, start_time: float, length_beats: float
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     if not track.has_midi_input:
         raise LiveAPIError(f"Track {track_index} is not a MIDI track")
@@ -139,8 +137,7 @@ def create_arrangement_clip(
     )
     if placed is None:
         raise LiveAPIError(
-            f"Clip creation at {start_time} could not be confirmed — "
-            f"re-read with get_arrangement"
+            f"Clip creation at {start_time} could not be confirmed — re-read with get_arrangement"
         )
     index, clip = placed
     return {"created": _serialize_arrangement_clip(index, clip)}
@@ -157,7 +154,7 @@ def create_arrangement_clip(
         "session. Turn it off as soon as the take is done."
     ),
 )
-def arrangement_record(ctx, enabled: bool) -> Dict[str, Any]:
+def arrangement_record(ctx, enabled: bool) -> dict[str, Any]:
     song = ctx.song
     if enabled and song.is_playing:
         raise LiveAPIError(
@@ -204,7 +201,7 @@ def arrangement_record(ctx, enabled: bool) -> Dict[str, Any]:
 )
 def place_clip_in_arrangement(
     ctx, track_index: int, slot_index: int, destination_time: float
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     from ..utils.live_helpers import get_clip
 
     song = ctx.song
@@ -241,9 +238,7 @@ def place_clip_in_arrangement(
         "placed": _serialize_arrangement_clip(
             placed_index if placed_index is not None else -1, placed
         ),
-        "arrangement_clips": [
-            _serialize_arrangement_clip(i, c) for i, c in enumerate(clips)
-        ],
+        "arrangement_clips": [_serialize_arrangement_clip(i, c) for i, c in enumerate(clips)],
         "back_to_arranger": song.back_to_arranger,
     }
 
@@ -277,18 +272,18 @@ def place_clip_in_arrangement(
         "Import an audio file from disk onto an AUDIO track — either onto the "
         "Arrangement timeline (position, in beats) or into a Session slot "
         "(slot_index); give exactly one. The bridge half of sample generation: "
-        f"any tool that writes an audio file (convention: under {SAMPLES_DIR}) "
-        "can land it in the set with this. First import of a file may take a "
-        "while (Live analyzes it)."
+        "any tool that writes an audio file (convention: the project's "
+        "samples/ folder) can land it in the set with this. First import of a "
+        "file may take a while (Live analyzes it)."
     ),
 )
 def import_audio(
     ctx,
     track_index: int,
     file_path: str,
-    position: Optional[float] = None,
-    slot_index: Optional[int] = None,
-) -> Dict[str, Any]:
+    position: float | None = None,
+    slot_index: int | None = None,
+) -> dict[str, Any]:
     from ..errors import ValidationError
     from ..utils.live_helpers import get_clip_slot
 
@@ -307,9 +302,7 @@ def import_audio(
     if not os.path.isfile(file_path):
         raise LiveAPIError(f"File not found: {file_path}")
     if not file_path.lower().endswith(AUDIO_EXTENSIONS):
-        raise LiveAPIError(
-            f"Unsupported extension. Use one of: {', '.join(AUDIO_EXTENSIONS)}"
-        )
+        raise LiveAPIError(f"Unsupported extension. Use one of: {', '.join(AUDIO_EXTENSIONS)}")
     if track.has_midi_input:
         raise LiveAPIError(
             f"Track {track_index} is a MIDI track — audio clips need an audio track "
@@ -386,7 +379,7 @@ def delete_arrangement_clip(
     track_index: int,
     arrangement_clip_index: int,
     expected_start_time: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     clip = get_arrangement_clip(track, arrangement_clip_index)
 
@@ -418,7 +411,7 @@ def delete_arrangement_clip(
         "Moves the playhead to that time as a side effect."
     ),
 )
-def create_locator(ctx, time: float, name: Optional[str] = None) -> Dict[str, Any]:
+def create_locator(ctx, time: float, name: str | None = None) -> dict[str, Any]:
     song = ctx.song
 
     # Verified on real Live 12.4: with the transport running, the playhead
@@ -459,9 +452,7 @@ def create_locator(ctx, time: float, name: Optional[str] = None) -> Dict[str, An
     after = list(song.cue_points)
     created = next((c for c in after if c not in before), None)
     if created is None:
-        created = next(
-            (c for c in after if abs(c.time - time) < 0.05), None
-        )
+        created = next((c for c in after if abs(c.time - time) < 0.05), None)
     if created is None:
         raise LiveAPIError(f"Locator at {time} could not be confirmed")
 

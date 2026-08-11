@@ -9,7 +9,6 @@ comment naming the verified behaviour.
 import itertools
 import sys
 import types
-from typing import Any, List, Optional, Tuple
 
 _note_id_counter = itertools.count(1)
 
@@ -31,7 +30,7 @@ class MockMidiNote:
         probability: float = 1.0,
         velocity_deviation: float = 0.0,
         release_velocity: float = 64.0,
-        note_id: Optional[int] = None,
+        note_id: int | None = None,
     ):
         self.note_id = note_id if note_id is not None else next(_note_id_counter)
         self.pitch = pitch
@@ -123,8 +122,8 @@ class MockClip:
         # Arrangement placement (meaningful only for arrangement clips)
         self.start_time = 0.0
         self.end_time = length
-        self.file_path: Optional[str] = None
-        self._notes: List[MockMidiNote] = []
+        self.file_path: str | None = None
+        self._notes: list[MockMidiNote] = []
 
     # --- Modern note-ID API (Live 11.1+) ---
 
@@ -207,7 +206,7 @@ class MockClipSlot:
     def __init__(self, track: "MockTrack"):
         self._track = track
         self.has_clip = False
-        self.clip: Optional[MockClip] = None
+        self.clip: MockClip | None = None
         self.is_playing = False
         self.is_triggered = False
         self.is_recording = False
@@ -252,7 +251,7 @@ class MockDevice:
         self.name = name
         self.class_name = class_name
         self.is_active = True
-        self.parameters: List[MockParameter] = [
+        self.parameters: list[MockParameter] = [
             MockParameter("Device On", value=1.0, min=0.0, max=1.0, is_quantized=True),
             MockParameter("Macro 1", value=0.5),
             MockParameter("Macro 2", value=0.25),
@@ -264,7 +263,7 @@ class MockMixerDevice:
         # VERIFY #7: volume normalized 0-1 with 0.85 ~= 0 dB; pan -1..1
         self.volume = MockParameter("Volume", value=0.85, min=0.0, max=1.0, default_value=0.85)
         self.panning = MockParameter("Pan", value=0.0, min=-1.0, max=1.0, default_value=0.0)
-        self.sends: List[MockParameter] = [
+        self.sends: list[MockParameter] = [
             MockParameter(f"Send {chr(65 + i)}", value=0.0) for i in range(send_count)
         ]
 
@@ -290,9 +289,9 @@ class MockTrack:
         self.is_grouped = False
         self.is_visible = True
         self.mixer_device = MockMixerDevice(send_count=send_count)
-        self.clip_slots: List[MockClipSlot] = [MockClipSlot(self) for _ in range(slot_count)]
-        self.devices: List[MockDevice] = []
-        self.arrangement_clips: List[MockClip] = []
+        self.clip_slots: list[MockClipSlot] = [MockClipSlot(self) for _ in range(slot_count)]
+        self.devices: list[MockDevice] = []
+        self.arrangement_clips: list[MockClip] = []
 
     def stop_all_clips(self) -> None:
         for slot in self.clip_slots:
@@ -433,9 +432,21 @@ class MockSong:
     # Live's scale chooser list (Live 12.4) — the mock rejects names outside it
     # by silently keeping the old value, mirroring VERIFY-tagged Live behavior.
     KNOWN_SCALES = [
-        "Major", "Minor", "Dorian", "Mixolydian", "Lydian", "Phrygian", "Locrian",
-        "Whole Tone", "Half-whole Dim.", "Whole-half Dim.", "Minor Blues",
-        "Minor Pentatonic", "Major Pentatonic", "Harmonic Minor", "Melodic Minor",
+        "Major",
+        "Minor",
+        "Dorian",
+        "Mixolydian",
+        "Lydian",
+        "Phrygian",
+        "Locrian",
+        "Whole Tone",
+        "Half-whole Dim.",
+        "Whole-half Dim.",
+        "Minor Blues",
+        "Minor Pentatonic",
+        "Major Pentatonic",
+        "Harmonic Minor",
+        "Melodic Minor",
     ]
     SCALE_INTERVALS = {
         "Major": [0, 2, 4, 5, 7, 9, 11],
@@ -459,13 +470,15 @@ class MockSong:
         self.record_mode = False
         self.back_to_arranger = False
         self.arrangement_overdub = False
-        self.scenes: List[MockScene] = [MockScene(f"Scene {i + 1}") for i in range(scene_count)]
-        self.tracks: List[MockTrack] = [
+        self.scenes: list[MockScene] = [MockScene(f"Scene {i + 1}") for i in range(scene_count)]
+        self.tracks: list[MockTrack] = [
             MockTrack(name=f"{i + 1} Track", slot_count=scene_count, send_count=return_count)
             for i in range(track_count)
         ]
-        self.return_tracks: List[MockTrack] = [
-            MockTrack(name=f"{chr(65 + i)} Return", has_midi_input=False, slot_count=0, can_be_armed=False)
+        self.return_tracks: list[MockTrack] = [
+            MockTrack(
+                name=f"{chr(65 + i)} Return", has_midi_input=False, slot_count=0, can_be_armed=False
+            )
             for i in range(return_count)
         ]
         self.master_track = MockTrack(
@@ -476,7 +489,7 @@ class MockSong:
         for missing_attr in ("mute", "solo", "arm"):
             delattr(self.master_track, missing_attr)
         self.view = MockSongView()
-        self.cue_points: List[MockCuePoint] = []
+        self.cue_points: list[MockCuePoint] = []
 
     @property
     def scale_name(self) -> str:
@@ -611,7 +624,7 @@ class MockBrowser:
 
 
 class MockApplication:
-    def __init__(self, song: Optional[MockSong] = None):
+    def __init__(self, song: MockSong | None = None):
         self.browser = MockBrowser(song) if song is not None else None
 
     def get_major_version(self) -> int:
@@ -624,10 +637,10 @@ class MockApplication:
 class MockControlSurface:
     """Immediate scheduler: tasks run synchronously on the calling thread."""
 
-    def __init__(self, song: Optional[MockSong] = None):
+    def __init__(self, song: MockSong | None = None):
         self._song = song if song is not None else MockSong()
         self._app = MockApplication(self._song)
-        self.messages: List[str] = []
+        self.messages: list[str] = []
 
     def schedule_message(self, delay, callback):
         callback()

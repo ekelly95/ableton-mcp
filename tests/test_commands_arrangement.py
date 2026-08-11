@@ -117,8 +117,12 @@ class TestPitchNamesInNotes:
 class TestArrangement:
     def test_place_clip(self, registry, ctx, song, with_session_clip):
         result = run_command(
-            registry, ctx, "place_clip_in_arrangement",
-            track_index=0, slot_index=0, destination_time=8.0,
+            registry,
+            ctx,
+            "place_clip_in_arrangement",
+            track_index=0,
+            slot_index=0,
+            destination_time=8.0,
         )
         assert result["placed"]["start_time"] == 8.0
         assert result["placed"]["end_time"] == 12.0
@@ -127,17 +131,38 @@ class TestArrangement:
         assert "back_to_arranger" in result
 
     def test_placed_clips_are_time_ordered(self, registry, ctx, song, with_session_clip):
-        run_command(registry, ctx, "place_clip_in_arrangement", track_index=0, slot_index=0, destination_time=16.0)
-        run_command(registry, ctx, "place_clip_in_arrangement", track_index=0, slot_index=0, destination_time=0.0)
+        run_command(
+            registry,
+            ctx,
+            "place_clip_in_arrangement",
+            track_index=0,
+            slot_index=0,
+            destination_time=16.0,
+        )
+        run_command(
+            registry,
+            ctx,
+            "place_clip_in_arrangement",
+            track_index=0,
+            slot_index=0,
+            destination_time=0.0,
+        )
         arrangement = run_command(registry, ctx, "get_arrangement", track_index=0)
         starts = [c["start_time"] for c in arrangement["tracks"][0]["arrangement_clips"]]
         assert starts == [0.0, 16.0]
 
     def test_edit_notes_in_arrangement_clip(self, registry, ctx, song, with_session_clip):
-        run_command(registry, ctx, "place_clip_in_arrangement", track_index=0, slot_index=0, destination_time=0.0)
-        notes = run_command(
-            registry, ctx, "get_notes", track_index=0, arrangement_clip_index=0
-        )["notes"]
+        run_command(
+            registry,
+            ctx,
+            "place_clip_in_arrangement",
+            track_index=0,
+            slot_index=0,
+            destination_time=0.0,
+        )
+        notes = run_command(registry, ctx, "get_notes", track_index=0, arrangement_clip_index=0)[
+            "notes"
+        ]
         assert len(notes) == 3
         run_command(
             registry,
@@ -147,7 +172,9 @@ class TestArrangement:
             arrangement_clip_index=0,
             modifications=[{"note_id": notes[0]["note_id"], "velocity": 33}],
         )
-        session_notes = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]
+        session_notes = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)[
+            "notes"
+        ]
         assert all(n["velocity"] != 33 for n in session_notes), "session copy must be untouched"
 
     def test_xor_addressing_enforced(self, registry, ctx, song, with_session_clip):
@@ -159,57 +186,97 @@ class TestArrangement:
             )
 
     def test_delete_with_guard(self, registry, ctx, song, with_session_clip):
-        run_command(registry, ctx, "place_clip_in_arrangement", track_index=0, slot_index=0, destination_time=4.0)
+        run_command(
+            registry,
+            ctx,
+            "place_clip_in_arrangement",
+            track_index=0,
+            slot_index=0,
+            destination_time=4.0,
+        )
         with pytest.raises(LiveAPIError, match="Stale index"):
             run_command(
-                registry, ctx, "delete_arrangement_clip",
-                track_index=0, arrangement_clip_index=0, expected_start_time=99.0,
+                registry,
+                ctx,
+                "delete_arrangement_clip",
+                track_index=0,
+                arrangement_clip_index=0,
+                expected_start_time=99.0,
             )
         result = run_command(
-            registry, ctx, "delete_arrangement_clip",
-            track_index=0, arrangement_clip_index=0, expected_start_time=4.0,
+            registry,
+            ctx,
+            "delete_arrangement_clip",
+            track_index=0,
+            arrangement_clip_index=0,
+            expected_start_time=4.0,
         )
         assert result["remaining"] == 0
 
     def test_delete_guard_is_mandatory(self, registry, ctx, song, with_session_clip):
-        run_command(registry, ctx, "place_clip_in_arrangement", track_index=0, slot_index=0, destination_time=4.0)
+        run_command(
+            registry,
+            ctx,
+            "place_clip_in_arrangement",
+            track_index=0,
+            slot_index=0,
+            destination_time=4.0,
+        )
         with pytest.raises(ValidationError, match="Required parameter missing"):
             run_command(
-                registry, ctx, "delete_arrangement_clip",
-                track_index=0, arrangement_clip_index=0,
+                registry,
+                ctx,
+                "delete_arrangement_clip",
+                track_index=0,
+                arrangement_clip_index=0,
             )
 
     def test_create_arrangement_clip_direct(self, registry, ctx, song):
         result = run_command(
-            registry, ctx, "create_arrangement_clip",
-            track_index=0, start_time=16.0, length_beats=8.0,
+            registry,
+            ctx,
+            "create_arrangement_clip",
+            track_index=0,
+            start_time=16.0,
+            length_beats=8.0,
         )
         assert result["created"]["start_time"] == 16.0
         assert result["created"]["is_midi_clip"] is True
 
         run_command(
-            registry, ctx, "add_notes",
-            track_index=0, arrangement_clip_index=0,
+            registry,
+            ctx,
+            "add_notes",
+            track_index=0,
+            arrangement_clip_index=0,
             notes=[{"pitch": "C3", "start_time": 0.0, "duration": 1.0}],
         )
-        notes = run_command(
-            registry, ctx, "get_notes", track_index=0, arrangement_clip_index=0
-        )["notes"]
+        notes = run_command(registry, ctx, "get_notes", track_index=0, arrangement_clip_index=0)[
+            "notes"
+        ]
         assert notes[0]["pitch_name"] == "C3"
 
     def test_create_arrangement_clip_needs_midi_track(self, registry, ctx, song):
         song.tracks[1].has_midi_input = False
         with pytest.raises(LiveAPIError, match="not a MIDI track"):
             run_command(
-                registry, ctx, "create_arrangement_clip",
-                track_index=1, start_time=0.0, length_beats=4.0,
+                registry,
+                ctx,
+                "create_arrangement_clip",
+                track_index=1,
+                start_time=0.0,
+                length_beats=4.0,
             )
 
     def test_place_clip_fallback_when_no_return(self, registry, ctx, song, with_session_clip):
         song.tracks[0].duplicate_returns_none = True
         result = run_command(
-            registry, ctx, "place_clip_in_arrangement",
-            track_index=0, slot_index=0, destination_time=12.0,
+            registry,
+            ctx,
+            "place_clip_in_arrangement",
+            track_index=0,
+            slot_index=0,
+            destination_time=12.0,
         )
         assert result["placed"]["start_time"] == 12.0
 
@@ -257,8 +324,12 @@ class TestImportAudio:
 
     def test_import_onto_audio_track(self, registry, ctx, song, wav_file, audio_track):
         result = run_command(
-            registry, ctx, "import_audio",
-            track_index=audio_track, file_path=str(wav_file), position=8.0,
+            registry,
+            ctx,
+            "import_audio",
+            track_index=audio_track,
+            file_path=str(wav_file),
+            position=8.0,
         )
         assert result["imported"]["is_audio_clip"] is True
         assert result["imported"]["start_time"] == 8.0
@@ -266,15 +337,23 @@ class TestImportAudio:
     def test_relative_path_rejected(self, registry, ctx, song, audio_track):
         with pytest.raises(LiveAPIError, match="ABSOLUTE"):
             run_command(
-                registry, ctx, "import_audio",
-                track_index=audio_track, file_path="samples/x.wav", position=0.0,
+                registry,
+                ctx,
+                "import_audio",
+                track_index=audio_track,
+                file_path="samples/x.wav",
+                position=0.0,
             )
 
     def test_missing_file_rejected(self, registry, ctx, song, audio_track):
         with pytest.raises(LiveAPIError, match="not found"):
             run_command(
-                registry, ctx, "import_audio",
-                track_index=audio_track, file_path=r"C:\nope\missing.wav", position=0.0,
+                registry,
+                ctx,
+                "import_audio",
+                track_index=audio_track,
+                file_path=r"C:\nope\missing.wav",
+                position=0.0,
             )
 
     def test_bad_extension_rejected(self, registry, ctx, song, tmp_path, audio_track):
@@ -282,45 +361,72 @@ class TestImportAudio:
         bad.write_text("not audio")
         with pytest.raises(LiveAPIError, match="Unsupported extension"):
             run_command(
-                registry, ctx, "import_audio",
-                track_index=audio_track, file_path=str(bad), position=0.0,
+                registry,
+                ctx,
+                "import_audio",
+                track_index=audio_track,
+                file_path=str(bad),
+                position=0.0,
             )
 
     def test_midi_track_rejected(self, registry, ctx, song, wav_file):
         with pytest.raises(LiveAPIError, match="audio track"):
             run_command(
-                registry, ctx, "import_audio",
-                track_index=0, file_path=str(wav_file), position=0.0,
+                registry,
+                ctx,
+                "import_audio",
+                track_index=0,
+                file_path=str(wav_file),
+                position=0.0,
             )
 
     def test_session_import(self, registry, ctx, song, wav_file, audio_track):
         result = run_command(
-            registry, ctx, "import_audio",
-            track_index=audio_track, file_path=str(wav_file), slot_index=0,
+            registry,
+            ctx,
+            "import_audio",
+            track_index=audio_track,
+            file_path=str(wav_file),
+            slot_index=0,
         )
         assert result["imported"]["view"] == "session"
         assert song.tracks[audio_track].clip_slots[0].has_clip
 
     def test_session_import_occupied_slot(self, registry, ctx, song, wav_file, audio_track):
         run_command(
-            registry, ctx, "import_audio",
-            track_index=audio_track, file_path=str(wav_file), slot_index=0,
+            registry,
+            ctx,
+            "import_audio",
+            track_index=audio_track,
+            file_path=str(wav_file),
+            slot_index=0,
         )
         with pytest.raises(LiveAPIError, match="already has a clip"):
             run_command(
-                registry, ctx, "import_audio",
-                track_index=audio_track, file_path=str(wav_file), slot_index=0,
+                registry,
+                ctx,
+                "import_audio",
+                track_index=audio_track,
+                file_path=str(wav_file),
+                slot_index=0,
             )
 
     def test_import_xor_enforced(self, registry, ctx, song, wav_file, audio_track):
         with pytest.raises(ValidationError, match="exactly one"):
             run_command(
-                registry, ctx, "import_audio",
-                track_index=audio_track, file_path=str(wav_file),
+                registry,
+                ctx,
+                "import_audio",
+                track_index=audio_track,
+                file_path=str(wav_file),
             )
         with pytest.raises(ValidationError, match="exactly one"):
             run_command(
-                registry, ctx, "import_audio",
-                track_index=audio_track, file_path=str(wav_file),
-                position=0.0, slot_index=0,
+                registry,
+                ctx,
+                "import_audio",
+                track_index=audio_track,
+                file_path=str(wav_file),
+                position=0.0,
+                slot_index=0,
             )

@@ -28,17 +28,13 @@ class TestClips:
 
     def test_create_clip_occupied_slot(self, registry, ctx, song, with_clip):
         with pytest.raises(LiveAPIError, match="already has a clip"):
-            run_command(
-                registry, ctx, "create_clip", track_index=0, slot_index=0, length_beats=4.0
-            )
+            run_command(registry, ctx, "create_clip", track_index=0, slot_index=0, length_beats=4.0)
 
     def test_create_clip_needs_midi_track(self, registry, ctx, song):
         song.tracks[1].has_midi_input = False
         song.tracks[1].has_audio_input = True
         with pytest.raises(LiveAPIError, match="not a MIDI track"):
-            run_command(
-                registry, ctx, "create_clip", track_index=1, slot_index=0, length_beats=4.0
-            )
+            run_command(registry, ctx, "create_clip", track_index=1, slot_index=0, length_beats=4.0)
 
     def test_set_clip(self, registry, ctx, song, with_clip):
         result = run_command(
@@ -114,9 +110,7 @@ class TestScenes:
 
 class TestNotes:
     def test_add_and_get_notes(self, registry, ctx, song, with_clip):
-        result = run_command(
-            registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY
-        )
+        result = run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
         assert result == {"added": 3, "note_count": 3}
 
         read = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)
@@ -132,8 +126,14 @@ class TestNotes:
 
     def test_note_ids_stable_across_reads(self, registry, ctx, song, with_clip):
         run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
-        ids_a = [n["note_id"] for n in run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]]
-        ids_b = [n["note_id"] for n in run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]]
+        ids_a = [
+            n["note_id"]
+            for n in run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]
+        ]
+        ids_b = [
+            n["note_id"]
+            for n in run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]
+        ]
         assert ids_a == ids_b
 
     def test_get_notes_region(self, registry, ctx, song, with_clip):

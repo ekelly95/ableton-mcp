@@ -20,10 +20,7 @@ import time
 import traceback
 import uuid
 from collections import OrderedDict
-from typing import Any, Dict, Optional
-
-# Ring size for request-id deduplication (idempotent replay protection).
-RECENT_RESPONSES_MAX = 64
+from typing import Any
 
 from .config import (
     HEADER_SIZE,
@@ -42,6 +39,9 @@ from .registry import REGISTRY, LiveAPIError, ValidationError
 from .thread_marshal import MainThreadExecutionError, ThreadMarshaler
 
 logger = get_logger("socket_server")
+
+# Ring size for request-id deduplication (idempotent replay protection).
+RECENT_RESPONSES_MAX = 64
 
 
 class CommandContext:
@@ -68,10 +68,10 @@ class SocketServer:
     def __init__(
         self,
         control_surface: Any,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        socket_path: Optional[str] = None,
-        use_tcp: Optional[bool] = None,
+        host: str | None = None,
+        port: int | None = None,
+        socket_path: str | None = None,
+        use_tcp: bool | None = None,
         registry=None,
     ):
         self._control_surface = control_surface
@@ -84,16 +84,16 @@ class SocketServer:
         self._socket_path = socket_path if socket_path is not None else SOCKET_PATH
         self._use_tcp = use_tcp if use_tcp is not None else USE_TCP
 
-        self._socket: Optional[socket.socket] = None
-        self._server_thread: Optional[threading.Thread] = None
+        self._socket: socket.socket | None = None
+        self._server_thread: threading.Thread | None = None
         self._running = False
         self._lock = threading.Lock()
         # id -> response: a client that lost the response and resends the SAME
         # request must get the cached answer, not a second execution.
-        self._recent_responses: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        self._recent_responses: OrderedDict[str, dict[str, Any]] = OrderedDict()
 
     @property
-    def bound_port(self) -> Optional[int]:
+    def bound_port(self) -> int | None:
         """Actual bound TCP port (differs from requested when binding port 0 in tests)."""
         if self._socket is not None and self._use_tcp:
             return self._socket.getsockname()[1]
@@ -176,7 +176,7 @@ class SocketServer:
             try:
                 try:
                     client_socket, _ = self._socket.accept()
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except OSError as e:
                     if self._running:
@@ -219,7 +219,7 @@ class SocketServer:
                     pass
                 break
 
-    def _read_message(self, sock: socket.socket) -> Optional[Dict[str, Any]]:
+    def _read_message(self, sock: socket.socket) -> dict[str, Any] | None:
         header = self._recv_exact(sock, HEADER_SIZE)
         if header is None:
             return None
@@ -236,25 +236,25 @@ class SocketServer:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON: {e}") from e
 
-    def _recv_exact(self, sock: socket.socket, size: int) -> Optional[bytes]:
+    def _recv_exact(self, sock: socket.socket, size: int) -> bytes | None:
         data = bytearray()
         while len(data) < size:
             try:
                 chunk = sock.recv(min(SOCKET_BUFFER_SIZE, size - len(data)))
-            except socket.timeout:
+            except TimeoutError:
                 continue
             if not chunk:
                 return None
             data.extend(chunk)
         return bytes(data)
 
-    def _send_message(self, sock: socket.socket, message: Dict[str, Any]) -> None:
+    def _send_message(self, sock: socket.socket, message: dict[str, Any]) -> None:
         body = json.dumps(message, ensure_ascii=False, default=str).encode("utf-8")
         if len(body) > MAX_MESSAGE_SIZE:
             raise ValueError(f"Response too large: {len(body)} > {MAX_MESSAGE_SIZE}")
         sock.sendall(struct.pack(">I", len(body)) + body)
 
-    def _process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_message(self, message: dict[str, Any]) -> dict[str, Any]:
         request_id = message.get("id", str(uuid.uuid4()))
 
         cached = self._recent_responses.get(request_id)
@@ -269,11 +269,11 @@ class SocketServer:
             self._recent_responses.popitem(last=False)
         return response
 
-    def _execute_message(self, message: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+    def _execute_message(self, message: dict[str, Any], request_id: str) -> dict[str, Any]:
         start_time = time.time()
         command_type = message.get("type")
         params = message.get("params", {})
-        response: Dict[str, Any] = {"id": request_id}
+        response: dict[str, Any] = {"id": request_id}
 
         try:
             if command_type == "ping":

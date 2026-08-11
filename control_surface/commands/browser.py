@@ -4,7 +4,7 @@ Browser children are lazy and can be huge (sample packs), and everything here
 runs on Live's main thread — so listings are hard-capped and never recursive.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..config import MAX_BROWSER_ITEMS
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
@@ -30,7 +30,7 @@ def _browser(ctx) -> Any:
     return browser
 
 
-def _navigate(browser: Any, path: List[str]) -> Any:
+def _navigate(browser: Any, path: list[str]) -> Any:
     root_name = path[0].lower()
     if root_name not in ROOTS:
         raise LiveAPIError(f"Unknown browser root '{path[0]}'. Roots: {ROOTS}")
@@ -40,9 +40,7 @@ def _navigate(browser: Any, path: List[str]) -> Any:
 
     for segment in path[1:]:
         children = list(node.children)
-        match = next(
-            (c for c in children if c.name.lower() == segment.lower()), None
-        )
+        match = next((c for c in children if c.name.lower() == segment.lower()), None)
         if match is None:
             available = [c.name for c in children[:20]]
             raise LiveAPIError(
@@ -52,7 +50,7 @@ def _navigate(browser: Any, path: List[str]) -> Any:
     return node
 
 
-def _serialize_item(item: Any) -> Dict[str, Any]:
+def _serialize_item(item: Any) -> dict[str, Any]:
     return {
         "name": item.name,
         "is_loadable": item.is_loadable,
@@ -89,7 +87,7 @@ def _serialize_item(item: Any) -> Dict[str, Any]:
         },
     },
 )
-def browse(ctx, path: Optional[List[str]] = None) -> Dict[str, Any]:
+def browse(ctx, path: list[str] | None = None) -> dict[str, Any]:
     browser = _browser(ctx)
     if not path:
         return {
@@ -135,16 +133,14 @@ def browse(ctx, path: Optional[List[str]] = None) -> Dict[str, Any]:
         "(Live may index packs) — allow up to 2 minutes."
     ),
 )
-def load_item(ctx, path: List[str], track_index: Optional[int] = None) -> Dict[str, Any]:
+def load_item(ctx, path: list[str], track_index: int | None = None) -> dict[str, Any]:
     song = ctx.song
     browser = _browser(ctx)
     node = _navigate(browser, path)
 
     if not node.is_loadable:
         children = [c.name for c in list(node.children)[:20]]
-        raise LiveAPIError(
-            f"'{node.name}' is a folder, not loadable. Its entries: {children}"
-        )
+        raise LiveAPIError(f"'{node.name}' is a folder, not loadable. Its entries: {children}")
 
     if track_index is not None:
         track = get_track(song, track_index)

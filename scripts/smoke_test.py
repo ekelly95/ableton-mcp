@@ -35,7 +35,9 @@ def main() -> None:
     try:
         sock = socket.create_connection((HOST, PORT), timeout=10)
     except OSError as e:
-        print(f"FAIL: cannot connect to {HOST}:{PORT} — is Live running with AbletonMCP enabled? ({e})")
+        print(
+            f"FAIL: cannot connect to {HOST}:{PORT} — is Live running with AbletonMCP enabled? ({e})"
+        )
         sys.exit(1)
 
     with sock:
@@ -43,8 +45,10 @@ def main() -> None:
         print(json.dumps(response, indent=2))
         result = response.get("result", {})
         if response.get("status") == "success" and result.get("pong"):
-            print(f"\nOK: AbletonMCP v{result.get('version')} responding, "
-                  f"{result.get('command_count')} commands registered.")
+            print(
+                f"\nOK: AbletonMCP v{result.get('version')} responding, "
+                f"{result.get('command_count')} commands registered."
+            )
         else:
             print("\nFAIL: unexpected response")
             sys.exit(1)

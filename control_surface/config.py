@@ -57,7 +57,12 @@ MAX_ARRANGEMENT_CLIPS_PER_READ: int = 500
 
 # Where generated/imported samples are expected to live (a convention, not a
 # restriction): generation tools write files here; import_audio reads any
-# absolute path. Named in the import_audio tool description.
-SAMPLES_DIR: str = r"C:\dev\ableton-mcp\samples"
+# absolute path. Overridable via ABLETON_MCP_SAMPLES_DIR. Deliberately NOT
+# embedded in tool descriptions — schemas must hash identically on every
+# machine or the drift check would cry wolf.
+SAMPLES_DIR: str = os.environ.get(
+    "ABLETON_MCP_SAMPLES_DIR",
+    str(Path(__file__).resolve().parent.parent / "samples"),
+)
 
 AUDIO_EXTENSIONS = (".wav", ".aif", ".aiff", ".aifc", ".flac", ".mp3", ".ogg", ".m4a")

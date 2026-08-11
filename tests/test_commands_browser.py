@@ -37,9 +37,7 @@ def test_browse_unknown_root(registry, ctx):
 
 
 def test_load_item_onto_track(registry, ctx, song):
-    result = run_command(
-        registry, ctx, "load_item", path=["instruments", "Drift"], track_index=1
-    )
+    result = run_command(registry, ctx, "load_item", path=["instruments", "Drift"], track_index=1)
     assert result["loaded"] == "Drift"
     assert result["onto_track"] == song.tracks[1].name
     assert [d.name for d in song.tracks[1].devices] == ["Drift"]

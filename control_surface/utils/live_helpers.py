@@ -1,7 +1,7 @@
 """Safe lookups into Live's object model. All raise LiveAPIError with a
 message the model can act on (what was asked for, what exists)."""
 
-from typing import Any, Optional
+from typing import Any
 
 from ..errors import ValidationError
 from ..registry import LiveAPIError
@@ -47,9 +47,7 @@ def get_scene(song: Any, scene_index: int) -> Any:
 def get_clip_slot(track: Any, slot_index: int) -> Any:
     slots = list(track.clip_slots)
     if not 0 <= slot_index < len(slots):
-        raise LiveAPIError(
-            f"Slot index {slot_index} out of range (track has {len(slots)} slots)"
-        )
+        raise LiveAPIError(f"Slot index {slot_index} out of range (track has {len(slots)} slots)")
     return slots[slot_index]
 
 
@@ -79,8 +77,8 @@ def get_arrangement_clip(track: Any, index: int) -> Any:
 
 def resolve_clip_ref(
     track: Any,
-    slot_index: Optional[int],
-    arrangement_clip_index: Optional[int],
+    slot_index: int | None,
+    arrangement_clip_index: int | None,
     require_midi: bool = False,
 ) -> Any:
     """One clip from EITHER a session slot or an arrangement position.

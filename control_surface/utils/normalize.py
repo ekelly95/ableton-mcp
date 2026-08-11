@@ -6,10 +6,10 @@ and quarters. Note for mixer volume specifically: normalized 0.85 ≈ 0 dB in
 Live's fader law (documented in tool schemas).
 """
 
-from typing import Any, Optional
+from typing import Any
 
 
-def normalize_parameter(param: Any, value: Optional[float] = None) -> float:
+def normalize_parameter(param: Any, value: float | None = None) -> float:
     """Convert a parameter's value to 0.0-1.0 within its min/max range."""
     raw = param.value if value is None else value
     span = param.max - param.min

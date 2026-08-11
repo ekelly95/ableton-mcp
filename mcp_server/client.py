@@ -12,7 +12,7 @@ import socket
 import struct
 import threading
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 
 from control_surface.commands import REGISTRY
 from control_surface.config import COMMAND_TIMEOUTS
@@ -29,6 +29,7 @@ def _safe_to_resend(command: str) -> bool:
         return True
     schema = REGISTRY.get(command)
     return schema is not None and schema.read_only
+
 
 HEADER_SIZE = 4
 MAX_MESSAGE_SIZE = 16 * 1024 * 1024
@@ -56,7 +57,7 @@ class AbletonConnectionError(Exception):
 class CommandError(Exception):
     """The control surface executed the request and reported a failure."""
 
-    def __init__(self, message: str, error_type: str = "unknown", param: Optional[str] = None):
+    def __init__(self, message: str, error_type: str = "unknown", param: str | None = None):
         super().__init__(message)
         self.message = message
         self.error_type = error_type
@@ -81,7 +82,7 @@ class AbletonClient:
         self.host = host
         self.port = port
         self.timeout = timeout
-        self._socket: Optional[socket.socket] = None
+        self._socket: socket.socket | None = None
         self._lock = threading.Lock()
 
     # -- connection management -------------------------------------------------
@@ -151,14 +152,14 @@ class AbletonClient:
             param=response.get("param"),
         )
 
-    def ping(self) -> Optional[Dict[str, Any]]:
+    def ping(self) -> dict[str, Any] | None:
         try:
             result = self.send("ping")
             return result if isinstance(result, dict) and result.get("pong") else None
         except (AbletonConnectionError, CommandError):
             return None
 
-    def _round_trip(self, request: Dict[str, Any]) -> Dict[str, Any]:
+    def _round_trip(self, request: dict[str, Any]) -> dict[str, Any]:
         body = json.dumps(request, ensure_ascii=False).encode("utf-8")
         if len(body) > MAX_MESSAGE_SIZE:
             raise ValueError(f"Request too large: {len(body)} bytes")
@@ -169,7 +170,7 @@ class AbletonClient:
             if length > MAX_MESSAGE_SIZE:
                 raise ValueError(f"Response too large: {length} bytes")
             payload = self._recv_exact(length) if length else b"{}"
-        except socket.timeout as e:
+        except TimeoutError as e:
             # Do NOT resend after a timeout: the command may still be running
             # inside Live, and a resend would queue it twice.
             waited = self._socket.gettimeout() if self._socket else None

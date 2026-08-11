@@ -10,9 +10,9 @@ Two channels:
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .config import (
     CONTROL_SURFACE_NAME,
@@ -22,7 +22,7 @@ from .config import (
     VERSION,
 )
 
-_logger_cache: Dict[str, logging.Logger] = {}
+_logger_cache: dict[str, logging.Logger] = {}
 
 
 def _ensure_log_dir() -> Path:
@@ -31,7 +31,7 @@ def _ensure_log_dir() -> Path:
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class _LivePrintHandler(logging.Handler):
@@ -95,7 +95,7 @@ class OperationLogger:
     def __init__(self, log_name: str = "operations"):
         self._logger = get_logger(f"OperationLogger.{log_name}")
         try:
-            self._log_file: Optional[Path] = _ensure_log_dir() / f"{log_name}.jsonl"
+            self._log_file: Path | None = _ensure_log_dir() / f"{log_name}.jsonl"
         except Exception as e:
             self._logger.error(f"Operation log unavailable: {e}")
             self._log_file = None
@@ -149,7 +149,7 @@ class OperationLogger:
         except Exception as e:
             self._logger.error(f"Log rotation failed: {e}")
 
-    def _write_entry(self, entry: Dict[str, Any]) -> None:
+    def _write_entry(self, entry: dict[str, Any]) -> None:
         if self._log_file is None:
             return
         try:
@@ -180,7 +180,7 @@ class OperationLogger:
         error: str,
         error_type: str,
         duration_ms: float,
-        stack_trace: Optional[str] = None,
+        stack_trace: str | None = None,
     ) -> None:
         entry = {
             "timestamp": _utc_now_iso(),
@@ -198,7 +198,7 @@ class OperationLogger:
         self._logger.error(f"Command '{command}' failed after {duration_ms:.2f}ms: {error}")
 
 
-_operation_logger: Optional[OperationLogger] = None
+_operation_logger: OperationLogger | None = None
 
 
 def get_operation_logger() -> OperationLogger:

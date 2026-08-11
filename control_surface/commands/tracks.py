@@ -1,14 +1,14 @@
 """Tracks: read, create, duplicate, delete, and the batch setter."""
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import get_track, resolve_track
 from ..utils.normalize import denormalize_parameter, normalize_parameter
 
 
-def _serialize_clip_summary(slot_index: int, slot: Any) -> Dict[str, Any]:
-    info: Dict[str, Any] = {
+def _serialize_clip_summary(slot_index: int, slot: Any) -> dict[str, Any]:
+    info: dict[str, Any] = {
         "slot_index": slot_index,
         "has_clip": slot.has_clip,
         "is_playing": slot.is_playing,
@@ -33,9 +33,9 @@ def serialize_track(
     track_type: str = "track",
     include_devices: bool = False,
     include_clips: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     mixer = track.mixer_device
-    info: Dict[str, Any] = {
+    info: dict[str, Any] = {
         "index": index,
         "type": track_type,
         "name": track.name,
@@ -95,7 +95,7 @@ def serialize_track(
         },
     },
 )
-def get_tracks(ctx, include_devices: bool = False, include_clips: bool = False) -> Dict[str, Any]:
+def get_tracks(ctx, include_devices: bool = False, include_clips: bool = False) -> dict[str, Any]:
     song = ctx.song
     tracks = [
         serialize_track(i, t, "track", include_devices, include_clips)
@@ -129,7 +129,7 @@ def get_tracks(ctx, include_devices: bool = False, include_clips: bool = False) 
     category="tracks",
     description="Create a MIDI, audio, or return track.",
 )
-def create_track(ctx, type: str, index: int = -1) -> Dict[str, Any]:  # noqa: A002
+def create_track(ctx, type: str, index: int = -1) -> dict[str, Any]:  # noqa: A002
     song = ctx.song
     if type == "return":
         song.create_return_track()
@@ -156,7 +156,7 @@ def create_track(ctx, type: str, index: int = -1) -> Dict[str, Any]:  # noqa: A0
     category="tracks",
     description="Duplicate a track (with its clips and devices). New track lands directly after the source.",
 )
-def duplicate_track(ctx, track_index: int) -> Dict[str, Any]:
+def duplicate_track(ctx, track_index: int) -> dict[str, Any]:
     song = ctx.song
     get_track(song, track_index)
     song.duplicate_track(track_index)
@@ -171,7 +171,7 @@ def duplicate_track(ctx, track_index: int) -> Dict[str, Any]:
     destructive=True,
     description="Delete a track and everything on it. Destructive.",
 )
-def delete_track(ctx, track_index: int) -> Dict[str, Any]:
+def delete_track(ctx, track_index: int) -> dict[str, Any]:
     song = ctx.song
     track = get_track(song, track_index)
     name = track.name
@@ -207,7 +207,11 @@ def delete_track(ctx, track_index: int) -> Dict[str, Any]:
             description="Normalized 0-1; 0.85 is 0 dB",
         ),
         ParamSchema(
-            "pan", ParamType.FLOAT, required=False, min_value=0, max_value=1,
+            "pan",
+            ParamType.FLOAT,
+            required=False,
+            min_value=0,
+            max_value=1,
             description="Normalized 0-1; 0.5 is center",
         ),
         ParamSchema("arm", ParamType.BOOL, required=False),
@@ -234,16 +238,16 @@ def delete_track(ctx, track_index: int) -> Dict[str, Any]:
 def set_track(
     ctx,
     track_type: str = "track",
-    track_index: Optional[int] = None,
-    name: Optional[str] = None,
-    color_index: Optional[int] = None,
-    volume: Optional[float] = None,
-    pan: Optional[float] = None,
-    arm: Optional[bool] = None,
-    mute: Optional[bool] = None,
-    solo: Optional[bool] = None,
-    sends: Optional[list] = None,
-) -> Dict[str, Any]:
+    track_index: int | None = None,
+    name: str | None = None,
+    color_index: int | None = None,
+    volume: float | None = None,
+    pan: float | None = None,
+    arm: bool | None = None,
+    mute: bool | None = None,
+    solo: bool | None = None,
+    sends: list | None = None,
+) -> dict[str, Any]:
     song = ctx.song
     track = resolve_track(song, track_type, track_index)
     mixer = track.mixer_device
@@ -283,6 +287,4 @@ def set_track(
             param = send_params[send_index]
             param.value = denormalize_parameter(param, float(item["value"]))
 
-    return serialize_track(
-        track_index if track_index is not None else 0, track, track_type
-    )
+    return serialize_track(track_index if track_index is not None else 0, track, track_type)

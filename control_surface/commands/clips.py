@@ -1,13 +1,12 @@
 """Clips, scenes, launching, and MIDI notes via the modern note-ID API."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..config import MAX_NOTES_PER_READ
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import (
     get_clip,
     get_clip_slot,
-    get_midi_clip,
     get_scene,
     get_track,
     resolve_clip_ref,
@@ -35,7 +34,7 @@ _ALL_PITCHES = (0, 128)
 _MAX_TIME_SPAN = 1_000_000.0
 
 
-def _serialize_note(note: Any) -> Dict[str, Any]:
+def _serialize_note(note: Any) -> dict[str, Any]:
     return {
         "note_id": note.note_id,
         "pitch": note.pitch,
@@ -51,9 +50,7 @@ def _serialize_note(note: Any) -> Dict[str, Any]:
 
 
 def _fetch_all_notes(clip: Any):
-    return clip.get_notes_extended(
-        _ALL_PITCHES[0], _ALL_PITCHES[1], 0.0, _MAX_TIME_SPAN
-    )
+    return clip.get_notes_extended(_ALL_PITCHES[0], _ALL_PITCHES[1], 0.0, _MAX_TIME_SPAN)
 
 
 @REGISTRY.register(
@@ -78,7 +75,7 @@ def _fetch_all_notes(clip: Any):
         },
     },
 )
-def get_clips(ctx, track_index: Optional[int] = None) -> Dict[str, Any]:
+def get_clips(ctx, track_index: int | None = None) -> dict[str, Any]:
     song = ctx.song
     if track_index is not None:
         tracks = [(track_index, get_track(song, track_index))]
@@ -89,7 +86,7 @@ def get_clips(ctx, track_index: Optional[int] = None) -> Dict[str, Any]:
     for index, track in tracks:
         slots = []
         for slot_index, slot in enumerate(track.clip_slots):
-            info: Dict[str, Any] = {
+            info: dict[str, Any] = {
                 "slot_index": slot_index,
                 "has_clip": slot.has_clip,
                 "is_playing": slot.is_playing,
@@ -108,9 +105,7 @@ def get_clips(ctx, track_index: Optional[int] = None) -> Dict[str, Any]:
             slots.append(info)
         result.append({"track_index": index, "track_name": track.name, "clip_slots": slots})
 
-    scenes = [
-        {"scene_index": i, "name": scene.name} for i, scene in enumerate(song.scenes)
-    ]
+    scenes = [{"scene_index": i, "name": scene.name} for i, scene in enumerate(song.scenes)]
     return {"tracks": result, "scenes": scenes}
 
 
@@ -126,7 +121,7 @@ def get_clips(ctx, track_index: Optional[int] = None) -> Dict[str, Any]:
     category="clips",
     description="Create an empty MIDI clip in a slot on a MIDI track.",
 )
-def create_clip(ctx, track_index: int, slot_index: int, length_beats: float) -> Dict[str, Any]:
+def create_clip(ctx, track_index: int, slot_index: int, length_beats: float) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     if not track.has_midi_input:
         raise LiveAPIError(f"Track {track_index} is not a MIDI track")
@@ -150,7 +145,7 @@ def create_clip(ctx, track_index: int, slot_index: int, length_beats: float) -> 
     category="clips",
     description="Duplicate a clip into the next slot on the same track (fails if that slot is occupied).",
 )
-def duplicate_clip(ctx, track_index: int, slot_index: int) -> Dict[str, Any]:
+def duplicate_clip(ctx, track_index: int, slot_index: int) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     get_clip(track, slot_index)
     try:
@@ -170,7 +165,7 @@ def duplicate_clip(ctx, track_index: int, slot_index: int) -> Dict[str, Any]:
     destructive=True,
     description="Delete the clip in a slot. Destructive.",
 )
-def delete_clip(ctx, track_index: int, slot_index: int) -> Dict[str, Any]:
+def delete_clip(ctx, track_index: int, slot_index: int) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     slot = get_clip_slot(track, slot_index)
     if not slot.has_clip:
@@ -198,14 +193,14 @@ def delete_clip(ctx, track_index: int, slot_index: int) -> Dict[str, Any]:
 def set_clip(
     ctx,
     track_index: int,
-    slot_index: Optional[int] = None,
-    arrangement_clip_index: Optional[int] = None,
-    name: Optional[str] = None,
-    color_index: Optional[int] = None,
-    looping: Optional[bool] = None,
-    loop_start: Optional[float] = None,
-    loop_end: Optional[float] = None,
-) -> Dict[str, Any]:
+    slot_index: int | None = None,
+    arrangement_clip_index: int | None = None,
+    name: str | None = None,
+    color_index: int | None = None,
+    looping: bool | None = None,
+    loop_start: float | None = None,
+    loop_end: float | None = None,
+) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     clip = resolve_clip_ref(track, slot_index, arrangement_clip_index)
     if name is not None:
@@ -238,7 +233,7 @@ def set_clip(
     category="clips",
     description="Fire a clip (starts quantized to the launch quantization, like clicking its play button).",
 )
-def launch_clip(ctx, track_index: int, slot_index: int) -> Dict[str, Any]:
+def launch_clip(ctx, track_index: int, slot_index: int) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     slot = get_clip_slot(track, slot_index)
     if not slot.has_clip:
@@ -261,7 +256,7 @@ def launch_clip(ctx, track_index: int, slot_index: int) -> Dict[str, Any]:
     category="clips",
     description="Stop session clips on one track or all tracks. Does not stop the transport.",
 )
-def stop_clips(ctx, track_index: Optional[int] = None) -> Dict[str, Any]:
+def stop_clips(ctx, track_index: int | None = None) -> dict[str, Any]:
     song = ctx.song
     if track_index is not None:
         get_track(song, track_index).stop_all_clips()
@@ -276,7 +271,7 @@ def stop_clips(ctx, track_index: Optional[int] = None) -> Dict[str, Any]:
     category="clips",
     description="Fire a whole scene (row) of clips.",
 )
-def launch_scene(ctx, scene_index: int) -> Dict[str, Any]:
+def launch_scene(ctx, scene_index: int) -> dict[str, Any]:
     scene = get_scene(ctx.song, scene_index)
     scene.fire()
     return {"launched": True, "scene_index": scene_index}
@@ -292,7 +287,7 @@ def launch_scene(ctx, scene_index: int) -> Dict[str, Any]:
     category="clips",
     description="Insert a new empty scene (row).",
 )
-def create_scene(ctx, index: int = -1) -> Dict[str, Any]:
+def create_scene(ctx, index: int = -1) -> dict[str, Any]:
     song = ctx.song
     song.create_scene(index)
     scene_count = len(list(song.scenes))
@@ -307,7 +302,7 @@ def create_scene(ctx, index: int = -1) -> Dict[str, Any]:
     destructive=True,
     description="Delete a scene and every clip in it. Destructive.",
 )
-def delete_scene(ctx, scene_index: int) -> Dict[str, Any]:
+def delete_scene(ctx, scene_index: int) -> dict[str, Any]:
     song = ctx.song
     get_scene(song, scene_index)
     song.delete_scene(scene_index)
@@ -323,7 +318,9 @@ def delete_scene(ctx, scene_index: int) -> Dict[str, Any]:
         ParamSchema("track_index", ParamType.INT, min_value=0),
         _SLOT_XOR,
         _ARR_XOR,
-        ParamSchema("from_pitch", ParamType.INT, required=False, default=0, min_value=0, max_value=127),
+        ParamSchema(
+            "from_pitch", ParamType.INT, required=False, default=0, min_value=0, max_value=127
+        ),
         ParamSchema("pitch_span", ParamType.INT, required=False, default=128, min_value=1),
         ParamSchema("from_time", ParamType.FLOAT, required=False, default=0.0, min_value=0),
         ParamSchema(
@@ -352,13 +349,13 @@ def delete_scene(ctx, scene_index: int) -> Dict[str, Any]:
 def get_notes(
     ctx,
     track_index: int,
-    slot_index: Optional[int] = None,
-    arrangement_clip_index: Optional[int] = None,
+    slot_index: int | None = None,
+    arrangement_clip_index: int | None = None,
     from_pitch: int = 0,
     pitch_span: int = 128,
     from_time: float = 0.0,
-    time_span: Optional[float] = None,
-) -> Dict[str, Any]:
+    time_span: float | None = None,
+) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
     span = time_span if time_span is not None else max(clip.length - from_time, 0.0)
@@ -399,10 +396,10 @@ def get_notes(
 def add_notes(
     ctx,
     track_index: int,
-    slot_index: Optional[int] = None,
-    arrangement_clip_index: Optional[int] = None,
-    notes: List[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    slot_index: int | None = None,
+    arrangement_clip_index: int | None = None,
+    notes: list[dict[str, Any]] = None,
+) -> dict[str, Any]:
     import Live  # inside Live's runtime only; tests install a mock module
 
     track = get_track(ctx.song, track_index)
@@ -466,10 +463,10 @@ def add_notes(
 def update_notes(
     ctx,
     track_index: int,
-    slot_index: Optional[int] = None,
-    arrangement_clip_index: Optional[int] = None,
-    modifications: List[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    slot_index: int | None = None,
+    arrangement_clip_index: int | None = None,
+    modifications: list[dict[str, Any]] = None,
+) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
 
@@ -508,9 +505,7 @@ def update_notes(
         touched.append(note)
 
     if missing:
-        raise LiveAPIError(
-            f"Unknown note_ids: {missing}. Fetch current ids with get_notes first."
-        )
+        raise LiveAPIError(f"Unknown note_ids: {missing}. Fetch current ids with get_notes first.")
 
     if touched:
         clip.apply_note_modifications(note_vector)
@@ -545,14 +540,14 @@ def update_notes(
 def remove_notes(
     ctx,
     track_index: int,
-    slot_index: Optional[int] = None,
-    arrangement_clip_index: Optional[int] = None,
-    note_ids: Optional[List[int]] = None,
-    from_pitch: Optional[int] = None,
-    pitch_span: Optional[int] = None,
-    from_time: Optional[float] = None,
-    time_span: Optional[float] = None,
-) -> Dict[str, Any]:
+    slot_index: int | None = None,
+    arrangement_clip_index: int | None = None,
+    note_ids: list[int] | None = None,
+    from_pitch: int | None = None,
+    pitch_span: int | None = None,
+    from_time: float | None = None,
+    time_span: float | None = None,
+) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
 

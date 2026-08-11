@@ -127,9 +127,7 @@ def test_multiple_requests_same_connection(server):
 
 
 def test_validation_error_shape(server):
-    response = send_request(
-        server.bound_port, {"type": "guarded", "params": {"n": 99}, "id": "v"}
-    )
+    response = send_request(server.bound_port, {"type": "guarded", "params": {"n": 99}, "id": "v"})
     assert response["status"] == "error"
     assert response["error_type"] == "ValidationError"
     assert response["param"] == "n"

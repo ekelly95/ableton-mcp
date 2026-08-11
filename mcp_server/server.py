@@ -11,7 +11,7 @@ All logging goes to stderr: stdout belongs to the MCP stdio transport.
 import json
 import logging
 import sys
-from typing import Any, Optional
+from typing import Any
 
 import anyio.to_thread
 import mcp.types as types
@@ -69,7 +69,7 @@ class _DriftCheck:
     def __init__(self):
         self.done = False
 
-    def check(self, ping_result: Optional[dict]) -> Optional[bool]:
+    def check(self, ping_result: dict | None) -> bool | None:
         if not ping_result:
             return None
         script_version = ping_result.get("version")
@@ -107,7 +107,7 @@ def _bridge_status(client: AbletonClient, drift: _DriftCheck) -> dict:
     }
 
 
-def build_server(client: Optional[AbletonClient] = None) -> Server:
+def build_server(client: AbletonClient | None = None) -> Server:
     ableton = client if client is not None else AbletonClient()
     drift = _DriftCheck()
     server = Server("ableton-mcp", version=VERSION)

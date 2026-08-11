@@ -56,7 +56,9 @@ def pick_target() -> Path:
     print("Could not find an install location. Probed:")
     for p in probed:
         print(f"  - {p}")
-    print(f"  - {Path(os.environ.get('PROGRAMDATA', 'C:/ProgramData')) / 'Ableton'}/*/Resources/MIDI Remote Scripts")
+    print(
+        f"  - {Path(os.environ.get('PROGRAMDATA', 'C:/ProgramData')) / 'Ableton'}/*/Resources/MIDI Remote Scripts"
+    )
     print("Has Ableton Live been installed and run at least once?")
     sys.exit(1)
 
@@ -73,11 +75,7 @@ def main() -> None:
     # locked by OneDrive sync or Ableton's indexer even after Live quits.
     # Stale .pyc files are harmless — Python recompiles on source mtime change.
     if target.exists():
-        stale = [
-            p
-            for p in target.rglob("*.py")
-            if not (SOURCE / p.relative_to(target)).exists()
-        ]
+        stale = [p for p in target.rglob("*.py") if not (SOURCE / p.relative_to(target)).exists()]
         for p in stale:
             try:
                 p.unlink()

@@ -42,11 +42,10 @@ except ImportError:
             pass
 
 
-from .log import get_logger
-from .socket_server import SocketServer
-
 # Importing the commands package registers every command with REGISTRY.
 from . import commands
+from .log import get_logger
+from .socket_server import SocketServer
 
 logger = get_logger("__init__")
 

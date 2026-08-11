@@ -1,12 +1,12 @@
 """Transport: playback, tempo, time signature, loop, metronome."""
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.pitch import SHARP_NAMES, root_name_to_pitch_class
 
 
-def _transport_state(song: Any) -> Dict[str, Any]:
+def _transport_state(song: Any) -> dict[str, Any]:
     return {
         "is_playing": song.is_playing,
         "tempo": song.tempo,
@@ -50,7 +50,7 @@ def _transport_state(song: Any) -> Dict[str, Any]:
         },
     },
 )
-def get_transport_state(ctx) -> Dict[str, Any]:
+def get_transport_state(ctx) -> dict[str, Any]:
     return _transport_state(ctx.song)
 
 
@@ -74,7 +74,7 @@ def get_transport_state(ctx) -> Dict[str, Any]:
     category="transport",
     description="Start, stop, or continue playback, optionally jumping to a position (in beats).",
 )
-def transport_control(ctx, action: str, position: Optional[float] = None) -> Dict[str, Any]:
+def transport_control(ctx, action: str, position: float | None = None) -> dict[str, Any]:
     song = ctx.song
     if position is not None:
         song.current_song_time = position
@@ -155,7 +155,7 @@ def set_transport(
     scale_name=None,
     scale_mode=None,
     back_to_arranger=None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     song = ctx.song
     if tempo is not None:
         song.tempo = tempo

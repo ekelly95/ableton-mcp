@@ -1,13 +1,13 @@
 """Devices: inspect, batch parameter setting (normalized 0-1), delete."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import get_device, get_track
 from ..utils.normalize import denormalize_parameter, normalize_parameter
 
 
-def _serialize_parameter(index: int, param: Any) -> Dict[str, Any]:
+def _serialize_parameter(index: int, param: Any) -> dict[str, Any]:
     return {
         "index": index,
         "name": param.name,
@@ -43,7 +43,7 @@ def _serialize_parameter(index: int, param: Any) -> Dict[str, Any]:
         },
     },
 )
-def get_devices(ctx, track_index: int, device_index: Optional[int] = None) -> Dict[str, Any]:
+def get_devices(ctx, track_index: int, device_index: int | None = None) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
 
     if device_index is None:
@@ -67,9 +67,7 @@ def get_devices(ctx, track_index: int, device_index: Optional[int] = None) -> Di
             "name": device.name,
             "class_name": device.class_name,
             "is_active": device.is_active,
-            "parameters": [
-                _serialize_parameter(i, p) for i, p in enumerate(device.parameters)
-            ],
+            "parameters": [_serialize_parameter(i, p) for i, p in enumerate(device.parameters)],
         }
     }
 
@@ -107,9 +105,9 @@ def set_device_parameters(
     ctx,
     track_index: int,
     device_index: int,
-    parameters: Optional[List[Dict[str, Any]]] = None,
-    enabled: Optional[bool] = None,
-) -> Dict[str, Any]:
+    parameters: list[dict[str, Any]] | None = None,
+    enabled: bool | None = None,
+) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     device = get_device(track, device_index)
     params = list(device.parameters)
@@ -131,9 +129,7 @@ def set_device_parameters(
             param = by_name.get(str(selector).lower())
             if param is None:
                 names = [p.name for p in params[:30]]
-                raise LiveAPIError(
-                    f"No parameter named '{selector}'. Available: {names}"
-                )
+                raise LiveAPIError(f"No parameter named '{selector}'. Available: {names}")
         param.value = denormalize_parameter(param, float(item["value"]))
         changed.append(
             {"name": param.name, "value": normalize_parameter(param), "display_value": str(param)}
@@ -155,7 +151,7 @@ def set_device_parameters(
     destructive=True,
     description="Remove a device from a track's chain. Destructive.",
 )
-def delete_device(ctx, track_index: int, device_index: int) -> Dict[str, Any]:
+def delete_device(ctx, track_index: int, device_index: int) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     device = get_device(track, device_index)
     name = device.name

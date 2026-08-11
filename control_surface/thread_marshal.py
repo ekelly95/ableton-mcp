@@ -13,8 +13,9 @@ batch-first rather than chatty.
 
 import queue
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any
 
 from .config import COMMAND_TIMEOUTS, DEFAULT_TIMEOUT_SECONDS
 from .log import get_logger
@@ -26,9 +27,9 @@ class MainThreadExecutionError(Exception):
     def __init__(
         self,
         message: str,
-        function_name: Optional[str] = None,
+        function_name: str | None = None,
         timeout: bool = False,
-        original_error: Optional[Exception] = None,
+        original_error: Exception | None = None,
     ):
         super().__init__(message)
         self.message = message
@@ -49,9 +50,9 @@ class MainThreadExecutionError(Exception):
 class ExecutionResult:
     success: bool
     result: Any = None
-    error: Optional[str] = None
-    error_type: Optional[str] = None
-    traceback: Optional[str] = None
+    error: str | None = None
+    error_type: str | None = None
+    traceback: str | None = None
 
 
 class ThreadMarshaler:
@@ -63,8 +64,8 @@ class ThreadMarshaler:
         self,
         func: Callable,
         *args: Any,
-        timeout: Optional[float] = None,
-        command: Optional[str] = None,
+        timeout: float | None = None,
+        command: str | None = None,
         **kwargs: Any,
     ) -> Any:
         effective_timeout = timeout
@@ -74,7 +75,7 @@ class ThreadMarshaler:
             effective_timeout = self._default_timeout
 
         func_name = getattr(func, "__name__", str(func))
-        response_queue: "queue.Queue[ExecutionResult]" = queue.Queue()
+        response_queue: queue.Queue[ExecutionResult] = queue.Queue()
 
         def task():
             try:

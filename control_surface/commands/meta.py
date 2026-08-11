@@ -1,6 +1,6 @@
 """Session overview: the model's one-call map of the whole set."""
 
-from typing import Any, Dict
+from typing import Any
 
 from ..registry import REGISTRY
 from .tracks import serialize_track
@@ -28,7 +28,7 @@ from .transport import _transport_state
         },
     },
 )
-def get_session_overview(ctx) -> Dict[str, Any]:
+def get_session_overview(ctx) -> dict[str, Any]:
     song = ctx.song
     return {
         "transport": _transport_state(song),
@@ -41,7 +41,5 @@ def get_session_overview(ctx) -> Dict[str, Any]:
             for i, t in enumerate(song.return_tracks)
         ],
         "master_track": serialize_track(0, song.master_track, "master", include_devices=True),
-        "scenes": [
-            {"scene_index": i, "name": scene.name} for i, scene in enumerate(song.scenes)
-        ],
+        "scenes": [{"scene_index": i, "name": scene.name} for i, scene in enumerate(song.scenes)],
     }

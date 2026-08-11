@@ -9,12 +9,18 @@ that duplication).
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from .config import COMMAND_TIMEOUTS
-from .errors import LiveAPIError, ValidationError
+
+# LiveAPIError is re-exported on purpose (the `as` form marks it intentional —
+# plain imports get stripped as unused): command modules import both errors
+# from the registry, their historical home.
+from .errors import LiveAPIError as LiveAPIError
+from .errors import ValidationError as ValidationError
 from .log import get_logger
 
 logger = get_logger("registry")
@@ -54,13 +60,13 @@ class ParamSchema:
     param_type: ParamType
     required: bool = True
     default: Any = None
-    min_value: Optional[float] = None
-    max_value: Optional[float] = None
+    min_value: float | None = None
+    max_value: float | None = None
     description: str = ""
-    enum_values: Optional[List[Any]] = None
+    enum_values: list[Any] | None = None
     # JSON Schema for items of OBJECT / OBJECT_LIST params; documentation plus
     # shallow shape checking (dict-ness); deep validation stays in handlers.
-    item_schema: Optional[Dict[str, Any]] = None
+    item_schema: dict[str, Any] | None = None
 
     def validate(self, value: Any) -> Any:
         if value is None:
@@ -157,7 +163,7 @@ class ParamSchema:
             return value
         raise TypeError(f"Unknown param type: {pt}")
 
-    def _validate_note(self, note: Any) -> Dict[str, Any]:
+    def _validate_note(self, note: Any) -> dict[str, Any]:
         if not isinstance(note, dict):
             raise TypeError("Note must be a dictionary")
 
@@ -213,7 +219,7 @@ class ParamSchema:
 
         return validated
 
-    def to_json_schema(self) -> Dict[str, Any]:
+    def to_json_schema(self) -> dict[str, Any]:
         note_object_schema = {
             "type": "object",
             "properties": {
@@ -255,7 +261,7 @@ class ParamSchema:
             "required": ["pitch", "start_time", "duration"],
         }
 
-        type_mapping: Dict[ParamType, Dict[str, Any]] = {
+        type_mapping: dict[ParamType, dict[str, Any]] = {
             ParamType.INT: {"type": "integer"},
             ParamType.FLOAT: {"type": "number"},
             ParamType.STRING: {"type": "string"},
@@ -270,7 +276,7 @@ class ParamSchema:
             ParamType.ANY: {},
         }
 
-        schema: Dict[str, Any] = dict(type_mapping.get(self.param_type, {}))
+        schema: dict[str, Any] = dict(type_mapping.get(self.param_type, {}))
 
         if self.item_schema is not None:
             if self.param_type == ParamType.OBJECT_LIST:
@@ -296,15 +302,15 @@ class ParamSchema:
 class CommandSchema:
     name: str
     handler: Callable
-    params: List[ParamSchema] = field(default_factory=list)
-    timeout: Optional[float] = None
+    params: list[ParamSchema] = field(default_factory=list)
+    timeout: float | None = None
     description: str = ""
     category: str = "general"
     read_only: bool = False
     destructive: bool = False
-    output_schema: Optional[Dict[str, Any]] = None
+    output_schema: dict[str, Any] | None = None
 
-    def validate_params(self, params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def validate_params(self, params: dict[str, Any] | None) -> dict[str, Any]:
         if params is None:
             params = {}
 
@@ -318,7 +324,7 @@ class CommandSchema:
 
         return validated
 
-    def to_mcp_tool(self) -> Dict[str, Any]:
+    def to_mcp_tool(self) -> dict[str, Any]:
         properties = {}
         required = []
         for param in self.params:
@@ -326,7 +332,7 @@ class CommandSchema:
             if param.required:
                 required.append(param.name)
 
-        input_schema: Dict[str, Any] = {
+        input_schema: dict[str, Any] = {
             "type": "object",
             "properties": properties,
             "additionalProperties": False,
@@ -334,7 +340,7 @@ class CommandSchema:
         if required:
             input_schema["required"] = required
 
-        tool: Dict[str, Any] = {
+        tool: dict[str, Any] = {
             "name": self.name,
             "description": self.description or f"Execute {self.name}",
             "inputSchema": input_schema,
@@ -351,19 +357,19 @@ class CommandSchema:
 
 class CommandRegistry:
     def __init__(self):
-        self._commands: Dict[str, CommandSchema] = {}
-        self._categories: Dict[str, List[str]] = {}
+        self._commands: dict[str, CommandSchema] = {}
+        self._categories: dict[str, list[str]] = {}
 
     def register(
         self,
         name: str,
-        params: Optional[List[ParamSchema]] = None,
-        timeout: Optional[float] = None,
+        params: list[ParamSchema] | None = None,
+        timeout: float | None = None,
         description: str = "",
         category: str = "general",
         read_only: bool = False,
         destructive: bool = False,
-        output_schema: Optional[Dict[str, Any]] = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> Callable[[Callable], Callable]:
         def decorator(handler: Callable) -> Callable:
             if name in self._commands:
@@ -385,19 +391,19 @@ class CommandRegistry:
 
         return decorator
 
-    def get(self, name: str) -> Optional[CommandSchema]:
+    def get(self, name: str) -> CommandSchema | None:
         return self._commands.get(name)
 
-    def list_commands(self) -> List[str]:
+    def list_commands(self) -> list[str]:
         return list(self._commands.keys())
 
-    def get_categories(self) -> List[str]:
+    def get_categories(self) -> list[str]:
         return list(self._categories.keys())
 
-    def list_by_category(self, category: str) -> List[str]:
+    def list_by_category(self, category: str) -> list[str]:
         return list(self._categories.get(category, []))
 
-    def generate_mcp_tools(self) -> List[Dict[str, Any]]:
+    def generate_mcp_tools(self) -> list[dict[str, Any]]:
         return [schema.to_mcp_tool() for schema in self._commands.values()]
 
     def schema_hash(self) -> str:

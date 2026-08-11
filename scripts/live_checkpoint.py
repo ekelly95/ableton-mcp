@@ -29,15 +29,17 @@ def step(name):
             except Exception as e:
                 results.append((FAIL, name, str(e)))
                 print(f"  {FAIL}  {name} — {type(e).__name__}: {e}", flush=True)
+
         return wrapper
+
     return decorator
 
 
 NOTES = [
-    {"pitch": 48, "start_time": 0.0, "duration": 1.0, "velocity": 100},      # C2
-    {"pitch": 51, "start_time": 1.0, "duration": 1.0, "velocity": 92},       # Eb2
-    {"pitch": 55, "start_time": 2.0, "duration": 1.0, "velocity": 96},       # G2
-    {"pitch": 60, "start_time": 3.0, "duration": 1.0, "probability": 0.6},   # C3, sometimes
+    {"pitch": 48, "start_time": 0.0, "duration": 1.0, "velocity": 100},  # C2
+    {"pitch": 51, "start_time": 1.0, "duration": 1.0, "velocity": 92},  # Eb2
+    {"pitch": 55, "start_time": 2.0, "duration": 1.0, "velocity": 96},  # G2
+    {"pitch": 60, "start_time": 3.0, "duration": 1.0, "probability": 0.6},  # C3, sometimes
 ]
 
 state = {}
@@ -79,18 +81,14 @@ def check_set_track(client):
 
 @step("create_clip 4 beats")
 def check_create_clip(client):
-    result = client.send(
-        "create_clip", track_index=state["track"], slot_index=0, length_beats=4.0
-    )
+    result = client.send("create_clip", track_index=state["track"], slot_index=0, length_beats=4.0)
     assert result["length"] == 4.0, result
     return None
 
 
 @step("add_notes: 4 notes incl. probability 0.6")
 def check_add_notes(client):
-    result = client.send(
-        "add_notes", track_index=state["track"], slot_index=0, notes=NOTES
-    )
+    result = client.send("add_notes", track_index=state["track"], slot_index=0, notes=NOTES)
     assert result == {"added": 4, "note_count": 4}, result
     return None
 
@@ -144,9 +142,7 @@ def check_remove_notes(client):
     )
     assert result["note_count"] == 2, result
 
-    client.send(
-        "add_notes", track_index=state["track"], slot_index=0, notes=[NOTES[0], NOTES[3]]
-    )
+    client.send("add_notes", track_index=state["track"], slot_index=0, notes=[NOTES[0], NOTES[3]])
     return "region removal and by-id removal both verified"
 
 
@@ -242,9 +238,7 @@ def check_load(client):
 def check_devices(client):
     devices = client.send("get_devices", track_index=state["track"])["devices"]
     assert devices, "expected the loaded instrument in the device list"
-    detail = client.send(
-        "get_devices", track_index=state["track"], device_index=0
-    )["device"]
+    detail = client.send("get_devices", track_index=state["track"], device_index=0)["device"]
     assert detail["parameters"], "device reported no parameters"
     target = next(
         (p for p in detail["parameters"][1:] if not p["is_quantized"]),
@@ -265,9 +259,9 @@ def check_devices(client):
 @step("scale: set D Minor + scale_mode, verify, restore")
 def check_scale(client):
     original = client.send("get_transport_state")["scale"]
-    state_after = client.send(
-        "set_transport", scale_root="D", scale_name="Minor", scale_mode=True
-    )["scale"]
+    state_after = client.send("set_transport", scale_root="D", scale_name="Minor", scale_mode=True)[
+        "scale"
+    ]
     assert state_after["root"] == "D", state_after
     assert state_after["name"] == "Minor", state_after
     assert state_after["scale_mode"] is True, state_after
@@ -277,7 +271,9 @@ def check_scale(client):
         scale_name=original["name"],
         scale_mode=original["scale_mode"],
     )
-    return f"D Minor round-tripped, intervals {state_after['intervals']}; restored {original['name']}"
+    return (
+        f"D Minor round-tripped, intervals {state_after['intervals']}; restored {original['name']}"
+    )
 
 
 @step("pitch names: add 'C3', read back 60/C3 (VERIFY in piano roll!)")
@@ -302,12 +298,16 @@ def check_pitch_names(client):
 def check_place_arrangement(client):
     r1 = client.send(
         "place_clip_in_arrangement",
-        track_index=state["track"], slot_index=0, destination_time=8.0,
+        track_index=state["track"],
+        slot_index=0,
+        destination_time=8.0,
     )
     assert abs(r1["placed"]["start_time"] - 8.0) < 0.01, r1["placed"]
     r2 = client.send(
         "place_clip_in_arrangement",
-        track_index=state["track"], slot_index=0, destination_time=0.0,
+        track_index=state["track"],
+        slot_index=0,
+        destination_time=0.0,
     )
     starts = [c["start_time"] for c in r2["arrangement_clips"]]
     assert starts == sorted(starts), f"not time-ordered: {starts}"
@@ -318,9 +318,7 @@ def check_place_arrangement(client):
 
 @step("arrangement note edit via arrangement_clip_index")
 def check_arrangement_note_edit(client):
-    notes = client.send(
-        "get_notes", track_index=state["track"], arrangement_clip_index=0
-    )["notes"]
+    notes = client.send("get_notes", track_index=state["track"], arrangement_clip_index=0)["notes"]
     assert notes, "arrangement clip has no notes?"
     client.send(
         "update_notes",
@@ -328,9 +326,7 @@ def check_arrangement_note_edit(client):
         arrangement_clip_index=0,
         modifications=[{"note_id": notes[0]["note_id"], "velocity": 37}],
     )
-    reread = client.send(
-        "get_notes", track_index=state["track"], arrangement_clip_index=0
-    )["notes"]
+    reread = client.send("get_notes", track_index=state["track"], arrangement_clip_index=0)["notes"]
     assert any(n["velocity"] == 37.0 for n in reread), reread
     return "vector fetch-modify-apply works on timeline clips too"
 
@@ -339,18 +335,21 @@ def check_arrangement_note_edit(client):
 def check_direct_arrangement(client):
     result = client.send(
         "create_arrangement_clip",
-        track_index=state["track"], start_time=16.0, length_beats=4.0,
+        track_index=state["track"],
+        start_time=16.0,
+        length_beats=4.0,
     )
     assert result["created"]["is_midi_clip"] is True, result
     idx = result["created"]["arrangement_clip_index"]
     client.send(
         "add_notes",
-        track_index=state["track"], arrangement_clip_index=idx,
+        track_index=state["track"],
+        arrangement_clip_index=idx,
         notes=[{"pitch": "C4", "start_time": 0.0, "duration": 2.0}],
     )
-    notes = client.send(
-        "get_notes", track_index=state["track"], arrangement_clip_index=idx
-    )["notes"]
+    notes = client.send("get_notes", track_index=state["track"], arrangement_clip_index=idx)[
+        "notes"
+    ]
     assert notes and notes[0]["pitch"] == 72, notes
     return "empty MIDI clip created at beat 16, note written directly (audit route)"
 
@@ -399,7 +398,8 @@ def check_import_audio(client):
     import os
     import wave as wave_mod
 
-    samples_dir = r"C:\dev\ableton-mcp\samples"
+    from control_surface.config import SAMPLES_DIR as samples_dir
+
     os.makedirs(samples_dir, exist_ok=True)
     wav_path = os.path.join(samples_dir, "checkpoint_tone_440.wav")
     with wave_mod.open(wav_path, "wb") as f:

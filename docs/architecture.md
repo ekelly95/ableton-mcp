@@ -1,7 +1,7 @@
 # ableton-mcp 2.0 — Architecture
 
-Rebuild of the 2025 project (survives as `ableton repomix.xml` in ekelly95's
-Downloads). This doc records what was kept, what changed and why, which Live
+Rebuild of a 2025 predecessor project (which survives only as a repomix
+archive). This doc records what was kept, what changed and why, which Live
 API facts are *verified*, and what is deliberately absent. If you are a later
 session about to "improve" something here, read the deliberate-decisions list
 first.
