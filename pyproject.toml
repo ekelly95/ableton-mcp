@@ -1,0 +1,42 @@
+[project]
+name = "ableton-mcp"
+version = "2.0.0"
+description = "MCP server bridging Claude to Ableton Live via a control-surface socket"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.29,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+ableton-mcp = "mcp_server:run"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mcp_server*", "control_surface*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-q", "--tb=short"]
+
+[tool.ruff]
+line-length = 100
+# control_surface runs inside Live's embedded Python 3.11 — code must stay 3.11-compatible
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
