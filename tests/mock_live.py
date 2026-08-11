@@ -308,9 +308,9 @@ class MockTrack:
         self.arrangement_clips.sort(key=lambda c: c.start_time)
 
     def create_midi_clip(self, start_time: float, length: float) -> None:
-        """LOM-confirmed: creates an empty MIDI clip directly in the arrangement.
-        Errors on non-MIDI/frozen tracks. Return value undocumented — assumed
-        None; callers re-scan (VERIFY at checkpoint)."""
+        """CONFIRMED in real Live 12.4: creates an empty MIDI clip directly in
+        the arrangement (checkpoint wrote notes into one). Errors on
+        non-MIDI/frozen tracks. Return undocumented; callers re-scan."""
         if not self.has_midi_input:
             raise RuntimeError("create_midi_clip called on a non-MIDI track")
         clip = MockClip(length=length, is_midi_clip=True)
@@ -360,7 +360,8 @@ class MockTrack:
         return clip
 
     def delete_clip(self, clip: MockClip) -> None:
-        """VERIFY: assumed to accept arrangement clip objects."""
+        """CONFIRMED in real Live 12.4: accepts arrangement clip objects
+        (checkpoint's guarded cleanup deletes passed)."""
         if clip in self.arrangement_clips:
             self.arrangement_clips.remove(clip)
         else:
@@ -409,7 +410,11 @@ class MockScene:
 
 
 class MockCuePoint:
-    """Arrangement locator. VERIFY: name settable via the API."""
+    """Arrangement locator. CONFIRMED in real Live 12.4: name is settable
+    (checkpoint renamed a cue to 'Chorus'). NOTE: current_song_time writes
+    apply only AFTER the current scheduled task — hence create_locator's
+    two-phase design; the mock applies them immediately, which is why the
+    handler checks the playhead BEFORE writing (uniform behaviour)."""
 
     def __init__(self, time: float, name: str = ""):
         self.time = time
