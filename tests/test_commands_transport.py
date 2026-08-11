@@ -3,10 +3,10 @@
 import pytest
 
 from control_surface.registry import LiveAPIError, ValidationError
-from tests.conftest import run_command
+from tests.helpers import run_command
 
 
-def test_get_transport_state(registry, ctx, song):
+def test_get_transport_state(registry, ctx):
     state = run_command(registry, ctx, "get_transport_state")
     assert state["is_playing"] is False
     assert state["tempo"] == 120.0
@@ -43,7 +43,7 @@ def test_play_with_position_is_two_phase(registry, ctx, song):
     assert song.last_play_call == "continue"
 
 
-def test_play_from_current_position_is_single_phase(registry, ctx, song):
+def test_play_from_current_position_is_single_phase(registry, ctx):
     state = run_command(registry, ctx, "transport_control", action="play", position=0.0)
     assert "phase" not in state
     assert state["is_playing"] is True

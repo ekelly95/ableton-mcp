@@ -1,13 +1,12 @@
 """AbletonClient: framing, reconnect-once, and the no-resend-on-timeout rule."""
 
-import json
 import socket
-import struct
 import threading
 
 import pytest
 
 from mcp_server.client import AbletonClient, AbletonConnectionError, CommandError
+from tests.helpers import read_frame, write_frame
 
 
 class ScriptedServer:
@@ -43,7 +42,7 @@ class ScriptedServer:
                 continue
             try:
                 while True:
-                    request = self._read(conn)
+                    request = read_frame(conn)
                     if request is None:
                         break
                     self.requests_received.append(request)
@@ -71,29 +70,12 @@ class ScriptedServer:
                             "applied": ["name", "volume"],
                             "id": request.get("id"),
                         }
-                    body = json.dumps(response).encode()
-                    conn.sendall(struct.pack(">I", len(body)) + body)
+                    write_frame(conn, response)
             except OSError:
                 pass
             finally:
                 conn.close()
         self._sock.close()
-
-    def _read(self, conn):
-        header = b""
-        while len(header) < 4:
-            chunk = conn.recv(4 - len(header))
-            if not chunk:
-                return None
-            header += chunk
-        length = struct.unpack(">I", header)[0]
-        payload = b""
-        while len(payload) < length:
-            chunk = conn.recv(length - len(payload))
-            if not chunk:
-                return None
-            payload += chunk
-        return json.loads(payload.decode())
 
     def close(self):
         try:

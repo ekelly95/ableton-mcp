@@ -3,10 +3,10 @@
 import pytest
 
 from control_surface.registry import LiveAPIError, ValidationError
-from tests.conftest import run_command
+from tests.helpers import run_command
 
 
-def test_get_tracks_shape(registry, ctx, song):
+def test_get_tracks_shape(registry, ctx):
     result = run_command(registry, ctx, "get_tracks")
     assert result["track_count"] == 2
     assert len(result["return_tracks"]) == 2
@@ -18,7 +18,7 @@ def test_get_tracks_shape(registry, ctx, song):
     assert "devices" not in first
 
 
-def test_get_tracks_with_flags(registry, ctx, song):
+def test_get_tracks_with_flags(registry, ctx):
     result = run_command(registry, ctx, "get_tracks", include_devices=True, include_clips=True)
     first = result["tracks"][0]
     assert first["devices"] == []
@@ -56,7 +56,7 @@ def test_delete_track(registry, ctx, song):
     assert len(song.tracks) == 1
 
 
-def test_delete_track_out_of_range(registry, ctx, song):
+def test_delete_track_out_of_range(registry, ctx):
     with pytest.raises(LiveAPIError, match="out of range"):
         run_command(registry, ctx, "delete_track", track_index=99)
 
@@ -92,7 +92,7 @@ def test_set_track_master(registry, ctx, song):
     assert result["type"] == "master"
 
 
-def test_set_track_master_cannot_mute(registry, ctx, song):
+def test_set_track_master_cannot_mute(registry, ctx):
     with pytest.raises(LiveAPIError, match="cannot be muted"):
         run_command(registry, ctx, "set_track", track_type="master", mute=True)
 
@@ -102,12 +102,12 @@ def test_set_track_return_by_index(registry, ctx, song):
     assert song.return_tracks[1].name == "Delay Bus"
 
 
-def test_set_track_requires_index_for_track(registry, ctx, song):
+def test_set_track_requires_index_for_track(registry, ctx):
     with pytest.raises(LiveAPIError, match="track_index is required"):
         run_command(registry, ctx, "set_track", name="X")
 
 
-def test_set_track_send_out_of_range(registry, ctx, song):
+def test_set_track_send_out_of_range(registry, ctx):
     with pytest.raises(LiveAPIError, match="Send index"):
         run_command(registry, ctx, "set_track", track_index=0, sends=[{"index": 9, "value": 0.5}])
 
@@ -167,6 +167,6 @@ def test_bad_send_index_leaves_earlier_fields_unwritten(registry, ctx, song):
     assert song.tracks[0].mixer_device.sends[0].value == original_send
 
 
-def test_create_track_rejects_bad_type(registry, ctx, song):
+def test_create_track_rejects_bad_type(registry, ctx):
     with pytest.raises(ValidationError):
         run_command(registry, ctx, "create_track", type="warp")

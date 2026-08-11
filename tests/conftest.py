@@ -18,6 +18,11 @@ def mock_live_module():
     uninstall_mock_live()
 
 
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
 @pytest.fixture()
 def song() -> MockSong:
     return MockSong(track_count=2, scene_count=4, return_count=2)
@@ -36,23 +41,3 @@ def registry():
     from control_surface.commands import REGISTRY
 
     return REGISTRY
-
-
-def run_command(registry, ctx, name, /, **params):
-    """Validate params exactly like the socket server would, then execute.
-
-    Runs the handler through schedule_message so each command is exactly one
-    scheduled task — matching the real one-marshal-per-request design. This is
-    what makes the mock's deferred current_song_time (applied at task
-    boundaries) behave in tests as it does against real Live.
-    """
-    schema = registry.get(name)
-    assert schema is not None, f"command {name} not registered"
-    validated = schema.validate_params(params)
-    box = {}
-
-    def task():
-        box["result"] = schema.handler(ctx, **validated)
-
-    ctx.control_surface.schedule_message(1, task)
-    return box["result"]

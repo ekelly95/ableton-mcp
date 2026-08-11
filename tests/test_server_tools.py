@@ -9,58 +9,10 @@ from pathlib import Path
 import pytest
 
 from control_surface.commands import REGISTRY
-from mcp_server.client import AbletonConnectionError, CommandError
 from mcp_server.server import build_server, registry_tools
+from tests.helpers import FakeAbletonClient
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-
-class FakeAbletonClient:
-    """Stands in for the socket client; canned responses per command."""
-
-    def __init__(self, connected: bool = True):
-        self.connected = connected
-        self.sent = []
-
-    def ping(self):
-        if not self.connected:
-            return None
-        from control_surface.config import VERSION
-
-        return {
-            "pong": True,
-            "version": VERSION,
-            "schema_hash": REGISTRY.schema_hash(),
-            "command_count": len(REGISTRY),
-        }
-
-    def send(self, command, **params):
-        if not self.connected:
-            raise AbletonConnectionError("Cannot connect (fake)")
-        self.sent.append((command, params))
-        if command == "get_transport_state":
-            return {
-                "is_playing": False,
-                "tempo": 120.0,
-                "signature_numerator": 4,
-                "signature_denominator": 4,
-                "metronome": False,
-                "loop": {"enabled": False, "start": 0.0, "length": 4.0},
-                "current_song_time": 0.0,
-            }
-        if command == "delete_track":
-            raise CommandError("Track index 99 out of range", error_type="LiveAPIError")
-        return {"ok": True, "command": command}
-
-    # The server dispatches through the seek-resolving wrapper; canned
-    # responses never enter the "seeking" phase, so a single send suffices.
-    def send_resolving_seek(self, command, **params):
-        return self.send(command, **params)
 
 
 class TestToolGeneration:

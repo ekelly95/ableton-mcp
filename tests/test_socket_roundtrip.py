@@ -1,6 +1,5 @@
 """End-to-end socket framing and command dispatch over a real localhost socket."""
 
-import json
 import socket
 import struct
 import time
@@ -9,21 +8,10 @@ import uuid
 import pytest
 
 import control_surface.thread_marshal as thread_marshal
-from control_surface.errors import PartialApplyError
-from control_surface.registry import CommandRegistry, LiveAPIError, ParamSchema, ParamType
+from control_surface.errors import LiveAPIError, PartialApplyError
+from control_surface.registry import CommandRegistry, ParamSchema, ParamType
 from control_surface.socket_server import SocketServer
-
-
-class ImmediateControlSurface:
-    def schedule_message(self, delay, callback):
-        callback()
-
-    def song(self):
-        return None
-
-    def application(self):
-        return None
-
+from tests.helpers import ImmediateControlSurface, read_frame, write_frame
 
 EXECUTION_COUNTS = {"counter": 0}
 
@@ -81,20 +69,10 @@ def send_request(port: int, message: dict, sock: socket.socket = None) -> dict:
     if own_socket:
         sock = socket.create_connection(("127.0.0.1", port), timeout=5)
     try:
-        body = json.dumps(message).encode("utf-8")
-        sock.sendall(struct.pack(">I", len(body)) + body)
-        header = b""
-        while len(header) < 4:
-            chunk = sock.recv(4 - len(header))
-            assert chunk, "connection closed while reading header"
-            header += chunk
-        length = struct.unpack(">I", header)[0]
-        payload = b""
-        while len(payload) < length:
-            chunk = sock.recv(length - len(payload))
-            assert chunk, "connection closed while reading body"
-            payload += chunk
-        return json.loads(payload.decode("utf-8"))
+        write_frame(sock, message)
+        response = read_frame(sock)
+        assert response is not None, "connection closed before a response arrived"
+        return response
     finally:
         if own_socket:
             sock.close()
@@ -262,17 +240,13 @@ def test_oversized_message_rejected_then_server_survives(server):
     sock = socket.create_connection(("127.0.0.1", server.bound_port), timeout=5)
     try:
         sock.sendall(struct.pack(">I", 32 * 1024 * 1024))
-        header = sock.recv(4)
-        if header:
-            length = struct.unpack(">I", header)[0]
-            payload = b""
-            while len(payload) < length:
-                chunk = sock.recv(length - len(payload))
-                if not chunk:
-                    break
-                payload += chunk
-            response = json.loads(payload.decode("utf-8"))
-            assert response["status"] == "error"
+        # The rejection must actually arrive as an error frame — the old
+        # version of this assertion sat inside `if header:` and passed
+        # vacuously when the server just closed the connection.
+        response = read_frame(sock)
+        assert response is not None, "server closed without sending the rejection"
+        assert response["status"] == "error"
+        assert "too large" in response["error"]
     finally:
         sock.close()
 

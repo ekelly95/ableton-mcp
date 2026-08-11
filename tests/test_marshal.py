@@ -6,16 +6,9 @@ import time
 
 import pytest
 
-from control_surface.errors import PartialApplyError
-from control_surface.registry import LiveAPIError, ValidationError
+from control_surface.errors import LiveAPIError, PartialApplyError, ValidationError
 from control_surface.thread_marshal import MainThreadExecutionError, ThreadMarshaler
-
-
-class ImmediateControlSurface:
-    """Executes scheduled tasks synchronously, like tests want and unlike Live."""
-
-    def schedule_message(self, delay, callback):
-        callback()
+from tests.helpers import ImmediateControlSurface
 
 
 class DroppingControlSurface:
@@ -129,9 +122,7 @@ def test_expired_task_refuses_to_run_after_abandonment():
     # handler and journal 'expired'.
     surface = CapturingControlSurface()
     journal = FakeOperationLogger()
-    marshaler = ThreadMarshaler(
-        surface, default_timeout=0.05, grace=0.05, operation_logger=journal
-    )
+    marshaler = ThreadMarshaler(surface, default_timeout=0.05, grace=0.05, operation_logger=journal)
     ran = []
     with pytest.raises(MainThreadExecutionError) as exc:
         marshaler.execute(lambda: ran.append(1), command="poke")
@@ -172,9 +163,7 @@ def test_late_finish_after_abandon_is_journaled():
     # error — the journal is the only record, so it must exist.
     surface = CapturingControlSurface()
     journal = FakeOperationLogger()
-    marshaler = ThreadMarshaler(
-        surface, default_timeout=0.3, grace=0.1, operation_logger=journal
-    )
+    marshaler = ThreadMarshaler(surface, default_timeout=0.3, grace=0.1, operation_logger=journal)
 
     def slow():
         time.sleep(0.8)  # finishes well after timeout+grace (0.4s)

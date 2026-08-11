@@ -8,11 +8,6 @@ import pytest
 from control_surface.commands import REGISTRY
 
 
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-
 @pytest.mark.anyio
 async def test_stdio_handshake_and_tools():
     from mcp.client.session import ClientSession

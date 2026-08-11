@@ -3,7 +3,7 @@
 import pytest
 
 from control_surface.registry import LiveAPIError, ValidationError
-from tests.conftest import run_command
+from tests.helpers import run_command
 from tests.mock_live import MockDevice, MockTrack
 
 RAMP = [

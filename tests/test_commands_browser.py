@@ -3,7 +3,7 @@
 import pytest
 
 from control_surface.registry import LiveAPIError
-from tests.conftest import run_command
+from tests.helpers import run_command
 
 
 def test_browse_roots(registry, ctx):

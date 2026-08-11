@@ -6,9 +6,11 @@ from pathlib import Path
 import pytest
 
 from control_surface.registry import LiveAPIError, ValidationError
-from tests.conftest import run_command
+from tests.helpers import run_command
 
-MELODY = [
+# Distinct from test_commands_clips.py's MELODY: this one mixes pitch NAMES
+# with plain numbers, which is the point of the tests that use it.
+NAMED_PITCH_MELODY = [
     {"pitch": "C3", "start_time": 0.0, "duration": 1.0},
     {"pitch": "Eb3", "start_time": 1.0, "duration": 1.0},
     {"pitch": 67, "start_time": 2.0, "duration": 2.0},
@@ -18,7 +20,7 @@ MELODY = [
 @pytest.fixture()
 def with_session_clip(registry, ctx, song):
     run_command(registry, ctx, "create_clip", track_index=0, slot_index=0, length_beats=4.0)
-    run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
+    run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=NAMED_PITCH_MELODY)
     return song.tracks[0].clip_slots[0].clip
 
 
@@ -61,6 +63,8 @@ class TestScale:
         with pytest.raises(LiveAPIError, match="rejected scale name"):
             run_command(registry, ctx, "set_transport", scale_name="Klingon Phrygian")
 
+
+class TestTimelineOverrideFlags:
     def test_back_to_arranger_flag(self, registry, ctx, song):
         state = run_command(registry, ctx, "set_transport", back_to_arranger=False)
         assert state["back_to_arranger"] is False

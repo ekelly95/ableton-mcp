@@ -1,10 +1,8 @@
 """TapClient, the get_audio_levels tool, and Node framing conformance."""
 
-import json
 import os
 import shutil
 import socket
-import struct
 import subprocess
 import threading
 import time
@@ -13,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from mcp_server.m4l import TapClient, TapUnavailable, get_audio_levels
+from tests.helpers import read_frame, write_frame
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -70,20 +69,9 @@ class FakeTapServer:
                 return
             try:
                 while True:
-                    header = b""
-                    while len(header) < 4:
-                        chunk = conn.recv(4 - len(header))
-                        if not chunk:
-                            raise OSError("closed")
-                        header += chunk
-                    length = struct.unpack(">I", header)[0]
-                    payload = b""
-                    while len(payload) < length:
-                        chunk = conn.recv(length - len(payload))
-                        if not chunk:
-                            raise OSError("closed")
-                        payload += chunk
-                    request = json.loads(payload.decode())
+                    request = read_frame(conn)
+                    if request is None:
+                        break
                     self.requests.append(request)
                     if request["type"] == "ping":
                         result = {
@@ -97,9 +85,7 @@ class FakeTapServer:
                     else:
                         window_ms = (request.get("params") or {}).get("window_ms", 5000)
                         result = self._levels(window_ms)
-                    response = {"status": "success", "id": request["id"], "result": result}
-                    body = json.dumps(response).encode()
-                    conn.sendall(struct.pack(">I", len(body)) + body)
+                    write_frame(conn, {"status": "success", "id": request["id"], "result": result})
             except OSError:
                 pass
             finally:
@@ -215,18 +201,13 @@ class TestGetAudioLevelsHandler:
         assert "AbletonMCP Tap" in result["hint"]
 
 
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-
 @pytest.mark.anyio
 class TestOverProtocol:
     async def test_tool_listed_and_graceful_absence(self):
         from mcp.shared.memory import create_connected_server_and_client_session
 
         from mcp_server.server import build_server
-        from tests.test_server_tools import FakeAbletonClient
+        from tests.helpers import FakeAbletonClient
 
         server = build_server(FakeAbletonClient(), tap=TapClient(port=1))
         async with create_connected_server_and_client_session(server) as session:
@@ -240,7 +221,7 @@ class TestOverProtocol:
         from mcp.shared.memory import create_connected_server_and_client_session
 
         from mcp_server.server import build_server
-        from tests.test_server_tools import FakeAbletonClient
+        from tests.helpers import FakeAbletonClient
 
         fake_tap = FakeTapServer()
         try:

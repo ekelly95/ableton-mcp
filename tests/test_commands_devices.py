@@ -3,7 +3,7 @@
 import pytest
 
 from control_surface.registry import LiveAPIError
-from tests.conftest import run_command
+from tests.helpers import run_command
 from tests.mock_live import MockDevice
 
 
@@ -13,13 +13,13 @@ def with_device(song):
     return song.tracks[0].devices[0]
 
 
-def test_get_devices_list(registry, ctx, song, with_device):
+def test_get_devices_list(registry, ctx, with_device):
     result = run_command(registry, ctx, "get_devices", track_index=0)
     assert result["devices"][0]["name"] == "Drift"
     assert result["devices"][0]["parameter_count"] == 3
 
 
-def test_get_device_parameters(registry, ctx, song, with_device):
+def test_get_device_parameters(registry, ctx, with_device):
     result = run_command(registry, ctx, "get_devices", track_index=0, device_index=0)
     params = result["device"]["parameters"]
     assert params[0]["name"] == "Device On"
@@ -27,7 +27,7 @@ def test_get_device_parameters(registry, ctx, song, with_device):
     assert all("display_value" in p for p in params)
 
 
-def test_set_parameters_by_name_and_index(registry, ctx, song, with_device):
+def test_set_parameters_by_name_and_index(registry, ctx, with_device):
     result = run_command(
         registry,
         ctx,
@@ -44,7 +44,7 @@ def test_set_parameters_by_name_and_index(registry, ctx, song, with_device):
     assert len(result["changed"]) == 2
 
 
-def test_set_parameters_unknown_name_lists_available(registry, ctx, song, with_device):
+def test_set_parameters_unknown_name_lists_available(registry, ctx, with_device):
     with pytest.raises(LiveAPIError, match="Available"):
         run_command(
             registry,
@@ -56,7 +56,7 @@ def test_set_parameters_unknown_name_lists_available(registry, ctx, song, with_d
         )
 
 
-def test_bypass_device_drives_device_on_parameter(registry, ctx, song, with_device):
+def test_bypass_device_drives_device_on_parameter(registry, ctx, with_device):
     # is_active is get/observe-only in Live's API; `enabled` must go through
     # the Device On parameter (the mock derives is_active from it).
     result = run_command(
@@ -82,7 +82,7 @@ def test_mock_is_active_is_read_only(with_device):
         with_device.is_active = False
 
 
-def test_enabled_without_device_on_parameter_errors_before_writes(registry, ctx, song, with_device):
+def test_enabled_without_device_on_parameter_errors_before_writes(registry, ctx, with_device):
     with_device.parameters = [p for p in with_device.parameters if p.name != "Device On"]
     original = with_device.parameters[0].value  # Macro 1
     with pytest.raises(LiveAPIError, match="Device On"):
@@ -100,7 +100,7 @@ def test_enabled_without_device_on_parameter_errors_before_writes(registry, ctx,
 
 
 def test_invalid_later_selector_leaves_earlier_parameters_unwritten(
-    registry, ctx, song, with_device
+    registry, ctx, with_device
 ):
     # Validate-then-write: a bad second entry must not leave the first applied.
     original = with_device.parameters[1].value
@@ -125,7 +125,7 @@ def test_delete_device(registry, ctx, song, with_device):
     assert song.tracks[0].devices == []
 
 
-def test_parameter_metadata_exposed(registry, ctx, song, with_device):
+def test_parameter_metadata_exposed(registry, ctx, with_device):
     result = run_command(registry, ctx, "get_devices", track_index=0, device_index=0)
     params = {p["name"]: p for p in result["device"]["parameters"]}
     device_on = params["Device On"]
@@ -137,7 +137,7 @@ def test_parameter_metadata_exposed(registry, ctx, song, with_device):
     assert "value_items" not in params["Macro 1"]
 
 
-def test_disabled_parameter_rejected_before_any_write(registry, ctx, song, with_device):
+def test_disabled_parameter_rejected_before_any_write(registry, ctx, with_device):
     # LOM is_enabled=false: a macro/live.remote~ owns the parameter — the
     # batch must refuse it up front rather than write into a refusal.
     with_device.parameters[2].is_enabled = False
@@ -157,7 +157,7 @@ def test_disabled_parameter_rejected_before_any_write(registry, ctx, song, with_
     assert with_device.parameters[1].value == original
 
 
-def test_re_enable_automation_restores_overridden_state(registry, ctx, song, with_device):
+def test_re_enable_automation_restores_overridden_state(registry, ctx, with_device):
     macro = with_device.parameters[1]
     macro.automation_state = 1  # automation active
 
@@ -205,6 +205,6 @@ def test_insert_device_unknown_name_suggests_browser(registry, ctx, song):
     assert song.tracks[0].devices == []
 
 
-def test_device_out_of_range(registry, ctx, song):
+def test_device_out_of_range(registry, ctx):
     with pytest.raises(LiveAPIError, match="out of range"):
         run_command(registry, ctx, "get_devices", track_index=0, device_index=5)
