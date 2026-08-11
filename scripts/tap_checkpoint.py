@@ -13,14 +13,13 @@ power metering must not).
 Run:  python scripts/tap_checkpoint.py
 """
 
-import math
-import struct as _struct
 import sys
 import time
-import wave
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from wav_util import write_sine_wav  # noqa: E402
 
 from control_surface.config import SAMPLES_DIR  # noqa: E402
 from mcp_server.client import AbletonClient  # noqa: E402
@@ -31,29 +30,20 @@ from mcp_server.m4l import (  # noqa: E402
     get_audio_levels,
 )
 
+# Calibration tone level, one derivation for every tolerance below:
+# amplitude 0.25 of full scale → peak = 20*log10(0.25) ≈ −12 dBFS, and a
+# sine's RMS sits 3 dB below its peak → ≈ −15 dB RMS.
+CAL_AMPLITUDE = 0.25
+CAL_PEAK_DB = -12.0
+CAL_RMS_DB = -15.0
 
-def write_sine_wav(
-    path: Path,
-    freq_hz: float,
-    amplitude: float,
-    seconds: float,
-    antiphase: bool = False,
-) -> None:
-    """16-bit WAV: mono, or stereo with R = -L when antiphase (the v1
-    mono-sum killer). Same generation pattern as live_checkpoint.py."""
-    rate = 44100
-    channels = 2 if antiphase else 1
-    frames = bytearray()
-    for i in range(int(rate * seconds)):
-        sample = int(amplitude * 32767 * math.sin(2 * math.pi * freq_hz * i / rate))
-        frames += _struct.pack("<h", sample)
-        if antiphase:
-            frames += _struct.pack("<h", -sample)
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(channels)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        w.writeframes(bytes(frames))
+_phase_counter = 0
+
+
+def phase(title: str) -> None:
+    global _phase_counter
+    _phase_counter += 1
+    print(f"{_phase_counter}. {title}", flush=True)
 
 
 def sample_tone(bridge: AbletonClient, tap: TapClient, wav_path: Path, seconds: float = 3):
@@ -88,7 +78,7 @@ def main() -> None:
     tap = TapClient()
     failures: list[str] = []
 
-    print("1. Tap ping + protocol gate...", flush=True)
+    phase("Tap ping + protocol gate...")
     try:
         info = tap.send("ping")
     except TapUnavailable as e:
@@ -110,7 +100,7 @@ def main() -> None:
         print("   (m4l/README-lab.md, 'Upgrading from v1'), then retry.")
         sys.exit(1)
 
-    print("2. Silence heuristic (nothing should be playing)...", flush=True)
+    phase("Silence heuristic (nothing should be playing)...")
     quiet = get_audio_levels(tap)
     print(
         f"   receiving_audio={quiet['receiving_audio']} stale={quiet.get('stale')} "
@@ -122,7 +112,7 @@ def main() -> None:
     if quiet["receiving_audio"]:
         print("   NOTE: something is already playing/feeding audio — silence check skipped")
 
-    print("3. Launching a clip and sampling 3s through the tap...", flush=True)
+    phase("Launching a clip and sampling 3s through the tap...")
     bridge = AbletonClient(timeout=30)
     try:
         overview = bridge.send("get_session_overview")
@@ -155,11 +145,13 @@ def main() -> None:
             print("Checks: device on the MASTER track? powered on? Max Window says SERVING?")
             sys.exit(1)
 
-        print("4. Calibration: mono 1 kHz sine, peak -12 dBFS (expected rms ≈ -15)...", flush=True)
+        phase(
+            f"Calibration: mono 1 kHz sine, peak {CAL_PEAK_DB} dBFS (expected rms ≈ {CAL_RMS_DB})..."
+        )
         samples_dir = Path(SAMPLES_DIR)
         samples_dir.mkdir(parents=True, exist_ok=True)
         cal_wav = samples_dir / "tap_cal_1k.wav"
-        write_sine_wav(cal_wav, 1000.0, 0.25, 4.0)
+        write_sine_wav(cal_wav, 1000.0, CAL_AMPLITUDE, 4.0)
         cal = sample_tone(bridge, tap, cal_wav)
         print(f"   rms_max={cal['rms_db_max']} dB  peak_max={cal['peak_db_max']} dB")
         print_bands(cal)
@@ -167,12 +159,16 @@ def main() -> None:
         hottest = max(cal["bands_max"], key=lambda b: b["level_db"])
         if hottest["hz"] != "1k":
             failures.append(f"calibration: hottest band was {hottest['hz']}, expected 1k")
-        if abs(by_hz["1k"] - (-15.0)) > 6.0:
-            failures.append(f"calibration: 1k band {by_hz['1k']} dB not within ±6 of -15")
-        if abs(cal["rms_db_max"] - (-15.0)) > 3.0:
-            failures.append(f"calibration: rms {cal['rms_db_max']} dB not within ±3 of -15")
-        if abs(cal["peak_db_max"] - (-12.0)) > 2.0:
-            failures.append(f"calibration: peak {cal['peak_db_max']} dB not within ±2 of -12")
+        if abs(by_hz["1k"] - CAL_RMS_DB) > 6.0:
+            failures.append(f"calibration: 1k band {by_hz['1k']} dB not within ±6 of {CAL_RMS_DB}")
+        if abs(cal["rms_db_max"] - CAL_RMS_DB) > 3.0:
+            failures.append(
+                f"calibration: rms {cal['rms_db_max']} dB not within ±3 of {CAL_RMS_DB}"
+            )
+        if abs(cal["peak_db_max"] - CAL_PEAK_DB) > 2.0:
+            failures.append(
+                f"calibration: peak {cal['peak_db_max']} dB not within ±2 of {CAL_PEAK_DB}"
+            )
         # Low bands: strict. High bands: the octave filters are deliberately
         # broad (2-pole skirts, Q≈1.414 for contiguous coverage) and the 16k
         # response warps near Nyquist at 44.1k (documented in README-lab.md) —
@@ -184,18 +180,20 @@ def main() -> None:
                     f"below 1k ({by_hz['1k']})"
                 )
 
-        print("5. Anti-phase stereo 220 Hz (v1 mono-sum read -70 dB here)...", flush=True)
+        phase("Anti-phase stereo 220 Hz (v1 mono-sum read -70 dB here)...")
         anti_wav = samples_dir / "tap_cal_antiphase.wav"
-        write_sine_wav(anti_wav, 220.0, 0.25, 4.0, antiphase=True)
+        write_sine_wav(anti_wav, 220.0, CAL_AMPLITUDE, 4.0, antiphase=True)
         anti = sample_tone(bridge, tap, anti_wav)
         print(f"   rms_max={anti['rms_db_max']} dB  peak_max={anti['peak_db_max']} dB")
         if anti["rms_db_max"] <= -30.0:
             failures.append(
                 f"anti-phase: rms {anti['rms_db_max']} dB — stereo power metering "
-                f"should read ≈ -15, the v1 mono-sum bug reads -70"
+                f"should read ≈ {CAL_RMS_DB}, the v1 mono-sum bug reads -70"
             )
-        if abs(anti["peak_db_max"] - (-12.0)) > 2.0:
-            failures.append(f"anti-phase: peak {anti['peak_db_max']} dB not within ±2 of -12")
+        if abs(anti["peak_db_max"] - CAL_PEAK_DB) > 2.0:
+            failures.append(
+                f"anti-phase: peak {anti['peak_db_max']} dB not within ±2 of {CAL_PEAK_DB}"
+            )
 
         bridge.send("transport_control", action="stop")
     finally:
@@ -207,7 +205,9 @@ def main() -> None:
             print(f" - {f}")
         sys.exit(1)
 
-    print("\nPASS 5/5: the AI can hear the set, in tune with reality.")
+    print(
+        f"\nPASS {_phase_counter}/{_phase_counter}: the AI can hear the set, in tune with reality."
+    )
     print("(Readings are pre-master-fader; bands are resonant octave filters.)")
 
 

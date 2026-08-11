@@ -18,6 +18,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE = REPO_ROOT / "control_surface"
 TARGET_NAME = "AbletonMCP"
+PROGRAMDATA_ABLETON = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "Ableton"
 
 
 def candidate_user_libraries() -> list[Path]:
@@ -29,11 +30,10 @@ def candidate_user_libraries() -> list[Path]:
 
 
 def candidate_programdata_script_dirs() -> list[Path]:
-    ableton_root = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "Ableton"
-    if not ableton_root.exists():
+    if not PROGRAMDATA_ABLETON.exists():
         return []
     dirs = []
-    for install in sorted(ableton_root.iterdir()):
+    for install in sorted(PROGRAMDATA_ABLETON.iterdir()):
         scripts = install / "Resources" / "MIDI Remote Scripts"
         if scripts.is_dir():
             dirs.append(scripts)
@@ -54,12 +54,10 @@ def pick_target() -> Path:
     if programdata:
         return programdata[-1]  # newest install wins (sorted)
 
+    probed.append(str(PROGRAMDATA_ABLETON / "*" / "Resources" / "MIDI Remote Scripts"))
     print("Could not find an install location. Probed:")
     for p in probed:
         print(f"  - {p}")
-    print(
-        f"  - {Path(os.environ.get('PROGRAMDATA', 'C:/ProgramData')) / 'Ableton'}/*/Resources/MIDI Remote Scripts"
-    )
     print("Has Ableton Live been installed and run at least once?")
     sys.exit(1)
 

@@ -7,13 +7,17 @@ everything else it creates, it removes.
 Run:  python scripts/live_checkpoint.py
 """
 
+import functools
+import os
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from control_surface.config import VERSION  # noqa: E402
+from wav_util import write_sine_wav  # noqa: E402
+
+from control_surface.config import SAMPLES_DIR, VERSION  # noqa: E402
 from mcp_server.client import AbletonClient, CommandError  # noqa: E402
 
 PASS, FAIL = "PASS", "FAIL"
@@ -23,6 +27,7 @@ results = []
 
 def step(name):
     def decorator(func):
+        @functools.wraps(func)
         def wrapper(client):
             # The result is recorded from the STEP's outcome alone; printing
             # happens after, so a console hiccup can never flip a passed step
@@ -200,7 +205,8 @@ def check_delete_track(client):
 def check_scenes(client):
     before = len(client.send("get_clips")["scenes"])
     client.send("create_scene")
-    after = client.send("create_scene") and len(client.send("get_clips")["scenes"])
+    client.send("create_scene")
+    after = len(client.send("get_clips")["scenes"])
     client.send("delete_scene", scene_index=after - 1)
     client.send("delete_scene", scene_index=after - 2)
     final = len(client.send("get_clips")["scenes"])
@@ -453,23 +459,9 @@ def check_locator(client):
 
 @step("import_audio: generated sine WAV onto new audio track")
 def check_import_audio(client):
-    import math
-    import os
-    import wave as wave_mod
-
-    from control_surface.config import SAMPLES_DIR as samples_dir
-
-    os.makedirs(samples_dir, exist_ok=True)
-    wav_path = os.path.join(samples_dir, "checkpoint_tone_440.wav")
-    with wave_mod.open(wav_path, "wb") as f:
-        f.setnchannels(1)
-        f.setsampwidth(2)
-        f.setframerate(44100)
-        frames = bytearray()
-        for i in range(44100):
-            value = int(12000 * math.sin(2 * math.pi * 440 * i / 44100))
-            frames += value.to_bytes(2, "little", signed=True)
-        f.writeframes(bytes(frames))
+    os.makedirs(SAMPLES_DIR, exist_ok=True)
+    wav_path = os.path.join(SAMPLES_DIR, "checkpoint_tone_440.wav")
+    write_sine_wav(Path(wav_path), 440.0, 0.37, 1.0)
 
     created = client.send("create_track", type="audio")
     state["audio_track"] = created["track_index"]
@@ -510,9 +502,7 @@ def check_envelope_guards(client):
 
     # Unwarped audio: loop bounds in seconds, length undefined (LOM). Uses the
     # session audio clip from check_import_audio.
-    toggled = client.send(
-        "set_clip", track_index=state["audio_track"], slot_index=0, warping=False
-    )
+    toggled = client.send("set_clip", track_index=state["audio_track"], slot_index=0, warping=False)
     assert toggled["warping"] is False, toggled
     try:
         client.send(
@@ -563,9 +553,7 @@ def check_device_enabled(client):
     # readback is a SEPARATE request.
     listing = client.send("get_devices", track_index=state["track"])
     assert listing["devices"][0]["is_active"] is False, listing["devices"][0]
-    client.send(
-        "set_device_parameters", track_index=state["track"], device_index=0, enabled=True
-    )
+    client.send("set_device_parameters", track_index=state["track"], device_index=0, enabled=True)
     listing = client.send("get_devices", track_index=state["track"])
     assert listing["devices"][0]["is_active"] is True, listing["devices"][0]
     return "enabled=false/true drives Device On; is_active confirmed cross-request"
@@ -581,7 +569,9 @@ def check_insert_device(client):
         "delete_device", track_index=state["track"], device_index=result["inserted"]["index"]
     )
     try:
-        client.send("insert_device", track_index=state["track"], device_name="Definitely Not A Device")
+        client.send(
+            "insert_device", track_index=state["track"], device_name="Definitely Not A Device"
+        )
         raise AssertionError("unknown device name was accepted")
     except CommandError as e:
         assert e.error_type == "LiveAPIError", e

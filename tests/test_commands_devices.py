@@ -99,9 +99,7 @@ def test_enabled_without_device_on_parameter_errors_before_writes(registry, ctx,
     assert with_device.parameters[0].value == original
 
 
-def test_invalid_later_selector_leaves_earlier_parameters_unwritten(
-    registry, ctx, with_device
-):
+def test_invalid_later_selector_leaves_earlier_parameters_unwritten(registry, ctx, with_device):
     # Validate-then-write: a bad second entry must not leave the first applied.
     original = with_device.parameters[1].value
     with pytest.raises(LiveAPIError, match="Available"):
@@ -184,9 +182,7 @@ def test_re_enable_automation_restores_overridden_state(registry, ctx, with_devi
 
 
 def test_insert_device_native(registry, ctx, song, with_device):
-    result = run_command(
-        registry, ctx, "insert_device", track_index=0, device_name="Reverb"
-    )
+    result = run_command(registry, ctx, "insert_device", track_index=0, device_name="Reverb")
     assert result["inserted"]["name"] == "Reverb"
     assert result["inserted"]["index"] == 1  # appended after Drift
     assert result["device_count"] == 2

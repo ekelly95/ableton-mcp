@@ -4,10 +4,17 @@ version = "2.3.0"
 description = "MCP server bridging Claude to Ableton Live via a control-surface socket"
 readme = "README.md"
 license = { text = "MIT" }
+authors = [{ name = "ekelly95" }]
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.29,<2",
+    # Imported directly by mcp_server (anyio.to_thread) and the anyio pytest
+    # plugin — declared, not inherited transitively through mcp.
+    "anyio>=4",
 ]
+
+[project.urls]
+Repository = "https://github.com/ekelly95/ableton-mcp"
 
 [project.optional-dependencies]
 dev = [
@@ -27,7 +34,7 @@ include = ["mcp_server*", "control_surface*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-q", "--tb=short"]
+addopts = ["-q", "--tb=short", "--strict-markers"]
 
 [tool.ruff]
 line-length = 100
@@ -36,6 +43,9 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP"]
+# E501 off on purpose: the over-length lines are tool-description strings that
+# cross the wire and must hash identically on every machine; code lines are
+# already bounded by the formatter's line-length.
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
