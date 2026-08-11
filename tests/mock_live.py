@@ -83,14 +83,39 @@ class MockParameter:
         max: float = 1.0,  # noqa: A002
         default_value: float = 0.5,
         is_quantized: bool = False,
+        value_items: list[str] | None = None,
     ):
         self.name = name
-        self.value = value
+        self._value = value
         self.min = min
         self.max = max
         self.default_value = default_value
         self.is_quantized = is_quantized
         self.is_enabled = True
+        # LOM: 0 = no automation, 1 = automation active, 2 = overridden.
+        self.automation_state = 0
+        if value_items is None and is_quantized:
+            value_items = ["Off", "On"]
+        # LOM: human-readable choices, quantized parameters only.
+        self.value_items = list(value_items or [])
+
+    @property
+    def value(self) -> float:
+        return self._value
+
+    @value.setter
+    def value(self, v: float) -> None:
+        self._value = v
+        # Direction confirmed by the LOM (automation_state, re_enable_
+        # automation): writing a value while automation is active overrides
+        # it. Exact trigger conditions VERIFY at checkpoint.
+        if self.automation_state == 1:
+            self.automation_state = 2
+
+    def re_enable_automation(self) -> None:
+        """LOM-documented: restore automation control for this parameter."""
+        if self.automation_state == 2:
+            self.automation_state = 1
 
     def __str__(self) -> str:
         return f"{self.value:.2f}"
@@ -362,6 +387,16 @@ class MockTrack:
         self.color_index = 0
         self.has_midi_input = has_midi_input
         self.has_audio_input = not has_midi_input
+        # Simplification: real Live derives this from routing (a MIDI track
+        # only has audio output once an instrument sits on it); tests that
+        # care set it explicitly.
+        self.has_audio_output = True
+        # LOM meters, 0.0-1.0 on Live's meter scale (NOT dB): level is the
+        # 1-second hold peak (max of L/R, exists for audio and MIDI tracks);
+        # left/right are momentary and exist only with audio output.
+        self.output_meter_level = 0.0
+        self.output_meter_left = 0.0
+        self.output_meter_right = 0.0
         self.can_be_armed = can_be_armed
         self.arm = False
         self.mute = False
@@ -380,6 +415,21 @@ class MockTrack:
 
     def delete_device(self, device_index: int) -> None:
         del self.devices[device_index]
+
+    # Native devices the mock "knows" for insert_device.
+    KNOWN_NATIVE_DEVICES = ("Reverb", "EQ Eight", "Compressor", "Delay", "Operator", "Drift")
+
+    def insert_device(self, device_name: str, target_index: int = -1) -> None:
+        """Track.insert_device, Live 12.3+ (LOM-documented; native devices
+        only). VERIFY at checkpoint: unknown-name behaviour (assumed to raise)
+        and return value (assumed None — callers re-scan the chain)."""
+        if device_name not in self.KNOWN_NATIVE_DEVICES:
+            raise RuntimeError(f"Unknown device: {device_name}")
+        device = MockDevice(name=device_name, class_name=device_name.replace(" ", ""))
+        if target_index < 0 or target_index >= len(self.devices):
+            self.devices.append(device)
+        else:
+            self.devices.insert(target_index, device)
 
     def _insert_arrangement_clip(self, clip: MockClip) -> None:
         clip._is_arrangement_clip = True

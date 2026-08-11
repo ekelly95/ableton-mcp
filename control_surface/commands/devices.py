@@ -7,15 +7,31 @@ from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import get_device, get_track
 from ..utils.normalize import denormalize_parameter, normalize_parameter
 
+# LOM DeviceParameter.automation_state values.
+_AUTOMATION_STATES = {0: "none", 1: "active", 2: "overridden"}
+
 
 def _serialize_parameter(index: int, param: Any) -> dict[str, Any]:
-    return {
+    info = {
         "index": index,
         "name": param.name,
         "value": normalize_parameter(param),
         "display_value": str(param),
         "is_quantized": param.is_quantized,
+        # False when a rack macro or live.remote~ owns the parameter — writes
+        # would be refused, so surface it up front.
+        "is_enabled": getattr(param, "is_enabled", True),
+        "automation_state": _AUTOMATION_STATES.get(getattr(param, "automation_state", 0), "none"),
     }
+    if param.is_quantized:
+        # Human-readable choices ("Lowpass", "24 dB", ...) — quantized
+        # parameters only (LOM); without these the model must guess which
+        # normalized number means which mode.
+        try:
+            info["value_items"] = [str(v) for v in param.value_items]
+        except Exception:
+            pass
+    return info
 
 
 @REGISTRY.register(
@@ -34,7 +50,8 @@ def _serialize_parameter(index: int, param: Any) -> dict[str, Any]:
     read_only=True,
     description=(
         "Devices on a track. Without device_index: summaries. With it: every "
-        "parameter (values normalized 0-1) plus human-readable display values."
+        "parameter (values normalized 0-1) plus display values, enum choices "
+        "(value_items), editability (is_enabled), and automation state."
     ),
     output_schema={
         "type": "object",
@@ -95,6 +112,12 @@ def get_devices(ctx, track_index: int, device_index: int | None = None) -> dict[
             },
         ),
         ParamSchema("enabled", ParamType.BOOL, required=False),
+        ParamSchema(
+            "re_enable_automation",
+            ParamType.BOOL,
+            required=False,
+            description="After setting values, restore any automation these writes overrode",
+        ),
     ],
     category="devices",
     description=(
@@ -109,6 +132,7 @@ def set_device_parameters(
     device_index: int,
     parameters: list[dict[str, Any]] | None = None,
     enabled: bool | None = None,
+    re_enable_automation: bool | None = None,
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     device = get_device(track, device_index)
@@ -140,6 +164,11 @@ def set_device_parameters(
             raise LiveAPIError(
                 f"Value for '{param.name}' is not a number: {item['value']!r}"
             ) from None
+        if not getattr(param, "is_enabled", True):
+            raise LiveAPIError(
+                f"Parameter '{param.name}' is not currently editable "
+                f"(controlled by a rack macro or live.remote~)"
+            )
         resolved.append((param, value))
 
     device_on = None
@@ -170,11 +199,72 @@ def set_device_parameters(
         except Exception as e:
             raise PartialApplyError("enabled", str(e), applied) from e
 
+    if re_enable_automation:
+        # Restore automation control for exactly the parameters this batch
+        # wrote (a value write flips automation from active to overridden).
+        for param, _value in resolved:
+            param.re_enable_automation()
+
     result: dict[str, Any] = {"changed": changed, "is_active": device.is_active}
     if enabled is not None:
         result["enabled_requested"] = enabled
         result["device_on"] = {"name": device_on.name, "value": normalize_parameter(device_on)}
     return result
+
+
+@REGISTRY.register(
+    "insert_device",
+    params=[
+        ParamSchema("track_index", ParamType.INT, min_value=0),
+        ParamSchema(
+            "device_name",
+            ParamType.STRING,
+            description="Exact native device name, e.g. 'Reverb', 'EQ Eight', 'Operator'",
+        ),
+        ParamSchema(
+            "device_index",
+            ParamType.INT,
+            required=False,
+            min_value=0,
+            description="Chain position to insert at; omit to append at the end",
+        ),
+    ],
+    category="devices",
+    description=(
+        "Insert a NATIVE Ableton device by exact name at a chain position, "
+        "without touching the browser or the selected track (Live 12.3+). "
+        "Plug-ins, Max devices, and presets still need browse + load_item."
+    ),
+)
+def insert_device(
+    ctx, track_index: int, device_name: str, device_index: int | None = None
+) -> dict[str, Any]:
+    track = get_track(ctx.song, track_index)
+    before = len(list(track.devices))
+    target = before if device_index is None else max(0, min(device_index, before))
+    try:
+        # Track.insert_device, Live 12.3+ (LOM). Always pass an explicit index
+        # so the landing position is deterministic. VERIFY at checkpoint:
+        # unknown-name behaviour (assumed to raise) and return value (assumed
+        # None; we re-scan the chain).
+        track.insert_device(device_name, target)
+    except Exception as e:
+        raise LiveAPIError(
+            f"Live could not insert '{device_name}' ({e}). Only native Live devices "
+            f"work here — check the exact name, or use browse + load_item."
+        ) from e
+    devices = list(track.devices)
+    if len(devices) <= before:
+        raise LiveAPIError(
+            f"Live did not add '{device_name}' — only native Live devices are supported "
+            f"here; use browse + load_item for plug-ins and presets."
+        )
+    idx = min(target, len(devices) - 1)
+    device = devices[idx]
+    return {
+        "inserted": {"index": idx, "name": device.name, "class_name": device.class_name},
+        "device_count": len(devices),
+    }
 
 
 @REGISTRY.register(

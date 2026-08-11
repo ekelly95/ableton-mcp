@@ -116,6 +116,58 @@ def get_tracks(ctx, include_devices: bool = False, include_clips: bool = False) 
 
 
 @REGISTRY.register(
+    "get_track_meters",
+    params=[],
+    category="tracks",
+    read_only=True,
+    description=(
+        "Output meter snapshot for every track, return, and master: is a track "
+        "producing sound, roughly how loud, are left/right different? Values "
+        "are Live's meter scale 0-1 (NOT dB, not linear amplitude); "
+        "output_meter_level holds the last second's peak (max of L/R), "
+        "left/right are momentary. Call while audio plays; call again to poll. "
+        "Core Live API, no Max for Live — the optional get_audio_levels tap "
+        "adds calibrated dBFS and frequency bands."
+    ),
+    output_schema={
+        "type": "object",
+        "properties": {
+            "tracks": {"type": "array"},
+            "return_tracks": {"type": "array"},
+            "master_track": {"type": "object"},
+        },
+    },
+)
+def get_track_meters(ctx) -> dict[str, Any]:
+    song = ctx.song
+
+    def meter(index: int, track: Any, track_type: str) -> dict[str, Any]:
+        has_audio_output = bool(getattr(track, "has_audio_output", False))
+        info: dict[str, Any] = {
+            "index": index,
+            "type": track_type,
+            "name": track.name,
+            "has_audio_output": has_audio_output,
+            # 1-second hold peak, max of L/R; exists for audio AND MIDI
+            # tracks (LOM).
+            "output_meter_level": track.output_meter_level,
+        }
+        if has_audio_output:
+            # L/R exist only for tracks with audio output (LOM). Read
+            # on-demand, never observed — Live warns that stereo meter
+            # observers add significant GUI load.
+            info["output_meter_left"] = track.output_meter_left
+            info["output_meter_right"] = track.output_meter_right
+        return info
+
+    return {
+        "tracks": [meter(i, t, "track") for i, t in enumerate(song.tracks)],
+        "return_tracks": [meter(i, t, "return") for i, t in enumerate(song.return_tracks)],
+        "master_track": meter(0, song.master_track, "master"),
+    }
+
+
+@REGISTRY.register(
     "create_track",
     params=[
         ParamSchema("type", ParamType.STRING, enum_values=["midi", "audio", "return"]),

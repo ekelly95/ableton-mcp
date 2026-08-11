@@ -112,6 +112,36 @@ def test_set_track_send_out_of_range(registry, ctx, song):
         run_command(registry, ctx, "set_track", track_index=0, sends=[{"index": 9, "value": 0.5}])
 
 
+def test_get_track_meters_snapshot(registry, ctx, song):
+    song.tracks[0].output_meter_level = 0.6
+    song.tracks[0].output_meter_left = 0.5
+    song.tracks[0].output_meter_right = 0.4
+    song.master_track.output_meter_level = 0.7
+
+    result = run_command(registry, ctx, "get_track_meters")
+    first = result["tracks"][0]
+    assert first["output_meter_level"] == 0.6
+    assert first["output_meter_left"] == 0.5
+    assert first["output_meter_right"] == 0.4
+    assert result["master_track"]["output_meter_level"] == 0.7
+    assert len(result["return_tracks"]) == 2
+
+
+def test_get_track_meters_no_stereo_for_tracks_without_audio_output(registry, ctx, song):
+    # A MIDI track with no instrument has no audio output: level still exists
+    # (LOM: audio and MIDI tracks), L/R do not.
+    song.tracks[1].has_audio_output = False
+    result = run_command(registry, ctx, "get_track_meters")
+    second = result["tracks"][1]
+    assert second["has_audio_output"] is False
+    assert "output_meter_left" not in second
+    assert "output_meter_level" in second
+
+
+def test_get_track_meters_is_read_only(registry):
+    assert registry.get("get_track_meters").read_only is True
+
+
 def test_master_batch_rejection_leaves_volume_unchanged(registry, ctx, song):
     # Validate-then-write: the mute rejection must fire BEFORE the volume
     # write (the old code renamed/re-volumed master, then raised).

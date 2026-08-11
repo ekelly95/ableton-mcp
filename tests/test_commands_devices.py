@@ -125,6 +125,86 @@ def test_delete_device(registry, ctx, song, with_device):
     assert song.tracks[0].devices == []
 
 
+def test_parameter_metadata_exposed(registry, ctx, song, with_device):
+    result = run_command(registry, ctx, "get_devices", track_index=0, device_index=0)
+    params = {p["name"]: p for p in result["device"]["parameters"]}
+    device_on = params["Device On"]
+    assert device_on["is_quantized"] is True
+    assert device_on["value_items"] == ["Off", "On"]
+    assert device_on["is_enabled"] is True
+    assert device_on["automation_state"] == "none"
+    # Continuous parameters carry no value_items (LOM: quantized only).
+    assert "value_items" not in params["Macro 1"]
+
+
+def test_disabled_parameter_rejected_before_any_write(registry, ctx, song, with_device):
+    # LOM is_enabled=false: a macro/live.remote~ owns the parameter — the
+    # batch must refuse it up front rather than write into a refusal.
+    with_device.parameters[2].is_enabled = False
+    original = with_device.parameters[1].value
+    with pytest.raises(LiveAPIError, match="not currently editable"):
+        run_command(
+            registry,
+            ctx,
+            "set_device_parameters",
+            track_index=0,
+            device_index=0,
+            parameters=[
+                {"parameter": "Macro 1", "value": 0.9},
+                {"parameter": "Macro 2", "value": 0.4},
+            ],
+        )
+    assert with_device.parameters[1].value == original
+
+
+def test_re_enable_automation_restores_overridden_state(registry, ctx, song, with_device):
+    macro = with_device.parameters[1]
+    macro.automation_state = 1  # automation active
+
+    run_command(
+        registry,
+        ctx,
+        "set_device_parameters",
+        track_index=0,
+        device_index=0,
+        parameters=[{"parameter": "Macro 1", "value": 0.9}],
+    )
+    assert macro.automation_state == 2  # a plain write overrides automation
+
+    run_command(
+        registry,
+        ctx,
+        "set_device_parameters",
+        track_index=0,
+        device_index=0,
+        parameters=[{"parameter": "Macro 1", "value": 0.3}],
+        re_enable_automation=True,
+    )
+    assert macro.automation_state == 1  # restored for the params this batch wrote
+
+
+def test_insert_device_native(registry, ctx, song, with_device):
+    result = run_command(
+        registry, ctx, "insert_device", track_index=0, device_name="Reverb"
+    )
+    assert result["inserted"]["name"] == "Reverb"
+    assert result["inserted"]["index"] == 1  # appended after Drift
+    assert result["device_count"] == 2
+
+    # At an explicit chain position:
+    result = run_command(
+        registry, ctx, "insert_device", track_index=0, device_name="EQ Eight", device_index=0
+    )
+    assert result["inserted"]["index"] == 0
+    assert [d.name for d in song.tracks[0].devices] == ["EQ Eight", "Drift", "Reverb"]
+
+
+def test_insert_device_unknown_name_suggests_browser(registry, ctx, song):
+    with pytest.raises(LiveAPIError, match="browse"):
+        run_command(registry, ctx, "insert_device", track_index=0, device_name="Sylenth1")
+    assert song.tracks[0].devices == []
+
+
 def test_device_out_of_range(registry, ctx, song):
     with pytest.raises(LiveAPIError, match="out of range"):
         run_command(registry, ctx, "get_devices", track_index=0, device_index=5)
