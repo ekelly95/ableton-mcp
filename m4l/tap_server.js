@@ -1,19 +1,31 @@
-// AbletonMCP Tap — Node for Max script.
-// Receives level messages from the Max patch and serves snapshots over TCP
-// (127.0.0.1:9878, length-prefixed JSON — same wire protocol as the bridge).
-// Stdlib only: never needs `script npm install`. Conservative JS on purpose —
-// the bundled Node version varies with the Max version.
+// AbletonMCP Tap — Node for Max script (protocol v2).
+// Receives measurement messages from the Max patch and serves snapshots over
+// TCP (127.0.0.1:9878, length-prefixed JSON — same wire protocol as the
+// bridge). Stdlib only: never needs `script npm install`. Conservative JS on
+// purpose — the bundled Node version varies with the Max version.
+//
+// v2 measurement convention: the patch squares each channel in MSP and sends
+// POWER values — `pow v` is mean(L²+R²) broadband, `bpow i v` the same per
+// octave band. JS converts with rms = sqrt(v/2), which equals the true stereo
+// RMS and cannot cancel on anti-phase content (the v1 mono-sum bug). The
+// per-channel `peak ch v` path is unchanged from v1 (it was always correct).
 
 var net = require("net");
 
 // Outside Max (tests, manual runs) max-api doesn't exist — stub it so the
-// framing/protocol layer stays testable with plain Node.
+// framing/protocol layer stays testable with plain Node. The stub records
+// handlers so the ABLETON_TAP_TEST_FEED harness (below) can drive them.
 var maxApi;
+var insideMax = true;
+var testHandlers = {};
 try {
   maxApi = require("max-api");
 } catch (e) {
+  insideMax = false;
   maxApi = {
-    addHandler: function () {},
+    addHandler: function (name, fn) {
+      testHandlers[name] = fn;
+    },
     post: function (msg) {
       console.error("[tap]", msg);
     },
@@ -21,27 +33,33 @@ try {
   };
 }
 
-var TAP_PROTOCOL_VERSION = 1;
+var TAP_PROTOCOL_VERSION = 2;
 var HOST = "127.0.0.1"; // loopback only: no firewall prompt, local trust model
 // Env override exists for tests only (inside Max there is no env to set).
 var PORT = parseInt(process.env.ABLETON_TAP_PORT || "9878", 10);
 var MAX_MESSAGE_SIZE = 1024 * 1024;
-var WINDOW_MS = 5000; // rolling stats window
-var SILENCE_MS = 3000; // all-zero for this long => receiving_audio false
+var WINDOW_MS = 5000; // rolling stats window (also the clip-latch window)
+var SILENCE_MS = 3000; // no signal above the floor for this long => not receiving
+var STALE_MS = 2000; // no MESSAGES for this long => DSP stopped; floor everything
 var DB_FLOOR = -70.0;
+var CLIP_LINEAR = 0.999; // sample-peak clip threshold (~-0.009 dBFS); not true-peak
 
-var BAND_LABELS = ["60", "120", "240", "480", "960", "1.9k", "3.8k", "7.7k"];
+// 10 octave bands: fffb~ 10 31.25 2. 1.414 (centers 31.25..16k, Q≈1.414 ≈
+// one-octave bandwidth, adjacent bands cross near -3 dB).
+var BAND_LABELS = ["31", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
 
 var startedAt = Date.now();
 var state = {
-  bands: [0, 0, 0, 0, 0, 0, 0, 0], // linear RMS per band (post mono-sum)
-  rms: 0, // linear RMS of the mono sum
-  peak: [0, 0], // linear peak L, R
+  power: 0, // mean(L²+R²) broadband — rms = sqrt(power/2)
+  bandPower: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // mean(Lk²+Rk²) per band
+  peak: [0, 0], // linear sample peak L, R (last ~100ms window)
   lastNonZeroAt: 0,
-  history: [], // {t, rms, peak0, peak1}
+  lastMessageAt: 0, // wall clock of the last pow/bpow/peak — staleness source
+  history: [], // {t, rms, peak0, peak1} at ~10 Hz
   msgsOk: 0,
   msgsBad: 0,
-  lastBadSample: null
+  lastBadSample: null,
+  legacyMsgs: 0 // v1 'rms'/'band' messages seen => the DEVICE needs a rebuild
 };
 
 // Max message args normally arrive as numbers, but a patch defect can send
@@ -64,33 +82,47 @@ function toDb(linear) {
   return Math.round(db * 10) / 10;
 }
 
+function powerToRms(power) {
+  return Math.sqrt(Math.max(power, 0) / 2);
+}
+
 function noteActivity(value) {
   if (value > 0.00001) state.lastNonZeroAt = Date.now();
 }
 
-function pushHistory() {
-  var now = Date.now();
-  state.history.push({ t: now, rms: state.rms, peak0: state.peak[0], peak1: state.peak[1] });
+function pruneHistory(now) {
   while (state.history.length > 0 && now - state.history[0].t > WINDOW_MS) {
     state.history.shift();
   }
 }
 
-maxApi.addHandler("band", function (index, value) {
-  var i = Math.floor(num(index) || 0);
-  var v = num(value);
-  if (v !== null && i >= 0 && i < state.bands.length) {
-    state.bands[i] = v;
-    noteActivity(v);
-  }
-});
+function pushHistory() {
+  var now = Date.now();
+  state.history.push({
+    t: now,
+    rms: powerToRms(state.power),
+    peak0: state.peak[0],
+    peak1: state.peak[1]
+  });
+  pruneHistory(now);
+}
 
-maxApi.addHandler("rms", function (value) {
+maxApi.addHandler("pow", function (value) {
   var v = num(value);
   if (v === null) return;
-  state.rms = v;
-  noteActivity(v);
-  pushHistory(); // rms arrives at a steady ~10 Hz; use it as the history clock
+  state.power = Math.max(v, 0);
+  state.lastMessageAt = Date.now();
+  noteActivity(powerToRms(v));
+  pushHistory(); // pow arrives at a steady ~10 Hz; it is the history clock
+});
+
+maxApi.addHandler("bpow", function (index, value) {
+  var i = Math.floor(num(index) || 0);
+  var v = num(value);
+  if (v !== null && i >= 0 && i < state.bandPower.length) {
+    state.bandPower[i] = Math.max(v, 0);
+    state.lastMessageAt = Date.now();
+  }
 });
 
 maxApi.addHandler("peak", function (channel, value) {
@@ -98,45 +130,88 @@ maxApi.addHandler("peak", function (channel, value) {
   var v = num(value);
   if (v !== null && (ch === 0 || ch === 1)) {
     state.peak[ch] = v;
+    state.lastMessageAt = Date.now();
     noteActivity(v);
   }
 });
 
-function windowStats() {
-  var n = state.history.length;
-  if (n === 0) return { rms_mean_db: DB_FLOOR, rms_max_db: DB_FLOOR, peak_max_db: DB_FLOOR };
+// v1 patch messages: count, NEVER interpret — a v1 'rms' carries a linear
+// value, not the v2 power convention, and sqrt(v/2) would silently serve
+// wrong numbers. legacy_msgs > 0 in ping means the DEVICE predates v2 and
+// must be rebuilt; the Python side withholds levels when it sees this.
+maxApi.addHandler("rms", function () {
+  state.legacyMsgs += 1;
+});
+maxApi.addHandler("band", function () {
+  state.legacyMsgs += 1;
+});
+
+function windowStats(now, windowMs) {
+  var w = typeof windowMs === "number" ? windowMs : WINDOW_MS;
+  var cutoff = now - w;
   var sum = 0;
+  var count = 0;
   var rmsMax = 0;
   var peakMax = 0;
-  for (var i = 0; i < n; i++) {
+  var clipped = false;
+  // History is time-ordered; walk from the newest end until the cutoff.
+  for (var i = state.history.length - 1; i >= 0; i--) {
     var h = state.history[i];
+    if (h.t < cutoff) break;
     sum += h.rms;
+    count += 1;
     if (h.rms > rmsMax) rmsMax = h.rms;
     if (h.peak0 > peakMax) peakMax = h.peak0;
     if (h.peak1 > peakMax) peakMax = h.peak1;
+    if (h.peak0 >= CLIP_LINEAR || h.peak1 >= CLIP_LINEAR) clipped = true;
+  }
+  if (count === 0) {
+    return {
+      rms_mean_db: DB_FLOOR,
+      rms_max_db: DB_FLOOR,
+      peak_max_db: DB_FLOOR,
+      clipping: false,
+      window_ms: w
+    };
   }
   return {
-    rms_mean_db: toDb(sum / n),
+    rms_mean_db: toDb(sum / count),
     rms_max_db: toDb(rmsMax),
-    peak_max_db: toDb(peakMax)
+    peak_max_db: toDb(peakMax),
+    clipping: clipped, // latched: any clipped ~100ms frame within the window
+    window_ms: w
   };
 }
 
-function snapshot() {
+function snapshot(windowMs) {
+  var now = Date.now();
+  // Prune on READ, not only on message arrival: when DSP stops, the history
+  // (and with it the clip latch) must drain within WINDOW_MS instead of
+  // freezing forever — the v1 bug.
+  pruneHistory(now);
+  var age = state.lastMessageAt ? now - state.lastMessageAt : null;
+  var stale = age === null || age > STALE_MS;
+  var stats = windowStats(now, windowMs);
   var bandsDb = [];
-  for (var i = 0; i < state.bands.length; i++) {
-    bandsDb.push({ hz: BAND_LABELS[i], level_db: toDb(state.bands[i]) });
+  for (var i = 0; i < BAND_LABELS.length; i++) {
+    bandsDb.push({
+      hz: BAND_LABELS[i],
+      level_db: stale ? DB_FLOOR : toDb(powerToRms(state.bandPower[i]))
+    });
   }
-  var stats = windowStats();
   return {
-    receiving_audio: Date.now() - state.lastNonZeroAt < SILENCE_MS,
-    rms_db: toDb(state.rms),
-    peak_db: [toDb(state.peak[0]), toDb(state.peak[1])],
-    clipping: state.peak[0] >= 0.999 || state.peak[1] >= 0.999,
+    receiving_audio: !stale && now - state.lastNonZeroAt < SILENCE_MS,
+    stale: stale, // true => DSP stopped/device bypassed; values are floored
+    data_age_ms: age, // ms since the last measurement message; null = never fed
+    rms_db: stale ? DB_FLOOR : toDb(powerToRms(state.power)),
+    peak_db: stale ? [DB_FLOOR, DB_FLOOR] : [toDb(state.peak[0]), toDb(state.peak[1])],
+    clipping: stats.clipping,
     bands: bandsDb,
     window_seconds: WINDOW_MS / 1000,
     window: stats,
-    note: "Tap sits pre-master-fader: readings ignore the master fader position."
+    note:
+      "Pre-master-fader. Stereo power metering (anti-phase safe); bands are " +
+      "resonant octave filters 31 Hz-16 kHz — a meter, not a spectrum analyzer."
   };
 }
 
@@ -151,15 +226,21 @@ function handleRequest(request) {
         pong: true,
         name: "AbletonMCP Tap",
         tap_protocol_version: TAP_PROTOCOL_VERSION,
+        bands: BAND_LABELS.length,
         uptime_seconds: Math.round((Date.now() - startedAt) / 1000),
         msgs_ok: state.msgsOk,
         msgs_bad: state.msgsBad,
-        last_bad_sample: state.lastBadSample
+        last_bad_sample: state.lastBadSample,
+        legacy_msgs: state.legacyMsgs
       }
     };
   }
   if (type === "get_levels") {
-    return { status: "success", id: id, result: snapshot() };
+    var w = WINDOW_MS;
+    if (request && request.params && typeof request.params.window_ms === "number") {
+      w = Math.max(100, Math.min(request.params.window_ms, WINDOW_MS));
+    }
+    return { status: "success", id: id, result: snapshot(w) };
   }
   return {
     status: "error",
@@ -224,3 +305,29 @@ function startServer() {
 
 maxApi.outlet("status", "STARTING");
 startServer();
+
+// --- test feed (plain-Node only, and only when explicitly requested) --------
+// Drives the recorded handlers with known values so cross-language tests can
+// pin the sqrt(v/2) convention, band mapping, clip latching, and staleness.
+// Inert in production: inside Max `insideMax` is true and the env is unset.
+if (!insideMax && process.env.ABLETON_TAP_TEST_FEED) {
+  var feedStart = Date.now();
+  var feedStopMs = parseInt(process.env.ABLETON_TAP_TEST_FEED_STOP_MS || "0", 10);
+  var feedTick = 0;
+  var feeder = setInterval(function () {
+    if (feedStopMs > 0 && Date.now() - feedStart >= feedStopMs) {
+      clearInterval(feeder);
+      return;
+    }
+    // rms 0.1 (-20.0 dB) => pow = 2 * 0.1² = 0.02 — pins the convention.
+    testHandlers["pow"](0.02);
+    for (var b = 0; b < BAND_LABELS.length; b++) {
+      // band "1k" hot (-20 dB), all others -60 dB
+      testHandlers["bpow"](b, b === 5 ? 0.02 : 0.000002);
+    }
+    // Clipped frames for the first ~300ms, then -6 dB: the latch must hold.
+    testHandlers["peak"](0, feedTick < 3 ? 1.0 : 0.5);
+    testHandlers["peak"](1, 0.5);
+    feedTick += 1;
+  }, 100);
+}

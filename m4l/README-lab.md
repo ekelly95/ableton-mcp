@@ -1,16 +1,35 @@
-# M4L Lab — AbletonMCP Tap
+# M4L Lab — AbletonMCP Tap (v2)
 
 The tap gives the AI ears: a Max for Live audio effect that sits in a signal
-chain (normally the Master track), measures loudness and an 8-band frequency
-picture, and serves snapshots on **127.0.0.1:9878** using the same
-length-prefixed JSON protocol as the main bridge. The MCP tool
-`get_audio_levels` (lab branch) reads it; when the device isn't present the
-tool answers `available: false` with a hint instead of erroring.
+chain (normally the Master track), measures stereo loudness and a 10-band
+octave picture (31 Hz–16 kHz), and serves snapshots on **127.0.0.1:9878**
+using the same length-prefixed JSON protocol as the main bridge. The MCP tool
+`get_audio_levels` reads it; when the device isn't present the tool answers
+`available: false` with a hint instead of erroring.
 
 Requires Live Suite or Standard+M4L (the trial is Suite). The core bridge
-never depends on this — it is an OPTIONAL extra by design.
+never depends on this — it is an OPTIONAL extra by design (get_track_meters
+gives coarse core-API metering without it).
 
-## Building the device (one-time, ~5 minutes, needs Max = bundled with Suite)
+## Upgrading from v1
+
+The v2 patch changed the measurement protocol (stereo power messages instead
+of the mono-sum values that cancelled on wide/anti-phase material), so a v1
+device and the current server refuse to talk to each other — `get_audio_levels`
+answers `available: false` with a rebuild hint rather than serving numbers
+that look plausible and are wrong.
+
+1. **Delete the old "AbletonMCP Tap" device from the Master track first**
+   (two devices race for the port during a rebuild).
+2. Follow the build steps below with the CURRENT `m4l\tap.maxpat`.
+3. In step 6, copy the CURRENT `m4l\tap_server.js` — the patch and the script
+   version together; mixing old and new is exactly what the protocol gate
+   catches (`legacy_msgs` in ping counts old-protocol messages).
+4. Save over the old `AbletonMCP Tap.amxd`.
+5. Verify: `python scripts/tap_checkpoint.py` must report protocol v2,
+   legacy_msgs 0, and pass its calibration steps.
+
+## Building the device (one-time, ~10 minutes, needs Max = bundled with Suite)
 
 This is the only supported route — do not try to "Save As .amxd" from a
 standalone patcher window:
@@ -35,21 +54,48 @@ standalone patcher window:
 ## Reading it
 
 ```bash
-cd C:/dev/ableton-mcp-m4l && .venv/Scripts/python.exe scripts/tap_checkpoint.py
+cd C:/dev/ableton-mcp && .venv/Scripts/python.exe scripts/tap_checkpoint.py
 ```
 
-or (lab MCP server) call the `get_audio_levels` tool, optionally with
-`duration_seconds` (0–10) to sample a window instead of an instant.
+or call the `get_audio_levels` tool, optionally with `duration_seconds`
+(0–10) to sample a window instead of an instant.
 
-## Honesty notes
+## What v2 measures (and how honestly)
 
+- **Stereo power, anti-phase safe.** Each channel is squared in MSP; the JS
+  computes rms = sqrt(mean(L²+R²)/2). Wide or phase-inverted material reads
+  its true loudness (v1 summed the raw waveforms first, so anti-phase content
+  cancelled to −70 dB while the per-channel peaks sat at full level).
+- **10 resonant octave bands, 31 Hz–16 kHz** (`fffb~ 10 31.25 2. 1.414`,
+  Q ≈ 1.414 ≈ one-octave bandwidth, adjacent bands crossing near −3 dB).
+  They are reson-style filters: they do not sum flat and the 16k band's upper
+  skirt warps near Nyquist at 44.1 kHz. A meter, not an RTA.
+- **~300 ms power averaging** (`average~ 14400` — the argument is SAMPLES:
+  326 ms @ 44.1k, 300 ms @ 48k, 150 ms @ 96k). Always ≥ the 100 ms report
+  cadence, so every moment of audio influences at least one reading (v1's
+  1000-sample window was ~21 ms, leaving ~79 % of the audio unmeasured).
+- **Clipping is latched**: sample-peak ≥ 0.999 in ANY ~100 ms frame within
+  the 5 s window (not true-peak, no inter-sample detection). It self-clears
+  as the window drains — including after the audio engine stops.
+- **Staleness is explicit**: `stale: true` + `data_age_ms` when no
+  measurement messages arrived for >2 s (device bypassed, DSP off); values
+  are floored to −70 dB instead of freezing at their last reading.
 - **Pre-fader**: device chains on the Master run BEFORE the master fader —
   readings ignore the fader position and can differ from Live's meter. The
   `clipping` flag is advisory, not mastering advice.
 - `receiving_audio: false` after ~3 s of digital silence — also catches a
-  bypassed device, DSP off, or a frozen track.
+  bypassed device, DSP off, or a frozen track (now backed by `stale`).
 - Both listeners (9877 bridge, 9878 tap) are unauthenticated localhost
   services — same single-user trust model, loopback only.
+
+## Version compatibility (any stale combination refuses, none mislead)
+
+| device patch | tap_server.js | ping reports | get_audio_levels |
+|---|---|---|---|
+| v1 | v1 | protocol 1 | available:false + rebuild hint |
+| v1 | v2 | protocol 2, legacy_msgs > 0 | available:false + rebuild hint |
+| v2 | v1 | protocol 1 (v1 js ignores pow/bpow) | available:false + rebuild hint |
+| v2 | v2 | protocol 2, legacy_msgs 0 | full v2 data |
 
 ## Build lessons (verified the hard way, 2026-08-11)
 
@@ -71,7 +117,11 @@ or (lab MCP server) call the `get_audio_levels` tool, optionally with
   Duplicating/undoing the device can also cause a transient retry — it
   self-heals within ~5 s.
 - Tool says `available: false` → is the device on a track, device power
-  button on, and Live's audio engine running?
+  button on, and Live's audio engine running? If the hint mentions
+  rebuilding: the device predates the current protocol — see "Upgrading
+  from v1".
+- `ping` shows `legacy_msgs` climbing → the PATCH inside the device is v1
+  while the js is v2; rebuild from the current tap.maxpat.
 - Multi-tap (per-track ears, port-per-instance) is deliberately out of scope
   for v1.
 
