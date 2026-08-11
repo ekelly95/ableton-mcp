@@ -127,7 +127,15 @@ def build_server(client: Optional[AbletonClient] = None) -> Server:
         def _dispatch() -> Any:
             if not drift.done:
                 drift.check(ableton.ping())
-            return ableton.send(name, **arguments)
+            result = ableton.send(name, **arguments)
+            # Two-phase commands (create_locator): Live applies playhead seeks
+            # only between requests, so the control surface asks to be called
+            # again. Loop here so the model sees a single tool call.
+            attempts = 0
+            while isinstance(result, dict) and result.get("phase") == "seeking" and attempts < 4:
+                attempts += 1
+                result = ableton.send(name, **arguments)
+            return result
 
         try:
             result = await anyio.to_thread.run_sync(_dispatch)

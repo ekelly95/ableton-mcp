@@ -225,11 +225,27 @@ class TestArrangement:
         with pytest.raises(LiveAPIError, match="stationary playhead"):
             run_command(registry, ctx, "create_locator", time=8.0)
 
+    def _create_locator(self, registry, ctx, **params):
+        """Two-phase: loop on 'seeking' exactly like the MCP server does."""
+        result = run_command(registry, ctx, "create_locator", **params)
+        attempts = 0
+        while result.get("phase") == "seeking" and attempts < 4:
+            attempts += 1
+            result = run_command(registry, ctx, "create_locator", **params)
+        return result
+
+    def test_locator_two_phase(self, registry, ctx, song):
+        song.current_song_time = 0.0
+        first = run_command(registry, ctx, "create_locator", time=32.0, name="Chorus")
+        assert first["phase"] == "seeking"
+        second = run_command(registry, ctx, "create_locator", time=32.0, name="Chorus")
+        assert second["locator"] == {"name": "Chorus", "time": 32.0}
+
     def test_locator_create_and_collision(self, registry, ctx, song):
-        result = run_command(registry, ctx, "create_locator", time=32.0, name="Chorus")
+        result = self._create_locator(registry, ctx, time=32.0, name="Chorus")
         assert result["locator"] == {"name": "Chorus", "time": 32.0}
         with pytest.raises(LiveAPIError, match="already exists"):
-            run_command(registry, ctx, "create_locator", time=32.0, name="Verse")
+            self._create_locator(registry, ctx, time=32.0, name="Verse")
         arrangement = run_command(registry, ctx, "get_arrangement")
         assert arrangement["locators"] == [{"name": "Chorus", "time": 32.0}]
 

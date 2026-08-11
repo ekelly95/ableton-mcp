@@ -369,14 +369,24 @@ def check_arrangement_record(client):
     return "record arms/disarms (confirmed next-tick); never played while armed"
 
 
+def send_looping(client, command, **params):
+    """Repeat two-phase commands until they leave the 'seeking' phase."""
+    result = client.send(command, **params)
+    attempts = 0
+    while isinstance(result, dict) and result.get("phase") == "seeking" and attempts < 4:
+        attempts += 1
+        result = client.send(command, **params)
+    return result
+
+
 @step("locator 'Chorus' at beat 32 + collision refusal")
 def check_locator(client):
     client.send("transport_control", action="stop")
-    result = client.send("create_locator", time=32.0, name="Chorus")
+    result = send_looping(client, "create_locator", time=32.0, name="Chorus")
     assert result["locator"]["time"] == 32.0, result
     assert result["locator"]["name"] == "Chorus", result
     try:
-        client.send("create_locator", time=32.0, name="Verse")
+        send_looping(client, "create_locator", time=32.0, name="Verse")
         raise AssertionError("collision was not refused")
     except CommandError as e:
         assert "already exists" in e.message, e

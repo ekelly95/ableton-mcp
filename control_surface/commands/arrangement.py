@@ -430,6 +430,19 @@ def create_locator(ctx, time: float, name: Optional[str] = None) -> Dict[str, An
             "locators need a stationary playhead."
         )
 
+    # Verified on real Live 12.4: a current_song_time write does NOT take
+    # effect within the same scheduled task (a cue toggled right after the
+    # seek landed at the OLD playhead). So this command is two-phase: phase 1
+    # issues the seek and returns {"phase": "seeking"}; the caller repeats the
+    # call, and phase 2 (playhead now parked at the target) drops the cue.
+    # The MCP server and the checkpoint loop on "seeking" transparently.
+    if abs(song.current_song_time - time) > 0.01:
+        song.current_song_time = time
+        return {
+            "phase": "seeking",
+            "note": "Playhead seek issued; call create_locator again to place the cue.",
+        }
+
     # set_or_delete_cue TOGGLES at the playhead — creating where one exists
     # would silently DELETE it, so refuse instead.
     before = list(song.cue_points)
@@ -440,7 +453,6 @@ def create_locator(ctx, time: float, name: Optional[str] = None) -> Dict[str, An
                 f"set_or_delete_cue would remove it"
             )
 
-    song.current_song_time = time
     song.set_or_delete_cue()
 
     # Confirm by list diff, not exact time: Live may snap the cue slightly.
