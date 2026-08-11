@@ -10,11 +10,16 @@ definitions are now generated from one place, never written by hand).
 
 ## What Claude can do with it
 
-28 tools: read the whole session at a glance; create/rename/mix tracks; create,
-duplicate, launch and edit clips; write MIDI notes (including per-note chance
-and velocity spread); edit single notes precisely without rewriting the clip;
-browse Live's library and load instruments/effects; turn any device knob
-(0.0–1.0, Live shows the real value); control tempo, loop, metronome, playback.
+33 tools: read the whole session at a glance; create/rename/mix tracks; create,
+duplicate, launch and edit clips; write MIDI notes by name ("C3", "F#4" —
+Ableton convention, C3=60) with per-note chance and velocity spread; edit
+single notes precisely without rewriting the clip; set the song's key and
+scale; **build songs on the Arrangement timeline** (stamp session loops onto
+it, drop named locators, edit timeline clips); import audio files from disk
+onto the timeline (the landing pad for any future sample generation —
+generators just write a file to `samples\`); browse Live's library and load
+instruments/effects; turn any device knob; control tempo, loop, metronome,
+playback and arrangement recording.
 
 ## Parts
 

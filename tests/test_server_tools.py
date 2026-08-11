@@ -30,9 +30,11 @@ class FakeAbletonClient:
     def ping(self):
         if not self.connected:
             return None
+        from control_surface.config import VERSION
+
         return {
             "pong": True,
-            "version": "2.0.0",
+            "version": VERSION,
             "schema_hash": REGISTRY.schema_hash(),
             "command_count": len(REGISTRY),
         }

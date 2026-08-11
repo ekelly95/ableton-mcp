@@ -46,7 +46,7 @@ state = {}
 @step("ping: version + command count")
 def check_ping(client):
     result = client.send("ping")
-    assert result["pong"] and result["version"] == "2.0.0", result
+    assert result["pong"] and result["version"] == "2.1.0", result
     return f"v{result['version']}, {result['command_count']} commands"
 
 
@@ -260,12 +260,155 @@ def check_devices(client):
     return f"set '{changed[0]['name']}' to 0.7 (display: {changed[0]['display_value']})"
 
 
-@step("audible finale: fire the clip for 3 seconds")
+@step("scale: set D Minor + scale_mode, verify, restore")
+def check_scale(client):
+    original = client.send("get_transport_state")["scale"]
+    state_after = client.send(
+        "set_transport", scale_root="D", scale_name="Minor", scale_mode=True
+    )["scale"]
+    assert state_after["root"] == "D", state_after
+    assert state_after["name"] == "Minor", state_after
+    assert state_after["scale_mode"] is True, state_after
+    client.send(
+        "set_transport",
+        scale_root=original["root_note"],
+        scale_name=original["name"],
+        scale_mode=original["scale_mode"],
+    )
+    return f"D Minor round-tripped, intervals {state_after['intervals']}; restored {original['name']}"
+
+
+@step("pitch names: add 'C3', read back 60/C3 (VERIFY in piano roll!)")
+def check_pitch_names(client):
+    client.send(
+        "add_notes",
+        track_index=state["track"],
+        slot_index=0,
+        notes=[{"pitch": "C3", "start_time": 0.0, "duration": 0.25, "velocity": 1}],
+    )
+    notes = client.send("get_notes", track_index=state["track"], slot_index=0)["notes"]
+    added = next(n for n in notes if n["velocity"] == 1.0)
+    assert added["pitch"] == 60, f"'C3' became MIDI {added['pitch']} — convention broken!"
+    assert added["pitch_name"] == "C3", added
+    client.send(
+        "remove_notes", track_index=state["track"], slot_index=0, note_ids=[added["note_id"]]
+    )
+    return "'C3' == MIDI 60 == what Live's piano roll calls C3"
+
+
+@step("arrangement: place session clip at 0 and 8, time-ordered")
+def check_place_arrangement(client):
+    r1 = client.send(
+        "place_clip_in_arrangement",
+        track_index=state["track"], slot_index=0, destination_time=8.0,
+    )
+    assert abs(r1["placed"]["start_time"] - 8.0) < 0.01, r1["placed"]
+    r2 = client.send(
+        "place_clip_in_arrangement",
+        track_index=state["track"], slot_index=0, destination_time=0.0,
+    )
+    starts = [c["start_time"] for c in r2["arrangement_clips"]]
+    assert starts == sorted(starts), f"not time-ordered: {starts}"
+    assert len(starts) == 2, starts
+    client.send("set_transport", back_to_arranger=False)
+    return f"2 clips on timeline at {starts}; back_to_arranger cleared"
+
+
+@step("arrangement note edit via arrangement_clip_index")
+def check_arrangement_note_edit(client):
+    notes = client.send(
+        "get_notes", track_index=state["track"], arrangement_clip_index=0
+    )["notes"]
+    assert notes, "arrangement clip has no notes?"
+    client.send(
+        "update_notes",
+        track_index=state["track"],
+        arrangement_clip_index=0,
+        modifications=[{"note_id": notes[0]["note_id"], "velocity": 37}],
+    )
+    reread = client.send(
+        "get_notes", track_index=state["track"], arrangement_clip_index=0
+    )["notes"]
+    assert any(n["velocity"] == 37.0 for n in reread), reread
+    return "vector fetch-modify-apply works on timeline clips too"
+
+
+@step("locator 'Chorus' at beat 32 + collision refusal")
+def check_locator(client):
+    result = client.send("create_locator", time=32.0, name="Chorus")
+    assert result["locator"]["time"] == 32.0, result
+    assert result["locator"]["name"] == "Chorus", result
+    try:
+        client.send("create_locator", time=32.0, name="Verse")
+        raise AssertionError("collision was not refused")
+    except CommandError as e:
+        assert "already exists" in e.message, e
+    return "created + rename verified; second create at same time refused"
+
+
+@step("import_audio: generated sine WAV onto new audio track")
+def check_import_audio(client):
+    import math
+    import os
+    import wave as wave_mod
+
+    samples_dir = r"C:\dev\ableton-mcp\samples"
+    os.makedirs(samples_dir, exist_ok=True)
+    wav_path = os.path.join(samples_dir, "checkpoint_tone_440.wav")
+    with wave_mod.open(wav_path, "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(44100)
+        frames = bytearray()
+        for i in range(44100):
+            value = int(12000 * math.sin(2 * math.pi * 440 * i / 44100))
+            frames += value.to_bytes(2, "little", signed=True)
+        f.writeframes(bytes(frames))
+
+    created = client.send("create_track", type="audio")
+    state["audio_track"] = created["track_index"]
+    slow_client = AbletonClient(timeout=130.0)
+    try:
+        result = slow_client.send(
+            "import_audio",
+            track_index=state["audio_track"],
+            file_path=wav_path,
+            position=8.0,
+        )
+    finally:
+        slow_client.close()
+    assert result["imported"]["is_audio_clip"] is True, result
+    return f"440Hz tone on timeline at beat 8 (track {state['audio_track']})"
+
+
+@step("audible finale: play the ARRANGEMENT from the top for 5 seconds")
 def check_finale(client):
-    client.send("launch_clip", track_index=state["track"], slot_index=0)
-    time.sleep(3.0)
-    client.send("stop_clips", track_index=state["track"])
-    return "if speakers are on, that was your C-minor arpeggio"
+    client.send("set_transport", back_to_arranger=False)
+    client.send("transport_control", action="play", position=0.0)
+    time.sleep(5.0)
+    client.send("transport_control", action="stop")
+    return "that was the timeline: the placed loops, then the 440Hz tone at beat 8"
+
+
+@step("arrangement cleanup: guarded deletes")
+def check_arrangement_cleanup(client):
+    clips = client.send("get_arrangement", track_index=state["track"])["tracks"][0][
+        "arrangement_clips"
+    ]
+    for clip in reversed(clips):
+        client.send(
+            "delete_arrangement_clip",
+            track_index=state["track"],
+            arrangement_clip_index=clip["arrangement_clip_index"],
+            expected_start_time=clip["start_time"],
+        )
+    if "audio_track" in state:
+        client.send("delete_track", track_index=state["audio_track"])
+    remaining = client.send("get_arrangement", track_index=state["track"])["tracks"][0][
+        "arrangement_clips"
+    ]
+    assert remaining == [], remaining
+    return "timeline cleared with expected_start_time guards; audio track removed ('Chorus' locator left as a souvenir)"
 
 
 @step("validation error taxonomy over the wire")
@@ -288,7 +431,7 @@ def check_live_error(client):
         return "out-of-range rejected with LiveAPIError"
 
 
-WHOLE_RUN_BUDGET_SECONDS = 150
+WHOLE_RUN_BUDGET_SECONDS = 240
 
 
 def main():
@@ -315,7 +458,14 @@ def main():
         check_browse,
         check_load,
         check_devices,
+        check_scale,
+        check_pitch_names,
+        check_place_arrangement,
+        check_arrangement_note_edit,
+        check_locator,
+        check_import_audio,
         check_finale,
+        check_arrangement_cleanup,
         check_validation,
         check_live_error,
     ]:

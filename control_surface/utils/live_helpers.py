@@ -1,8 +1,9 @@
 """Safe lookups into Live's object model. All raise LiveAPIError with a
 message the model can act on (what was asked for, what exists)."""
 
-from typing import Any
+from typing import Any, Optional
 
+from ..errors import ValidationError
 from ..registry import LiveAPIError
 
 
@@ -63,6 +64,42 @@ def get_midi_clip(track: Any, slot_index: int) -> Any:
     clip = get_clip(track, slot_index)
     if not clip.is_midi_clip:
         raise LiveAPIError(f"Clip in slot {slot_index} is not a MIDI clip")
+    return clip
+
+
+def get_arrangement_clip(track: Any, index: int) -> Any:
+    clips = list(track.arrangement_clips)
+    if not 0 <= index < len(clips):
+        raise LiveAPIError(
+            f"Arrangement clip index {index} out of range (track has {len(clips)} "
+            f"arrangement clips). Indices are positional — re-read with get_arrangement."
+        )
+    return clips[index]
+
+
+def resolve_clip_ref(
+    track: Any,
+    slot_index: Optional[int],
+    arrangement_clip_index: Optional[int],
+    require_midi: bool = False,
+) -> Any:
+    """One clip from EITHER a session slot or an arrangement position.
+
+    Exactly one of slot_index / arrangement_clip_index must be given — the
+    schema can't express that (no oneOf in our tool generator), so it's
+    enforced here.
+    """
+    if (slot_index is None) == (arrangement_clip_index is None):
+        raise ValidationError(
+            "Provide exactly one of slot_index (session clip) or "
+            "arrangement_clip_index (timeline clip, from get_arrangement)"
+        )
+    if slot_index is not None:
+        clip = get_clip(track, slot_index)
+    else:
+        clip = get_arrangement_clip(track, arrangement_clip_index)
+    if require_midi and not clip.is_midi_clip:
+        raise LiveAPIError("That clip is not a MIDI clip")
     return clip
 
 

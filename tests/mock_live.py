@@ -120,6 +120,10 @@ class MockClip:
         self.is_recording = False
         self.signature_numerator = 4
         self.signature_denominator = 4
+        # Arrangement placement (meaningful only for arrangement clips)
+        self.start_time = 0.0
+        self.end_time = length
+        self.file_path: Optional[str] = None
         self._notes: List[MockMidiNote] = []
 
     # --- Modern note-ID API (Live 11.1+) ---
@@ -276,6 +280,7 @@ class MockTrack:
         self.mixer_device = MockMixerDevice(send_count=send_count)
         self.clip_slots: List[MockClipSlot] = [MockClipSlot(self) for _ in range(slot_count)]
         self.devices: List[MockDevice] = []
+        self.arrangement_clips: List[MockClip] = []
 
     def stop_all_clips(self) -> None:
         for slot in self.clip_slots:
@@ -283,6 +288,52 @@ class MockTrack:
 
     def delete_device(self, device_index: int) -> None:
         del self.devices[device_index]
+
+    def _insert_arrangement_clip(self, clip: MockClip) -> None:
+        self.arrangement_clips.append(clip)
+        # Live keeps arrangement_clips time-ordered, NOT creation-ordered
+        # (LOM-confirmed; the fallback re-scan in place_clip relies on this).
+        self.arrangement_clips.sort(key=lambda c: c.start_time)
+
+    def duplicate_clip_to_arrangement(self, clip: MockClip, destination_time: float) -> MockClip:
+        """LOM-documented: RETURNS the newly created arrangement clip."""
+        clone = MockClip(length=clip.length, name=clip.name, is_midi_clip=clip.is_midi_clip)
+        clone.looping = clip.looping
+        clone.loop_start = clip.loop_start
+        clone.loop_end = clip.loop_end
+        clone.start_time = destination_time
+        clone.end_time = destination_time + clip.length
+        for n in clip._notes:
+            clone._notes.append(
+                MockMidiNote(
+                    pitch=n.pitch,
+                    start_time=n.start_time,
+                    duration=n.duration,
+                    velocity=n.velocity,
+                    mute=n.mute,
+                    probability=n.probability,
+                    velocity_deviation=n.velocity_deviation,
+                    release_velocity=n.release_velocity,
+                )
+            )
+        self._insert_arrangement_clip(clone)
+        return clone
+
+    def create_audio_clip(self, file_path: str, position: float) -> MockClip:
+        """LOM-documented: absolute path to a supported audio file, arrangement only."""
+        clip = MockClip(length=1.0, name=file_path.rsplit("\\", 1)[-1], is_midi_clip=False)
+        clip.file_path = file_path
+        clip.start_time = position
+        clip.end_time = position + clip.length
+        self._insert_arrangement_clip(clip)
+        return clip
+
+    def delete_clip(self, clip: MockClip) -> None:
+        """VERIFY: assumed to accept arrangement clip objects."""
+        if clip in self.arrangement_clips:
+            self.arrangement_clips.remove(clip)
+        else:
+            raise RuntimeError("Clip not on this track's arrangement")
 
     def duplicate_clip_slot(self, slot_index: int) -> None:
         """VERIFY: assumed to copy the clip into the NEXT slot, failing if occupied."""
@@ -326,12 +377,36 @@ class MockScene:
         self.is_triggered = True
 
 
+class MockCuePoint:
+    """Arrangement locator. VERIFY: name settable via the API."""
+
+    def __init__(self, time: float, name: str = ""):
+        self.time = time
+        self.name = name
+
+    def jump(self) -> None:
+        pass
+
+
 class MockSongView:
     def __init__(self):
         self.selected_track = None
 
 
 class MockSong:
+    # Live's scale chooser list (Live 12.4) — the mock rejects names outside it
+    # by silently keeping the old value, mirroring VERIFY-tagged Live behavior.
+    KNOWN_SCALES = [
+        "Major", "Minor", "Dorian", "Mixolydian", "Lydian", "Phrygian", "Locrian",
+        "Whole Tone", "Half-whole Dim.", "Whole-half Dim.", "Minor Blues",
+        "Minor Pentatonic", "Major Pentatonic", "Harmonic Minor", "Melodic Minor",
+    ]
+    SCALE_INTERVALS = {
+        "Major": [0, 2, 4, 5, 7, 9, 11],
+        "Minor": [0, 2, 3, 5, 7, 8, 10],
+        "Dorian": [0, 2, 3, 5, 7, 9, 10],
+    }
+
     def __init__(self, track_count: int = 2, scene_count: int = 4, return_count: int = 2):
         self.tempo = 120.0
         self.signature_numerator = 4
@@ -342,6 +417,12 @@ class MockSong:
         self.loop_start = 0.0
         self.loop_length = 4.0
         self.current_song_time = 0.0
+        self.root_note = 0
+        self._scale_name = "Major"
+        self.scale_mode = False
+        self.record_mode = False
+        self.back_to_arranger = False
+        self.arrangement_overdub = False
         self.scenes: List[MockScene] = [MockScene(f"Scene {i + 1}") for i in range(scene_count)]
         self.tracks: List[MockTrack] = [
             MockTrack(name=f"{i + 1} Track", slot_count=scene_count, send_count=return_count)
@@ -359,6 +440,38 @@ class MockSong:
         for missing_attr in ("mute", "solo", "arm"):
             delattr(self.master_track, missing_attr)
         self.view = MockSongView()
+        self.cue_points: List[MockCuePoint] = []
+
+    @property
+    def scale_name(self) -> str:
+        return self._scale_name
+
+    @scale_name.setter
+    def scale_name(self, value: str) -> None:
+        # VERIFY: assumed Live silently keeps the old scale on unknown names
+        # (the set_transport handler read-back turns that into a LiveAPIError).
+        if value in self.KNOWN_SCALES:
+            self._scale_name = value
+
+    @property
+    def scale_intervals(self):
+        return self.SCALE_INTERVALS.get(self._scale_name, [0, 2, 4, 5, 7, 9, 11])
+
+    @property
+    def song_length(self) -> float:
+        last = 0.0
+        for track in self.tracks:
+            for clip in track.arrangement_clips:
+                last = max(last, clip.end_time)
+        return last + 4.0
+
+    def set_or_delete_cue(self) -> None:
+        """TOGGLE at the current playhead: deletes an existing cue there."""
+        for cue in list(self.cue_points):
+            if abs(cue.time - self.current_song_time) < 1e-6:
+                self.cue_points.remove(cue)
+                return
+        self.cue_points.append(MockCuePoint(time=self.current_song_time))
 
     def start_playing(self) -> None:
         self.is_playing = True

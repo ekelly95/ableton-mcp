@@ -7,7 +7,7 @@ Single source of the project version: pyproject.toml must match VERSION
 import os
 from pathlib import Path
 
-VERSION: str = "2.0.0"
+VERSION: str = "2.1.0"
 CONTROL_SURFACE_NAME: str = "AbletonMCP"
 
 # IPC: TCP on Windows (no Unix sockets), Unix socket elsewhere
@@ -25,6 +25,8 @@ DEFAULT_TIMEOUT_SECONDS: float = 30.0
 COMMAND_TIMEOUTS: dict = {
     # Browser loads can trigger sample/pack indexing on first use
     "load_item": 120.0,
+    # First import decodes audio, runs warp analysis, writes the .asd sidecar
+    "import_audio": 120.0,
     "create_track": 60.0,
     "duplicate_track": 60.0,
     "delete_track": 60.0,
@@ -51,3 +53,11 @@ LOG_BACKUP_COUNT: int = 5
 MAX_NOTES_PER_READ: int = 2000
 MAX_BROWSER_ITEMS: int = 200
 MAX_BROWSER_DEPTH: int = 4
+MAX_ARRANGEMENT_CLIPS_PER_READ: int = 500
+
+# Where generated/imported samples are expected to live (a convention, not a
+# restriction): generation tools write files here; import_audio reads any
+# absolute path. Named in the import_audio tool description.
+SAMPLES_DIR: str = r"C:\dev\ableton-mcp\samples"
+
+AUDIO_EXTENSIONS = (".wav", ".aif", ".aiff", ".aifc", ".flac", ".mp3", ".ogg", ".m4a")

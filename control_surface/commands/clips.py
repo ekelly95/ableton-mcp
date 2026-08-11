@@ -10,6 +10,24 @@ from ..utils.live_helpers import (
     get_midi_clip,
     get_scene,
     get_track,
+    resolve_clip_ref,
+)
+from ..utils.pitch import midi_to_pitch_name, pitch_to_midi
+
+# Shared by the five commands that address a clip in EITHER view.
+_SLOT_XOR = ParamSchema(
+    "slot_index",
+    ParamType.INT,
+    required=False,
+    min_value=0,
+    description="Session clip slot — give exactly one of slot_index / arrangement_clip_index",
+)
+_ARR_XOR = ParamSchema(
+    "arrangement_clip_index",
+    ParamType.INT,
+    required=False,
+    min_value=0,
+    description="Timeline clip (positional, from get_arrangement) — exactly one of the two",
 )
 
 # Full-range note query bounds: all pitches, generous time span.
@@ -21,6 +39,7 @@ def _serialize_note(note: Any) -> Dict[str, Any]:
     return {
         "note_id": note.note_id,
         "pitch": note.pitch,
+        "pitch_name": midi_to_pitch_name(note.pitch),
         "start_time": note.start_time,
         "duration": note.duration,
         "velocity": note.velocity,
@@ -165,7 +184,8 @@ def delete_clip(ctx, track_index: int, slot_index: int) -> Dict[str, Any]:
     "set_clip",
     params=[
         ParamSchema("track_index", ParamType.INT, min_value=0),
-        ParamSchema("slot_index", ParamType.INT, min_value=0),
+        _SLOT_XOR,
+        _ARR_XOR,
         ParamSchema("name", ParamType.STRING, required=False),
         ParamSchema("color_index", ParamType.INT, required=False, min_value=0, max_value=69),
         ParamSchema("looping", ParamType.BOOL, required=False),
@@ -173,12 +193,13 @@ def delete_clip(ctx, track_index: int, slot_index: int) -> Dict[str, Any]:
         ParamSchema("loop_end", ParamType.FLOAT, required=False, min_value=0),
     ],
     category="clips",
-    description="Batch setter for a clip's name, color, and loop settings (beats).",
+    description="Batch setter for a clip's name, color, and loop settings (beats). Addresses a session OR arrangement clip (exactly one of slot_index / arrangement_clip_index).",
 )
 def set_clip(
     ctx,
     track_index: int,
-    slot_index: int,
+    slot_index: Optional[int] = None,
+    arrangement_clip_index: Optional[int] = None,
     name: Optional[str] = None,
     color_index: Optional[int] = None,
     looping: Optional[bool] = None,
@@ -186,7 +207,7 @@ def set_clip(
     loop_end: Optional[float] = None,
 ) -> Dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    clip = get_clip(track, slot_index)
+    clip = resolve_clip_ref(track, slot_index, arrangement_clip_index)
     if name is not None:
         clip.name = name
     if color_index is not None:
@@ -200,6 +221,7 @@ def set_clip(
     return {
         "track_index": track_index,
         "slot_index": slot_index,
+        "arrangement_clip_index": arrangement_clip_index,
         "name": clip.name,
         "looping": clip.looping,
         "loop_start": clip.loop_start,
@@ -299,7 +321,8 @@ def delete_scene(ctx, scene_index: int) -> Dict[str, Any]:
     "get_notes",
     params=[
         ParamSchema("track_index", ParamType.INT, min_value=0),
-        ParamSchema("slot_index", ParamType.INT, min_value=0),
+        _SLOT_XOR,
+        _ARR_XOR,
         ParamSchema("from_pitch", ParamType.INT, required=False, default=0, min_value=0, max_value=127),
         ParamSchema("pitch_span", ParamType.INT, required=False, default=128, min_value=1),
         ParamSchema("from_time", ParamType.FLOAT, required=False, default=0.0, min_value=0),
@@ -329,14 +352,15 @@ def delete_scene(ctx, scene_index: int) -> Dict[str, Any]:
 def get_notes(
     ctx,
     track_index: int,
-    slot_index: int,
+    slot_index: Optional[int] = None,
+    arrangement_clip_index: Optional[int] = None,
     from_pitch: int = 0,
     pitch_span: int = 128,
     from_time: float = 0.0,
     time_span: Optional[float] = None,
 ) -> Dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    clip = get_midi_clip(track, slot_index)
+    clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
     span = time_span if time_span is not None else max(clip.length - from_time, 0.0)
     notes = clip.get_notes_extended(from_pitch, pitch_span, from_time, span)
 
@@ -354,21 +378,35 @@ def get_notes(
     "add_notes",
     params=[
         ParamSchema("track_index", ParamType.INT, min_value=0),
-        ParamSchema("slot_index", ParamType.INT, min_value=0),
+        _SLOT_XOR,
+        _ARR_XOR,
         ParamSchema(
             "notes",
             ParamType.NOTE_LIST,
-            description="Notes to add; times/durations in beats. Existing notes are kept.",
+            description=(
+                "Notes to add; times/durations in beats; pitch as MIDI number or "
+                "name like 'C3' (ABLETON convention: C3=60). Existing notes are kept."
+            ),
         ),
     ],
     category="notes",
-    description="Add MIDI notes to a clip in one batch. Supports per-note probability and velocity deviation (Live 11+).",
+    description=(
+        "Add MIDI notes to a session or arrangement clip in one batch. Pitches "
+        "accept names ('C3', 'F#4' — Ableton convention: C3=60). Supports "
+        "per-note probability and velocity deviation (Live 11+)."
+    ),
 )
-def add_notes(ctx, track_index: int, slot_index: int, notes: List[Dict[str, Any]]) -> Dict[str, Any]:
+def add_notes(
+    ctx,
+    track_index: int,
+    slot_index: Optional[int] = None,
+    arrangement_clip_index: Optional[int] = None,
+    notes: List[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     import Live  # inside Live's runtime only; tests install a mock module
 
     track = get_track(ctx.song, track_index)
-    clip = get_midi_clip(track, slot_index)
+    clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
 
     specs = tuple(
         Live.Clip.MidiNoteSpecification(
@@ -393,7 +431,8 @@ def add_notes(ctx, track_index: int, slot_index: int, notes: List[Dict[str, Any]
     "update_notes",
     params=[
         ParamSchema("track_index", ParamType.INT, min_value=0),
-        ParamSchema("slot_index", ParamType.INT, min_value=0),
+        _SLOT_XOR,
+        _ARR_XOR,
         ParamSchema(
             "modifications",
             ParamType.OBJECT_LIST,
@@ -419,10 +458,14 @@ def add_notes(ctx, track_index: int, slot_index: int, notes: List[Dict[str, Any]
     description="Edit existing notes precisely by note_id (from get_notes) — change pitch, timing, velocity, probability, etc. without rewriting the clip.",
 )
 def update_notes(
-    ctx, track_index: int, slot_index: int, modifications: List[Dict[str, Any]]
+    ctx,
+    track_index: int,
+    slot_index: Optional[int] = None,
+    arrangement_clip_index: Optional[int] = None,
+    modifications: List[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    clip = get_midi_clip(track, slot_index)
+    clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
 
     # Fetch-modify-apply: note objects can't be constructed by scripts, only
     # obtained from the clip, mutated, and handed back. Verified in real Live
@@ -433,7 +476,8 @@ def update_notes(
     all_notes = {n.note_id: n for n in note_vector}
 
     editable = {
-        "pitch": int,
+        # Names like "C3" are converted before the cast (Ableton convention C3=60)
+        "pitch": lambda v: pitch_to_midi(v, param="modifications"),
         "start_time": float,
         "duration": float,
         "velocity": float,
@@ -472,7 +516,8 @@ def update_notes(
     "remove_notes",
     params=[
         ParamSchema("track_index", ParamType.INT, min_value=0),
-        ParamSchema("slot_index", ParamType.INT, min_value=0),
+        _SLOT_XOR,
+        _ARR_XOR,
         ParamSchema(
             "note_ids",
             ParamType.INT_LIST,
@@ -494,7 +539,8 @@ def update_notes(
 def remove_notes(
     ctx,
     track_index: int,
-    slot_index: int,
+    slot_index: Optional[int] = None,
+    arrangement_clip_index: Optional[int] = None,
     note_ids: Optional[List[int]] = None,
     from_pitch: Optional[int] = None,
     pitch_span: Optional[int] = None,
@@ -502,7 +548,7 @@ def remove_notes(
     time_span: Optional[float] = None,
 ) -> Dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    clip = get_midi_clip(track, slot_index)
+    clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
 
     region_given = any(v is not None for v in (from_pitch, pitch_span, from_time, time_span))
 

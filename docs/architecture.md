@@ -99,6 +99,39 @@ trap 1.0 fell into. Tools carry outputSchema (structured output) and
 readOnly/destructive annotations. Handlers return dicts → SDK emits
 structuredContent + JSON text. Errors raise → proper isError tool results.
 
+## Arrangement view (2.1)
+
+- Session-then-stamp is the ONLY composition path: Live's API cannot create an
+  empty MIDI clip in the arrangement. `place_clip_in_arrangement` uses
+  `Track.duplicate_clip_to_arrangement` (LOM: returns the new clip; fallback
+  re-scan matches start_time with epsilon — the list is time-ordered).
+- Arrangement clip indices are POSITIONAL and go stale on any change; the
+  destructive delete takes `expected_start_time` as a stale-index guard.
+- Note commands address a clip in EITHER view: exactly one of `slot_index` /
+  `arrangement_clip_index` (enforced in `resolve_clip_ref`, not the schema —
+  our generator has no oneOf).
+- `create_locator` guards against `set_or_delete_cue`'s toggle semantics
+  (creating where a cue exists would DELETE it) and moves the playhead.
+- `back_to_arranger` is the classic silent failure: after session clips play,
+  the timeline stays overridden until it's set false. place_clip echoes it.
+
+## Sample-generation seam (2.1)
+
+`import_audio` → `Track.create_audio_clip(abs_path, position)` (arrangement
+only, audio tracks only, absolute paths only — Live resolves relative paths
+against its install dir). Generation providers are deliberately CLIENT-side:
+anything that writes an audio file (convention: `samples\`) lands it with this
+one command. No provider dependency ever goes into the bridge.
+
+## Pitch names & key/scale (2.1)
+
+- ABLETON convention everywhere: **C3 = 60** (most other software says C4=60).
+  `utils/pitch.py` parses names; note output carries `pitch_name`; tool
+  descriptions state the convention loudly.
+- Song key/scale via `set_transport` (`scale_root`/`scale_name`/`scale_mode`);
+  `scale_name` is pass-through with a read-back postcondition (unknown names
+  must not silently no-op).
+
 ## Deliberately absent (do not "fix" without a decision)
 
 - **Audio engine** (1.0's analyzers/generators). Analyzers (key/tempo/drum

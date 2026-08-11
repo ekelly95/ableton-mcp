@@ -2,7 +2,8 @@
 
 from typing import Any, Dict, Optional
 
-from ..registry import REGISTRY, ParamSchema, ParamType
+from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
+from ..utils.pitch import SHARP_NAMES, root_name_to_pitch_class
 
 
 def _transport_state(song: Any) -> Dict[str, Any]:
@@ -18,6 +19,15 @@ def _transport_state(song: Any) -> Dict[str, Any]:
             "length": song.loop_length,
         },
         "current_song_time": song.current_song_time,
+        "scale": {
+            "root": SHARP_NAMES[song.root_note],
+            "root_note": song.root_note,
+            "name": song.scale_name,
+            "scale_mode": song.scale_mode,
+            "intervals": list(song.scale_intervals),
+        },
+        "record_mode": song.record_mode,
+        "back_to_arranger": song.back_to_arranger,
     }
 
 
@@ -94,9 +104,47 @@ def transport_control(ctx, action: str, position: Optional[float] = None) -> Dic
         ParamSchema("loop_start", ParamType.FLOAT, required=False, min_value=0),
         ParamSchema("loop_length", ParamType.FLOAT, required=False, min_value=0.25),
         ParamSchema("metronome", ParamType.BOOL, required=False),
+        ParamSchema(
+            "scale_root",
+            ParamType.ANY,
+            required=False,
+            description="Key root as a note name ('D', 'F#', 'Bb') or 0-11 (0=C)",
+        ),
+        ParamSchema(
+            "scale_name",
+            ParamType.STRING,
+            required=False,
+            description=(
+                "Live scale name, e.g. Major, Minor, Dorian, Mixolydian, Lydian, "
+                "Phrygian, Locrian, Harmonic Minor, Melodic Minor, Major Pentatonic, "
+                "Minor Pentatonic, Major Blues, Minor Blues (must match Live's list exactly)"
+            ),
+        ),
+        ParamSchema(
+            "scale_mode",
+            ParamType.BOOL,
+            required=False,
+            description="Highlight the scale in Live's editors and snap MIDI tools to it",
+        ),
+        ParamSchema(
+            "record_mode",
+            ParamType.BOOL,
+            required=False,
+            description="Arrangement record button. WARNING: recording while playing overwrites the arrangement",
+        ),
+        ParamSchema(
+            "back_to_arranger",
+            ParamType.BOOL,
+            required=False,
+            description="Set false to hand control back to the arrangement timeline after session clips played over it",
+        ),
     ],
     category="transport",
-    description="Set any of: tempo (BPM), time signature, loop region (beats), metronome. Batch-friendly: pass several at once.",
+    description=(
+        "Set any of: tempo (BPM), time signature, loop region (beats), metronome, "
+        "song key/scale (the tonal anchor for everything composed), arrangement "
+        "record mode, back-to-arranger. Batch-friendly: pass several at once."
+    ),
 )
 def set_transport(
     ctx,
@@ -107,6 +155,11 @@ def set_transport(
     loop_start=None,
     loop_length=None,
     metronome=None,
+    scale_root=None,
+    scale_name=None,
+    scale_mode=None,
+    record_mode=None,
+    back_to_arranger=None,
 ) -> Dict[str, Any]:
     song = ctx.song
     if tempo is not None:
@@ -123,4 +176,21 @@ def set_transport(
         song.loop_length = loop_length
     if metronome is not None:
         song.metronome = metronome
+    if scale_root is not None:
+        song.root_note = root_name_to_pitch_class(scale_root)
+    if scale_name is not None:
+        song.scale_name = scale_name
+        # VERIFY at checkpoint: invalid names may silently no-op in Live —
+        # read back and surface the failure instead of pretending.
+        if song.scale_name != scale_name:
+            raise LiveAPIError(
+                f"Live rejected scale name '{scale_name}' (kept '{song.scale_name}'). "
+                f"Use a name from Live's scale chooser exactly."
+            )
+    if scale_mode is not None:
+        song.scale_mode = scale_mode
+    if record_mode is not None:
+        song.record_mode = record_mode
+    if back_to_arranger is not None:
+        song.back_to_arranger = back_to_arranger
     return _transport_state(song)

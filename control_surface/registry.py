@@ -14,6 +14,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 from .config import COMMAND_TIMEOUTS
+from .errors import LiveAPIError, ValidationError
 from .log import get_logger
 
 logger = get_logger("registry")
@@ -43,23 +44,8 @@ class ParamType(Enum):
     ANY = "any"
 
 
-class ValidationError(Exception):
-    """A parameter failed validation. Carries the parameter name to the wire."""
-
-    def __init__(self, message: str, param: Optional[str] = None, value: Any = None):
-        super().__init__(message)
-        self.message = message
-        self.param = param
-        self.value = value
-
-    def __str__(self) -> str:
-        if self.param:
-            return f"Validation error for '{self.param}': {self.message}"
-        return f"Validation error: {self.message}"
-
-
-class LiveAPIError(Exception):
-    """Live refused or couldn't perform the operation (bad index, occupied slot...)."""
+# ValidationError / LiveAPIError live in errors.py (imported above) and are
+# re-exported here so command modules keep importing them from the registry.
 
 
 @dataclass
@@ -179,8 +165,10 @@ class ParamSchema:
             if note.get(required_field) is None:
                 raise ValidationError(f"Note missing '{required_field}'", param=self.name)
 
+        from .utils.pitch import pitch_to_midi
+
         validated = {
-            "pitch": int(note["pitch"]),
+            "pitch": pitch_to_midi(note["pitch"], param=self.name),
             "start_time": float(note["start_time"]),
             "duration": float(note["duration"]),
             "velocity": float(note.get("velocity", NOTE_FIELD_DEFAULTS["velocity"])),
@@ -229,7 +217,16 @@ class ParamSchema:
         note_object_schema = {
             "type": "object",
             "properties": {
-                "pitch": {"type": "integer", "minimum": 0, "maximum": 127},
+                "pitch": {
+                    "anyOf": [
+                        {"type": "integer", "minimum": 0, "maximum": 127},
+                        {"type": "string"},
+                    ],
+                    "description": (
+                        "MIDI number 0-127 OR a name like 'C3', 'F#4', 'Bb2'. "
+                        "ABLETON convention: C3 = 60 (not C4)."
+                    ),
+                },
                 "start_time": {"type": "number", "minimum": 0, "description": "In beats"},
                 "duration": {"type": "number", "exclusiveMinimum": 0, "description": "In beats"},
                 "velocity": {"type": "number", "minimum": 0, "maximum": 127, "default": 100},
