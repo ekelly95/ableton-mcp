@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 
+from control_surface.errors import PartialApplyError
 from control_surface.registry import CommandRegistry, LiveAPIError, ParamSchema, ParamType
 from control_surface.socket_server import SocketServer
 
@@ -51,6 +52,10 @@ def build_test_registry() -> CommandRegistry:
     @registry.register("live_fail")
     def live_fail(ctx):
         raise LiveAPIError("Track 99 does not exist")
+
+    @registry.register("partial_fail")
+    def partial_fail(ctx):
+        raise PartialApplyError("sends", "Send index 7 out of range", applied=["name", "volume"])
 
     return registry
 
@@ -145,6 +150,14 @@ def test_live_api_error_taxonomy(server):
     assert response["status"] == "error"
     assert response["error_type"] == "LiveAPIError"
     assert "Track 99" in response["error"]
+
+
+def test_partial_apply_error_carries_applied_on_wire(server):
+    response = send_request(server.bound_port, {"type": "partial_fail", "id": "p"})
+    assert response["status"] == "error"
+    assert response["error_type"] == "PartialApplyError"
+    assert response["applied"] == ["name", "volume"]
+    assert "Already applied: name, volume" in response["error"]
 
 
 def test_list_commands_and_tools(server):

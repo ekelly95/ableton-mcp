@@ -342,9 +342,15 @@ class SocketServer:
             duration_ms = (time.time() - start_time) * 1000
             response["status"] = "error"
             response["error"] = str(e)
-            response["error_type"] = "LiveAPIError"
+            # type name, not the literal "LiveAPIError": PartialApplyError is a
+            # subclass and its identity plus `applied` list must reach the wire
+            # so a caller can tell which writes landed before the failure.
+            response["error_type"] = type(e).__name__
+            applied = getattr(e, "applied", None)
+            if applied is not None:
+                response["applied"] = applied
             self._operation_logger.log_error(
-                command_type or "unknown", params, str(e), "LiveAPIError", duration_ms
+                command_type or "unknown", params, str(e), type(e).__name__, duration_ms
             )
 
         except MainThreadExecutionError as e:

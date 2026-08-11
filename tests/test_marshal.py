@@ -2,6 +2,7 @@
 
 import pytest
 
+from control_surface.errors import PartialApplyError
 from control_surface.registry import LiveAPIError, ValidationError
 from control_surface.thread_marshal import MainThreadExecutionError, ThreadMarshaler
 
@@ -65,6 +66,22 @@ def test_validation_error_survives_thread_hop():
 
     with pytest.raises(ValidationError):
         marshaler.execute(invalid)
+
+
+def test_partial_apply_error_survives_hop_with_attributes():
+    # The original exception object must cross the hop, not a rebuilt copy:
+    # PartialApplyError's .applied is what tells the caller which writes landed.
+    marshaler = ThreadMarshaler(ImmediateControlSurface())
+
+    def partial():
+        raise PartialApplyError("arm", "cannot arm this track", applied=["name", "volume"])
+
+    with pytest.raises(PartialApplyError) as exc:
+        marshaler.execute(partial)
+    assert isinstance(exc.value, LiveAPIError)
+    assert exc.value.applied == ["name", "volume"]
+    assert exc.value.failed_field == "arm"
+    assert "Already applied: name, volume" in str(exc.value)
 
 
 def test_timeout():

@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import COMMAND_TIMEOUTS, DEFAULT_TIMEOUT_SECONDS
+from .errors import LiveAPIError, ValidationError
 from .log import get_logger
 
 logger = get_logger("thread_marshal")
@@ -53,6 +54,7 @@ class ExecutionResult:
     error: str | None = None
     error_type: str | None = None
     traceback: str | None = None
+    exception: BaseException | None = None
 
 
 class ThreadMarshaler:
@@ -90,6 +92,7 @@ class ThreadMarshaler:
                         error=str(e),
                         error_type=type(e).__name__,
                         traceback=tb,
+                        exception=e,
                     )
                 )
 
@@ -117,14 +120,11 @@ class ThreadMarshaler:
             return execution_result.result
 
         # Re-raise typed errors so the socket server's taxonomy survives the
-        # thread hop: a ValidationError/LiveAPIError raised by a handler on the
-        # main thread must not be flattened into a generic execution error.
-        from .registry import LiveAPIError, ValidationError
-
-        if execution_result.error_type == "LiveAPIError":
-            raise LiveAPIError(execution_result.error or "Live API error")
-        if execution_result.error_type == "ValidationError":
-            raise ValidationError(execution_result.error or "Validation error")
+        # thread hop. The ORIGINAL exception object is re-raised (not rebuilt
+        # from its string) so subclasses like PartialApplyError keep their
+        # structured attributes (.applied) across the hop.
+        if isinstance(execution_result.exception, (LiveAPIError, ValidationError)):
+            raise execution_result.exception
 
         raise MainThreadExecutionError(
             execution_result.error or "Unknown execution error",

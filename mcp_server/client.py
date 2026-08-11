@@ -57,11 +57,20 @@ class AbletonConnectionError(Exception):
 class CommandError(Exception):
     """The control surface executed the request and reported a failure."""
 
-    def __init__(self, message: str, error_type: str = "unknown", param: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        error_type: str = "unknown",
+        param: str | None = None,
+        applied: list | None = None,
+    ):
         super().__init__(message)
         self.message = message
         self.error_type = error_type
         self.param = param
+        # For PartialApplyError responses: which batch fields landed before the
+        # failure. The message already narrates it; this is the structured copy.
+        self.applied = applied
 
     def __str__(self) -> str:
         parts = [self.message]
@@ -150,6 +159,7 @@ class AbletonClient:
             message=response.get("error", "Unknown error"),
             error_type=response.get("error_type", "unknown"),
             param=response.get("param"),
+            applied=response.get("applied"),
         )
 
     def ping(self) -> dict[str, Any] | None:

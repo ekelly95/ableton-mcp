@@ -63,6 +63,14 @@ class ScriptedServer:
                             "error_type": "LiveAPIError",
                             "id": request.get("id"),
                         }
+                    if request.get("type") == "partial":
+                        response = {
+                            "status": "error",
+                            "error": "arm failed: nope. Already applied: name, volume.",
+                            "error_type": "PartialApplyError",
+                            "applied": ["name", "volume"],
+                            "id": request.get("id"),
+                        }
                     body = json.dumps(response).encode()
                     conn.sendall(struct.pack(">I", len(body)) + body)
             except OSError:
@@ -113,6 +121,19 @@ def test_command_error_taxonomy():
         with pytest.raises(CommandError) as exc:
             client.send("explode")
         assert exc.value.error_type == "LiveAPIError"
+    finally:
+        client.close()
+        server.close()
+
+
+def test_partial_apply_error_reaches_caller_with_applied():
+    server = ScriptedServer(["serve"])
+    client = AbletonClient(port=server.port)
+    try:
+        with pytest.raises(CommandError) as exc:
+            client.send("partial")
+        assert exc.value.error_type == "PartialApplyError"
+        assert exc.value.applied == ["name", "volume"]
     finally:
         client.close()
         server.close()
