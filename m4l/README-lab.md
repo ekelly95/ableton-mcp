@@ -1,7 +1,8 @@
 # M4L Lab — AbletonMCP Tap (v2)
 
 The tap gives the AI ears: a Max for Live audio effect that sits in a signal
-chain (normally the Master track), measures stereo loudness and a 10-band
+chain (normally the Main track — Live 12's name for the master), measures
+stereo loudness and a 10-band
 octave picture (31 Hz–16 kHz), and serves snapshots on **127.0.0.1:9878**
 using the same length-prefixed JSON protocol as the main bridge. The MCP tool
 `get_audio_levels` reads it; when the device isn't present the tool answers
@@ -19,7 +20,7 @@ device and the current server refuse to talk to each other — `get_audio_levels
 answers `available: false` with a rebuild hint rather than serving numbers
 that look plausible and are wrong.
 
-1. **Delete the old "AbletonMCP Tap" device from the Master track first**
+1. **Delete the old "AbletonMCP Tap" device from the Main track first**
    (two devices race for the port during a rebuild).
 2. Follow the build steps below with the CURRENT `m4l\tap.maxpat`.
 3. In step 6, copy the CURRENT `m4l\tap_server.js` — the patch and the script
@@ -35,7 +36,7 @@ This is the only supported route — do not try to "Save As .amxd" from a
 standalone patcher window:
 
 1. In Live's browser: **Max for Live → Max Audio Effect** — drag the *blank*
-   one onto the **Master** track.
+   one onto the **Main** track.
 2. Click the device's **edit button** (pencil icon). Max opens.
 3. In the Max patcher: **Ctrl+A** (select all) → **Delete** — yes, including
    the default plugin~/plugout~; our patch brings its own.
@@ -46,15 +47,17 @@ standalone patcher window:
 6. Copy `m4l\tap_server.js` into the same folder you will save the device to —
    OR (more robust) **File → Freeze Device**, which embeds the script.
 7. **Ctrl+S** — save as `AbletonMCP Tap.amxd` in your User Library when asked.
-8. Back in Live: the device shows on the Master track. The Max Window
+8. Back in Live: the device shows on the Main track. The Max Window
    (Right-click title bar → Open Max Window) should log
    `AbletonMCP Tap: serving on 127.0.0.1:9878`, and the status message box
    shows `SERVING 9878`.
 
 ## Reading it
 
+From the repo root:
+
 ```bash
-cd C:/dev/ableton-mcp && .venv/Scripts/python.exe scripts/tap_checkpoint.py
+.venv/Scripts/python.exe scripts/tap_checkpoint.py
 ```
 
 or call the `get_audio_levels` tool, optionally with `duration_seconds`
@@ -80,7 +83,7 @@ or call the `get_audio_levels` tool, optionally with `duration_seconds`
 - **Staleness is explicit**: `stale: true` + `data_age_ms` when no
   measurement messages arrived for >2 s (device bypassed, DSP off); values
   are floored to −70 dB instead of freezing at their last reading.
-- **Pre-fader**: device chains on the Master run BEFORE the master fader —
+- **Pre-fader**: device chains on the Main track run BEFORE the master fader —
   readings ignore the fader position and can differ from Live's meter. The
   `clipping` flag is advisory, not mastering advice.
 - `receiving_audio: false` after ~3 s of digital silence — also catches a
@@ -113,7 +116,8 @@ or call the `get_audio_levels` tool, optionally with `duration_seconds`
 ## Troubleshooting
 
 - Status `PORT BUSY` / Max Window shows bind failure → a second Tap device
-  exists somewhere in the set (only one per set in v1); delete the duplicate.
+  exists somewhere in the set (only one per set is supported); delete the
+  duplicate.
   Duplicating/undoing the device can also cause a transient retry — it
   self-heals within ~5 s.
 - Tool says `available: false` → is the device on a track, device power
@@ -123,11 +127,4 @@ or call the `get_audio_levels` tool, optionally with `duration_seconds`
 - `ping` shows `legacy_msgs` climbing → the PATCH inside the device is v1
   while the js is v2; rebuild from the current tap.maxpat.
 - Multi-tap (per-track ears, port-per-instance) is deliberately out of scope
-  for v1.
-
-## Promotion to main
-
-Only after the live checkpoint passes, and as a purely additive merge:
-`m4l/` + `mcp_server/m4l.py` + tool registration + tests; zero behavioral
-changes to core files; README on main gains an "optional: audio tap
-(Suite/M4L)" section. The core must keep working on Live Intro without it.
+  for now.

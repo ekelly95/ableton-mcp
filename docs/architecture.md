@@ -1,4 +1,4 @@
-# ableton-mcp 2.0 — Architecture
+# ableton-mcp — Architecture
 
 Rebuild of a 2025 predecessor project (which survives only as a repomix
 archive). This doc records what was kept, what changed and why, which Live

@@ -8,7 +8,7 @@ Context Protocol over stdio.
 
 **Status: experimental, Windows-only for now** (macOS support is roadmap: the
 Live-side script already supports Unix sockets, but the client and installer
-don't yet). Verified end-to-end against Ableton Live 12.4 on Windows 11.
+don't yet). Verified end-to-end against Ableton Live 12.4.3 on Windows 11.
 Works with **any Live edition** — Intro, Standard, or Suite; no Max for Live
 required.
 
@@ -55,13 +55,15 @@ verified Live API facts.
 
 ## Setup
 
-Requirements: Windows, Python 3.11+, Ableton Live 11.1+ (12.x verified).
+Requirements: Windows, Python 3.11+, [uv](https://docs.astral.sh/uv/),
+Ableton Live 11.1+ (12.x verified; `insert_device` needs Live 12.3+ — every
+other tool works on the older versions).
 
 ```bash
 git clone <this-repo> && cd ableton-mcp
-python -m venv .venv
-.venv\Scripts\pip install -e ".[dev]"
-python scripts/install_control_surface.py
+uv venv
+uv pip install -e ".[dev]"
+.venv/Scripts/python.exe scripts/install_control_surface.py
 ```
 
 Then, one-time, in Ableton Live: **Options → Preferences → Link, Tempo &
@@ -104,7 +106,7 @@ surface isn't enabled in Preferences.
 ```
 
 The test suite runs without Live — a mock stands in (`tests/mock_live.py`),
-encoding real-Live behaviour verified on 12.4 with provenance comments.
+encoding real-Live behaviour verified on 12.4.3 with provenance comments.
 `scripts/live_checkpoint.py` re-verifies the full surface against a running
 Live and leaves an audible "MCP Test" track behind. Generated samples go in
 `samples/` (override with `ABLETON_MCP_SAMPLES_DIR`).
