@@ -213,6 +213,18 @@ class TestArrangement:
         )
         assert result["placed"]["start_time"] == 12.0
 
+    def test_record_arm_refused_while_playing(self, registry, ctx, song):
+        song.is_playing = True
+        with pytest.raises(LiveAPIError, match="Stop playback first"):
+            run_command(registry, ctx, "arrangement_record", enabled=True)
+        # Disarming is always allowed
+        run_command(registry, ctx, "arrangement_record", enabled=False)
+
+    def test_locator_refused_while_playing(self, registry, ctx, song):
+        song.is_playing = True
+        with pytest.raises(LiveAPIError, match="stationary playhead"):
+            run_command(registry, ctx, "create_locator", time=8.0)
+
     def test_locator_create_and_collision(self, registry, ctx, song):
         result = run_command(registry, ctx, "create_locator", time=32.0, name="Chorus")
         assert result["locator"] == {"name": "Chorus", "time": 32.0}

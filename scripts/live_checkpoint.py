@@ -164,8 +164,11 @@ def check_launch(client):
     slot = clips["tracks"][0]["clip_slots"][0]
     playing = slot["is_playing"] or slot["is_triggered"]
     client.send("stop_clips", track_index=state["track"])
+    # Firing a clip starts Live's TRANSPORT, and stop_clips doesn't stop it —
+    # park it so later steps (record, locators) see a stationary playhead.
+    client.send("transport_control", action="stop")
     assert playing, f"clip did not report playing/triggered: {slot}"
-    return "clip fired (triggered/playing state confirmed)"
+    return "clip fired (triggered/playing state confirmed); transport parked"
 
 
 @step("transport: tempo set + play + stop + restore")
@@ -354,15 +357,21 @@ def check_direct_arrangement(client):
 
 @step("arrangement_record: toggle on/off without playing")
 def check_arrangement_record(client):
-    on = client.send("arrangement_record", enabled=True)
-    assert on["record_mode"] is True, on
-    off = client.send("arrangement_record", enabled=False)
-    assert off["record_mode"] is False, off
-    return "record button toggles; never played while armed"
+    client.send("transport_control", action="stop")
+    client.send("arrangement_record", enabled=True)
+    # Verified: the write can read back stale in the same task — confirm on a
+    # SEPARATE request (next tick).
+    st = client.send("get_transport_state")
+    assert st["record_mode"] is True, st
+    client.send("arrangement_record", enabled=False)
+    st = client.send("get_transport_state")
+    assert st["record_mode"] is False, st
+    return "record arms/disarms (confirmed next-tick); never played while armed"
 
 
 @step("locator 'Chorus' at beat 32 + collision refusal")
 def check_locator(client):
+    client.send("transport_control", action="stop")
     result = client.send("create_locator", time=32.0, name="Chorus")
     assert result["locator"]["time"] == 32.0, result
     assert result["locator"]["name"] == "Chorus", result

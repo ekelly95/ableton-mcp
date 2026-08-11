@@ -159,8 +159,21 @@ def create_arrangement_clip(
 )
 def arrangement_record(ctx, enabled: bool) -> Dict[str, Any]:
     song = ctx.song
+    if enabled and song.is_playing:
+        raise LiveAPIError(
+            "Transport is playing — arming record now would overwrite the "
+            "arrangement immediately. Stop playback first (transport_control), "
+            "then arm, then play to record deliberately."
+        )
     song.record_mode = enabled
-    return {"record_mode": song.record_mode, "is_playing": song.is_playing}
+    # Verified on real Live 12.4: this write can read back STALE within the
+    # same scheduled task. Report what was requested; confirm on the next
+    # request (get_transport_state) if certainty is needed.
+    return {
+        "record_mode_requested": enabled,
+        "record_mode": song.record_mode,
+        "is_playing": song.is_playing,
+    }
 
 
 @REGISTRY.register(
@@ -408,9 +421,19 @@ def delete_arrangement_clip(
 def create_locator(ctx, time: float, name: Optional[str] = None) -> Dict[str, Any]:
     song = ctx.song
 
+    # Verified on real Live 12.4: with the transport running, the playhead
+    # moves between our seek and the cue toggle, so the cue lands elsewhere
+    # (or nowhere findable). Locators need a parked playhead.
+    if song.is_playing:
+        raise LiveAPIError(
+            "Transport is playing — stop playback first (transport_control), "
+            "locators need a stationary playhead."
+        )
+
     # set_or_delete_cue TOGGLES at the playhead — creating where one exists
     # would silently DELETE it, so refuse instead.
-    for cue in song.cue_points:
+    before = list(song.cue_points)
+    for cue in before:
         if abs(cue.time - time) < _TIME_EPSILON:
             raise LiveAPIError(
                 f"A locator already exists at {time} ('{cue.name}') — "
@@ -420,9 +443,13 @@ def create_locator(ctx, time: float, name: Optional[str] = None) -> Dict[str, An
     song.current_song_time = time
     song.set_or_delete_cue()
 
-    created = next(
-        (c for c in song.cue_points if abs(c.time - time) < _TIME_EPSILON), None
-    )
+    # Confirm by list diff, not exact time: Live may snap the cue slightly.
+    after = list(song.cue_points)
+    created = next((c for c in after if c not in before), None)
+    if created is None:
+        created = next(
+            (c for c in after if abs(c.time - time) < 0.05), None
+        )
     if created is None:
         raise LiveAPIError(f"Locator at {time} could not be confirmed")
 
