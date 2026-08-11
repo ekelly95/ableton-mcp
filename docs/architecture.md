@@ -87,6 +87,10 @@ Spike-verified on real Live 12.4.3, no Max for Live required:
 - `envelope.insert_step(time, length, value)` + `value_at_time` round-trip
   exactly (CONFIRMED); values are in the parameter's NATIVE range — the tools
   normalize 0-1 on the wire like device parameters
+- Boundary semantics (CONFIRMED at the 2.2 checkpoint): steps are
+  START-EXCLUSIVE — `value_at_time(step_start)` returns the PREVIOUS value,
+  and at exactly 0.0 the parameter's live value. get_clip_envelope therefore
+  samples at t+0.001 so points read as "value in effect from t".
 - `clip.clear_all_envelopes()` no-arg (CONFIRMED); `clip.clear_envelope(param)`
   signature VERIFY at checkpoint
 - Unused for now: `envelope.create_event/events_in_range/delete_events_in_range`

@@ -111,9 +111,12 @@ class MockAutomationEnvelope:
         self._steps.append((float(time), float(length), float(value)))
 
     def value_at_time(self, time: float) -> float:
+        # CONFIRMED on real Live 12.4.3 (2.2 checkpoint): steps are
+        # START-EXCLUSIVE — at exactly a step's start time the PREVIOUS value
+        # still reads, and at exactly 0.0 the parameter's current value reads.
         best = None
         for start, _length, value in self._steps:
-            if start <= time and (best is None or start >= best[0]):
+            if start < time and (best is None or start >= best[0]):
                 best = (start, value)
         return best[1] if best is not None else self.parameter.value
 

@@ -215,7 +215,11 @@ def get_clip_envelope(
     points = []
     for i in range(samples):
         t = round(i * step, 4)
-        native = envelope.value_at_time(t)
+        # Confirmed on real Live: value_at_time is start-EXCLUSIVE at step
+        # boundaries. Sample a hair after t so each point reports the value
+        # in effect FROM that time, which is what a reader expects.
+        probe = min(t + 0.001, clip.length)
+        native = envelope.value_at_time(probe)
         points.append(
             {
                 "time": t,
