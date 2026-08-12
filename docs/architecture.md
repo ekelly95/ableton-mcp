@@ -440,6 +440,18 @@ No provider dependency ever goes into the bridge.
 
 ## Deliberately absent (do not "fix" without a decision)
 
+- **Tool consolidation (many typed tools → few generic ones).** Decided
+  against with ekelly95, 2026-08-12. Consolidation moves object choice out of
+  tool names (where the model is near-infallible) into parameters (where
+  mistakes are quiet and, for deletes, destructive), and collapses per-type
+  permission prompts into one. The producer-pal team measured this failure
+  mode empirically (small models silently mangle flexible schemas) and
+  gates their consolidated surface with an eval harness we don't have. The
+  payoff was only ever the once-per-session schema cost — the recurring
+  costs were fixed by notation/transforms/compact emission (2.5.0), and
+  lazy-loading clients shrink the fixed cost anyway. Revisit only with an
+  eval harness that can measure music-making regression, never for tool
+  count aesthetics. (Roadmap Round D defers to this entry.)
 - **1.0's audio analyzers/generators.** Hearing now exists (core meters + the
   optional tap, above); offline analyzers (key/tempo/drum detection) may still
   return as a separate optional package; the generators are obsolete — Claude

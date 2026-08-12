@@ -161,12 +161,11 @@ live_checkpoint.py are the 30-minute confirmation path.
 
 ## Round D — Only when the surface stabilizes
 
-- **Tool consolidation (42+ → ~20).** The largest fixed cost (schemas ≈8-9k
-  tokens/session) but touches everything. Pattern if/when done: one `delete`
-  and one `duplicate` tool with a required `type` enum; comma-separated ids
-  for batch ops; NEVER string|array unions (small models silently mangle
-  anyOf — producer-pal proved this empirically). Do it in one dedicated
-  release with AGENTS.md rewritten the same day.
+- **Tool consolidation — DECIDED AGAINST (2026-08-12), do not build.** See
+  the "Deliberately absent" entry in docs/architecture.md for the rationale
+  (regression risk in tool choice + permission granularity loss vs a small
+  once-per-session saving). Revisit only with an eval harness that can
+  measure music-making regression.
 - **Notation/transforms v2** from real usage: meter-relative beat option,
   serializer tuplet exactness, `next.*` / `seq()` / `split()` / arrangement-
   synced waveform phase in transforms — add when a session actually wants
