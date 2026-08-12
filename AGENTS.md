@@ -71,7 +71,10 @@ Work Session view → Arrangement, in this order:
 - Arrangement clip indices are positional and go stale on any change —
   re-read `get_arrangement` before touching them.
 - `load_item` on a `.mid` file ignores `track_index` (known bug — it lands on
-  a new track at the end).
+  a new track at the end; the result's `onto_track` names it). Recovery both
+  agents used successfully: keep the auto-created track, delete your empty
+  placeholder, rename. And DO load kit MIDI as the real file — never re-type
+  a kit's notes from a disk parse; edit the imported clip in place instead.
 - Pitch convention: **C3 = 60** (Ableton), everywhere.
 - `get_audio_levels` needs the optional M4L tap on the Main track; max 10 s
   per sample. Without it, `get_track_meters` still answers "is it sounding?".
