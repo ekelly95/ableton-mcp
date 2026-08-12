@@ -23,6 +23,10 @@ belong in [AGENTS.md](../AGENTS.md).
 
 ## Completed feature rounds
 
+This record starts at 2.5. Earlier rounds — arrangement editing, clip
+envelopes, the plug-in browser root, core metering — predate it and are
+documented in the README and [architecture.md](architecture.md).
+
 ### 2.5 — Compact notation and transforms
 
 - `add_notes` accepts a compact bar-and-beat notation as an alternative to raw
@@ -99,10 +103,10 @@ installation can run the complete checkpoint without copying library content.
 
 ### Simplify Max for Live tap packaging
 
-The prebuilt `AbletonMCP Tap.amxd` works on Windows and macOS, but its
-`tap_server.js` runtime must currently be installed beside it. A future device
-build may freeze the script into the `.amxd`; until then, both files remain part
-of the installation.
+The prebuilt `AbletonMCP Tap.amxd` works on Windows and macOS, but it is not
+frozen, so its `tap_server.js` runtime must be installed beside it. The manual
+build route already offers File → Freeze Device (README-lab step 6); shipping
+a frozen prebuilt device would drop the two-file requirement.
 
 ### Gather first-user macOS evidence
 

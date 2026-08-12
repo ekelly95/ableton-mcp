@@ -22,7 +22,9 @@ the device is not self-contained: its `node.script` runtime is
 `tap_server.js`, which Max resolves from the device's folder. Without that
 file, the device loads but cannot start its server; Live's Log.txt reports
 "can't find file tap_server.js". Verified working on Windows
-and macOS (checkpoint 5/5 on both).
+and macOS (checkpoint 5/5 on both). The prebuilt device was saved with
+Max 9.1.4 (the build bundled with Live 12.4); older Max/Live versions may
+warn when opening it or refuse to.
 
 ## Upgrading from v1
 

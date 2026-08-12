@@ -1,8 +1,13 @@
-"""P4 real-Live checkpoint: run the vertical slice against actual Ableton Live.
+"""Real-Live checkpoint: run the vertical slice against actual Ableton Live.
 
 Exercises every VERIFY-tagged Live API assumption in the mock. Leaves one
 'MCP Test' track with a clip in the set so the result is visible/audible;
 everything else it creates, it removes.
+
+The Simpler step loads a specific drum sample from the author's User Library
+(see check_simpler_class_props) — on another machine, edit that path to any
+.wav in your own library, or the step fails. Making the checkpoint
+self-contained is a recorded roadmap item.
 
 Run:  python scripts/live_checkpoint.py
 """

@@ -142,9 +142,11 @@ function signatures. Tools carry outputSchema and readOnly/destructive
 annotations. Handlers return dicts → SDK emits
 structuredContent + JSON text. Errors raise → proper isError tool results.
 
-Two tools live outside the registry because they cannot run inside Live:
-`get_bridge_status` (server.py) and `get_audio_levels` (mcp_server/m4l.py —
-the optional Max for Live tap, see below). Everything else is
+Five tools live outside the registry because they cannot (or need not) run
+inside Live: `get_bridge_status` (server.py), `get_audio_levels`
+(mcp_server/m4l.py — the optional Max for Live tap, see below),
+`transform_clip` (mcp_server/transforms.py, 2.5), and `search_library` /
+`find_similar` (mcp_server/library.py, 2.6). Everything else is
 registry-generated.
 
 ## Audio metering (2.3)
@@ -343,7 +345,7 @@ Core Library items appear in the browser by category, not disk layout — no
 guess, absolute path only. `import_audio` accepts the
 forward-slash absolute paths exactly as search_library returns them.
 
-## macOS status (2.6, hardware-verified 2026-08-12)
+## macOS status (shipped in 2.6; hardware-verified 2026-08-12 on the 2.8 checkpoint)
 
 The client mirrors the control surface's transport branch: TCP on Windows and
 AF_UNIX on macOS (`use_tcp` and `socket_path` remain constructor parameters so
@@ -456,9 +458,11 @@ No provider dependency ever goes into the bridge.
 - **An unrestricted run-arbitrary-code tool inside Live.** Executing arbitrary
   code in Live carries crash and data-loss risk and would require a separate
   sandbox design.
-- **Quantize, routing, capture MIDI, warp control, return-track deletion, and
+- **Quantize, routing, capture MIDI, return-track deletion, and
   arrangement clip move/resize.** These are not currently exposed as tools;
-  delete-and-replace remains the arrangement workaround.
+  delete-and-replace remains the arrangement workaround. (Warp control left
+  this list: `set_clip` toggles `warping`, and Simpler's warp/crop operations
+  run through guarded `invoke` actions.)
 - **Multiple simultaneous MCP clients.** One serial client preserves operation
   ordering.
 
@@ -473,8 +477,9 @@ No provider dependency ever goes into the bridge.
   the active virtual environment. Stale editable-install hooks can cause an MCP
   client to report `ModuleNotFoundError: No module named 'mcp_server'` even
   while repository-local tests still pass.
-- JSONL operation journal: `%TEMP%\ableton_mcp_logs\operations.jsonl` — every
-  command with params, result, duration; the replay/debug channel.
+- JSONL operation journal: `%TEMP%\ableton_mcp_logs\operations.jsonl` on
+  Windows, `/tmp/ableton_mcp_logs/operations.jsonl` on macOS — every command
+  with params, result, duration; the replay/debug channel.
 - `scripts/live_checkpoint.py` is the real-Live regression harness (leaves an
   audible "MCP Test" track). `scripts/smoke_test.py` is the 2-second liveness
   check.

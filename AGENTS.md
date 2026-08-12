@@ -59,7 +59,8 @@ verified against real Live. Deeper design rationale and Live API facts:
 
 - **Search before you browse.** `search_library` reads Live's own library
   database directly (works even with Live closed): samples, presets/racks,
-  MIDI files, grooves, Sets, plug-ins — by name substring, Live tags
+  MIDI files, grooves, Sets, Live Clips (`kind: "clip"`, .alc), plug-ins — by
+  name substring, Live tags
   (comma-separated, all must match; mine the `tags` field of results for the
   vocabulary), kind, and source, sorted by how often the user actually used
   each item. `find_similar` ranks by sonic similarity to a reference sound

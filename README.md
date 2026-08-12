@@ -11,10 +11,10 @@ Context Protocol over stdio.
 The bridge focuses on **stable MIDI readback and precise edits**, **clip
 automation envelopes**, **loading third-party VST/VST3 plug-ins**, and
 **audio-level feedback** through per-track meters and an optional calibrated
-loudness/spectrum meter. It runs on **any Live edition** — Intro, Standard or
-Suite — the core bridge needs no Max for Live, and it is MIT licensed. Current
-limitations: it serves one MCP client at a time, and installation requires a
-local checkout.
+loudness/spectrum meter. The core bridge needs no Max for Live, and it is MIT
+licensed. Every verified fact comes from Live 12.4.3 (Trial); other editions
+should work but are untested. Current limitations: it serves one MCP client at
+a time, and installation requires a local checkout.
 
 **Status: experimental, verified on both platforms.** Windows: end-to-end
 against Ableton Live 12.4.3 on Windows 11. macOS: full 42-step live checkpoint
@@ -34,8 +34,8 @@ Arrangement timeline (create MIDI clips directly on it, stamp session loops
 onto it, drop named locators, edit timeline clips); import audio files into
 the session or onto the timeline (the landing pad for sample generation —
 generators just write a file and call import_audio); browse Live's library
-and load instruments/effects — including third-party VST/AU plug-ins and the
-presets Live indexes for them (2.4) — or insert native devices directly by name;
+and load instruments/effects — including third-party VST/VST3 plug-ins
+(2.4) — or insert native devices directly by name;
 search Live's own library database offline — samples, presets, MIDI, grooves,
 plug-ins by name/tag/kind, ranked by how often you use them — and rank sounds
 by **sonic similarity** to a reference using Live's own audio analysis (2.6);
@@ -57,21 +57,25 @@ measurements rather than streamed audio. Setup instructions:
 ## How it works
 
 ```
-AI client ── MCP (stdio) ── mcp_server ── TCP 127.0.0.1:9877 ── control surface inside Live
+AI client ── MCP (stdio) ── mcp_server ── local socket ── control surface inside Live
 ```
+
+The local socket is TCP `127.0.0.1:9877` on Windows and a Unix socket
+(`/tmp/ableton_mcp.sock`) on macOS.
 
 Two halves, one source of truth: every tool is generated from the command
 registry that the Live-side script executes — nothing is defined twice, and a
 schema-hash handshake warns if the two ever drift apart. See
 [docs/architecture.md](docs/architecture.md) for design decisions and
-verified Live API facts.
+verified Live API facts, and [AGENTS.md](AGENTS.md) for the operating
+playbook an AI agent should read before driving a session.
 
 ## Setup
 
 Requirements: Windows or macOS (both hardware-verified — see Status),
-Python 3.11+, [uv](https://docs.astral.sh/uv/), Ableton Live 11.1+ (12.x
-verified; `insert_device` needs Live 12.3+ — every other tool works on the
-older versions).
+Python 3.11+, [uv](https://docs.astral.sh/uv/), Ableton Live 12 (verified on
+12.4.3; the transport and session-overview tools read scale properties Live 12
+added, so Live 11 is not supported, and `insert_device` needs 12.3+).
 
 ```bash
 git clone https://github.com/ekelly95/ableton-mcp.git && cd ableton-mcp
@@ -89,7 +93,8 @@ None), and restart Live. Re-run the install script + restart Live after any
 update.
 
 Register with your MCP client — e.g. Claude Desktop
-(`%APPDATA%\Claude\claude_desktop_config.json`):
+(`%APPDATA%\Claude\claude_desktop_config.json` on Windows,
+`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
 {
@@ -137,8 +142,11 @@ uv pip install -e ".[dev]"
 The test suite runs without Live — a mock stands in (`tests/mock_live.py`),
 encoding real-Live behaviour verified on 12.4.3 with provenance comments.
 `scripts/live_checkpoint.py` re-verifies the full surface against a running
-Live and leaves an audible "MCP Test" track behind. Generated samples go in
-`samples/` (override with `ABLETON_MCP_SAMPLES_DIR`).
+Live and leaves an audible "MCP Test" track behind. One checkpoint step loads
+a specific drum sample from the author's User Library, so on another machine
+it fails late unless that path is edited — see the roadmap item about making
+the checkpoint self-contained. Generated samples go in `samples/` (override
+with `ABLETON_MCP_SAMPLES_DIR`).
 
 ## Support expectations
 
