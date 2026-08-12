@@ -203,6 +203,35 @@ Two tiers, deliberately separate:
   ("Device On") until the user hand-clicks Configure in Live — so parameter
   writes are not a patch-selection route either.
 
+## Token economy (2.5)
+
+- **Server-side dialects.** The note notation (mcp_server/notation.py) and the
+  transform language (mcp_server/transforms.py) are expanded/applied in the
+  MCP server before anything crosses the wire — Live only ever sees note
+  dicts. This is deliberate: language iteration must not cost a
+  control-surface reinstall. Their params (`notation`, `transforms`,
+  `format`) ARE declared in the shared registry purely for schema-hash
+  symmetry; Live-side handlers accept and ignore them so a drifted server
+  can't crash a command.
+- **transform_clip is a server-side composite tool** (declared next to
+  get_bridge_status, outside the registry): get_notes → apply_transforms →
+  remove/update/add diffed by note_id. Outside-the-registry means no schema
+  hash impact and no Live code.
+- **Compact emission.** A bare dict return makes the MCP SDK serialize the
+  payload twice, the text copy at indent=2 (measured 1.5-1.9x). _tool_result
+  in mcp_server/server.py emits compact text + the dict for output_schema
+  validation. Never return a bare dict from call_tool.
+- **Absent = default.** Note fields (mute/probability/velocity_deviation/
+  release_velocity) and device-parameter fields (is_quantized/is_enabled/
+  automation_state) at Live defaults are omitted from reads; derivable
+  arrangement-clip fields (end_time, is_audio_clip) are never emitted; the
+  session overview omits empty clip slots and sends unless asked. Stated in
+  the affected tool descriptions.
+- Measured on the 12-track/16-scene mock: session overview 54,687 chars
+  (old emission, old shape) → 3,784 (93% less); 76-note pattern written as
+  notation 52 chars vs 4,850 JSON; read back compact 185 chars vs 19,076
+  old emission.
+
 ## Arrangement view (2.1)
 
 - TWO composition routes (both LOM-confirmed): `create_arrangement_clip` →

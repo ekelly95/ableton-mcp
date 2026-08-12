@@ -33,6 +33,29 @@ design rationale and Live API facts: [docs/architecture.md](docs/architecture.md
 - Native devices: `insert_device` by exact name, no browser round-trip.
 - First `load_item` in a fresh Live session can take up to 120 s (indexing).
 
+## Token economy (2.5) — how to not burn the user's usage
+
+- **Write notes as notation, not JSON.** `add_notes` takes a `notation` string:
+  stateful prefixes (`v100` velocity / `v90-110` range, `n/16` duration with
+  `d`/`t` for dotted/triplet, `p0.9` probability), pitch names (`C3`=60, chords
+  by juxtaposition), positions as `bar|beat` (`1|1`; a beat is a quarter note),
+  repeats `1|1x16@n/16`, bar copies `@2=1` / `@3-8=1-2`, `v0` deletes.
+  Measured: a 76-note 4-bar drum pattern is 52 chars of notation vs 4,850 of
+  JSON — 99% less. Bad tokens warn-and-skip; check `notation_warnings`.
+- **Read notes back with `format: "compact"`** when you just need to see the
+  material (185 chars vs ~7,300 for the same clip). Use the default JSON only
+  when you need `note_id`s for surgical `update_notes`/`remove_notes`.
+- **Reshape existing clips with `transform_clip`** — the notes never enter the
+  conversation at all: `'F#1: timing = swing(0.57); where(note.velocity > 100):
+  v-15'`. Selectors (pitch / time / `where()`), assignments on velocity, pitch,
+  timing, duration, probability, deviation, waveforms (`tri(1bar)`), `ramp`,
+  `swing`, `quant`, `legato`, `snap(C,Eb,G)`, `rand`/`choose` (pass `seed` for
+  reproducibility), and note ops `ratchet`/`repeat`/`merge`. The same language
+  is available inline via `transforms` on `add_notes`.
+- **Reads omit noise by default:** session overview skips empty clip slots and
+  sends (flags bring them back); device/note fields at their defaults are
+  simply absent — absent = default, never "unknown".
+
 ## The arrangement playbook (proven in production)
 
 Work Session view → Arrangement, in this order:
