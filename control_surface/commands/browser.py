@@ -23,6 +23,11 @@ ROOTS = [
     "samples",
     "packs",
     "user_library",
+    # Third-party VST/AU tree (LOM Browser.plugins). Plugin items are loadable
+    # AND carry children (their Live-indexed presets) — don't treat is_folder
+    # as the only walkable shape. In-plugin libraries (e.g. Omnisphere's STEAM
+    # browser) are invisible to Live's browser and stay out of reach.
+    "plugins",
 ]
 
 
@@ -78,8 +83,10 @@ def _serialize_item(item: Any) -> dict[str, Any]:
     read_only=True,
     description=(
         "Explore Live's library one level at a time (instruments, sounds, drums, "
-        "audio_effects, samples, packs...). Returns children of the given path; "
-        "drill down with further calls rather than deep paths blind."
+        "audio_effects, samples, packs, plugins...). Returns children of the given "
+        "path; drill down with further calls rather than deep paths blind. Under "
+        "'plugins', a plugin item is loadable AND browsable — its children are the "
+        "presets Live indexes for it."
     ),
     output_schema={
         "type": "object",
@@ -131,8 +138,8 @@ def browse(ctx, path: list[str] | None = None) -> dict[str, Any]:
     ],
     category="browser",
     description=(
-        "Load an instrument/effect/sample onto a track. Loading targets the "
-        "SELECTED track, so track_index selects it first. Slow on first use "
+        "Load an instrument/effect/sample/plug-in onto a track. Loading targets "
+        "the SELECTED track, so track_index selects it first. Slow on first use "
         "(Live may index packs) — allow up to 2 minutes."
     ),
 )

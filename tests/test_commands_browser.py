@@ -11,6 +11,7 @@ def test_browse_roots(registry, ctx):
     names = [i["name"] for i in result["items"]]
     assert "instruments" in names
     assert "audio_effects" in names
+    assert "plugins" in names
 
 
 def test_browse_level(registry, ctx):
@@ -47,3 +48,35 @@ def test_load_item_onto_track(registry, ctx, song):
 def test_load_item_folder_rejected(registry, ctx):
     with pytest.raises(LiveAPIError, match="not loadable"):
         run_command(registry, ctx, "load_item", path=["instruments", "Drum Rack"], track_index=0)
+
+
+def test_browse_plugins_vendor_level(registry, ctx):
+    result = run_command(registry, ctx, "browse", path=["plugins", "VST3"])
+    omni = next(i for i in result["items"] if i["name"] == "Omnisphere")
+    assert omni["is_loadable"] is True
+    assert omni["is_folder"] is False
+
+
+def test_browse_plugin_lists_presets(registry, ctx):
+    # A plugin item is loadable AND browsable: children are its indexed presets.
+    result = run_command(registry, ctx, "browse", path=["plugins", "VST3", "Omnisphere"])
+    assert [i["name"] for i in result["items"]] == ["Factory Preset A"]
+
+
+def test_load_item_plugin(registry, ctx, song):
+    result = run_command(
+        registry, ctx, "load_item", path=["plugins", "VST3", "Omnisphere"], track_index=1
+    )
+    assert result["loaded"] == "Omnisphere"
+    assert [d.name for d in song.tracks[1].devices] == ["Omnisphere"]
+
+
+def test_load_item_plugin_preset(registry, ctx, song):
+    result = run_command(
+        registry,
+        ctx,
+        "load_item",
+        path=["plugins", "VST3", "Omnisphere", "Factory Preset A"],
+        track_index=1,
+    )
+    assert result["loaded"] == "Factory Preset A"

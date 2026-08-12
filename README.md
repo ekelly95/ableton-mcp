@@ -25,7 +25,8 @@ Arrangement timeline (create MIDI clips directly on it, stamp session loops
 onto it, drop named locators, edit timeline clips); import audio files into
 the session or onto the timeline (the landing pad for sample generation —
 generators just write a file and call import_audio); browse Live's library
-and load instruments/effects — or insert native devices directly by name;
+and load instruments/effects — including third-party VST/AU plug-ins and the
+presets Live indexes for them (2.4) — or insert native devices directly by name;
 turn any device knob with its human-readable choices visible; read every
 track's output meters (core API — is it making sound, how loud?); control
 tempo, loop, metronome, playback and (via its own guarded tool) arrangement

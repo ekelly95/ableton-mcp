@@ -182,6 +182,22 @@ Two tiers, deliberately separate:
   (Track.insert_device, Live 12.3+) without touching the browser or the
   selected track; plug-ins/M4L/presets still go through browse + load_item.
 
+## Plug-in browser root (2.4 — real-Live probe pending)
+
+- `browse`/`load_item` reach third-party plug-ins via the `plugins` root (LOM
+  `Browser.plugins`), closing the gap where insert_device's own error text
+  pointed at a route that didn't exist. History: the missing root sent two
+  different agents (Claude and Codex, Aug 2026) to the identical LiveAPIError;
+  Codex worked around it with desktop screen automation, which ekelly95 vetoed.
+- Plugin items are loadable AND carry children (the presets Live indexes for
+  them) — `is_folder` alone does not decide walkability; the mock encodes this
+  shape.
+- Boundary that stays: libraries rendered inside a plugin's own window
+  (Omnisphere's STEAM browser, Purity's bank picker) are invisible to Live's
+  browser and therefore to the bridge. Patch choice there remains manual
+  unless Live indexes the preset format. Per-plugin truth (Omnisphere VST3,
+  Purity VST2) to be recorded here after the 2.4.0 real-Live checkpoint.
+
 ## Arrangement view (2.1)
 
 - TWO composition routes (both LOM-confirmed): `create_arrangement_clip` →

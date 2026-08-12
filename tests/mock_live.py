@@ -762,6 +762,24 @@ def _default_browser_tree():
         "samples": MockBrowserItem("Samples", children=[]),
         "packs": MockBrowserItem("Packs", children=[]),
         "user_library": MockBrowserItem("User Library", children=[]),
+        # Mirrors the real shape that makes plugins special: the plugin item is
+        # loadable AND has children (Live-indexed presets), so is_folder is False
+        # while children is non-empty.
+        "plugins": MockBrowserItem(
+            "Plug-Ins",
+            children=[
+                MockBrowserItem(
+                    "VST3",
+                    children=[
+                        MockBrowserItem(
+                            "Omnisphere",
+                            children=[MockBrowserItem("Factory Preset A", is_loadable=True)],
+                            is_loadable=True,
+                        ),
+                    ],
+                ),
+            ],
+        ),
     }
 
 
