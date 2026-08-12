@@ -353,14 +353,16 @@ class TestImportAudio:
                 position=0.0,
             )
 
-    def test_missing_file_rejected(self, registry, ctx, song, audio_track):
+    def test_missing_file_rejected(self, registry, ctx, song, tmp_path, audio_track):
+        # tmp_path keeps this absolute on every platform — r"C:\..." is not
+        # absolute on POSIX and trips the ABSOLUTE guard instead (macOS CI).
         with pytest.raises(LiveAPIError, match="not found"):
             run_command(
                 registry,
                 ctx,
                 "import_audio",
                 track_index=audio_track,
-                file_path=r"C:\nope\missing.wav",
+                file_path=str(tmp_path / "nope" / "missing.wav"),
                 position=0.0,
             )
 
