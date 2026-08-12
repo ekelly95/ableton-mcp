@@ -232,6 +232,55 @@ Two tiers, deliberately separate:
   notation 52 chars vs 4,850 JSON; read back compact 185 chars vs 19,076
   old emission.
 
+## Take lanes + deep native-device control (2.7)
+
+The one Live-side batch of the 2026-08 roadmap (registry hash moved once).
+All facts below CONFIRMED on real Live 12.4.3 at the 2.7 checkpoint (41/41,
+which also cleared the full-checkpoint re-run pending since 2.3.0) unless
+marked otherwise.
+
+**Take lanes** — stack MIDI variations on one arrangement track:
+- `Track.create_take_lane()` appends; `TakeLane.name` settable; lane clips
+  are created and edited ON THE LANE OBJECT (`lane.create_midi_clip`), and
+  `Track.arrangement_clips` EXCLUDES lane clips (CONFIRMED — the main-lane
+  exclusion is what makes per-lane indices coherent).
+- There is NO delete API for lanes — permanent for the session. We enforce a
+  cap of 8 per track ourselves; Live's own cap is deliberately unprobed
+  (probing would mint permanent lanes).
+- Surface: `create_take_lane`; per-track `take_lanes` (name + clips) in
+  `get_arrangement`, absent when none; `take_lane_index` on
+  create_arrangement_clip, the five clip-ref commands, and transform_clip —
+  it redirects `arrangement_clip_index` to count within that lane.
+- Unprobed: lane-clip list time-ordering with multiple clips per lane
+  (VERIFY comment stays in the mock); lane-clip DELETION has no route at all
+  (neither lane-scoped nor track-scoped) — a lane clip outlives the session
+  or dies with its track.
+
+**Device class-property tables** (`_CLASS_PROPS` in commands/devices.py) —
+the state that never appears in `device.parameters`:
+- Keyed by `Device.class_name`: Simpler IS `OriginalSimpler`, EQ Eight IS
+  `Eq8`, Drift IS `Drift` (all CONFIRMED).
+- Kinds: bool, int, enum (fixed labels from the LOM docs), and indexed —
+  Drift's `<name>_index` properties paired with runtime-read `<name>_list`
+  StringVectors, so its vocabularies always come from the running Live
+  (CONFIRMED real lists: voice modes Poly/Mono/Stereo/Unison; mod sources
+  Env 1/Env 2/LFO/Key/Vel/Mod/Press/Slide).
+- `get_devices` emits `class_properties` + gate-filtered `class_methods`
+  when it knows the class (absent otherwise); `set_device_parameters`
+  accepts the names transparently (label, bool, or int — validate-then-write
+  preserved) and runs sample ops via `invoke`
+  (reverse/crop/warp_as/warp_double/warp_half/guess_playback_length, each
+  gated by its `can_*` property where one exists). On a one-shot 808:
+  can_warp_as true, can_warp_double/half false; guess_playback_length
+  returned beats.
+- NEW Live fact (found by the checkpoint, encoded in the mock):
+  `Track.insert_device` REFUSES a second instrument per chain — "Device
+  chains cannot have more than one instrument each". Loading a sample/
+  instrument via load_item REPLACES instead (2.4 behaviour); insert_device
+  raises.
+- Adding a device to the table is data, not code: extend `_CLASS_PROPS`,
+  give the mock a class device, probe on real Live before claiming it.
+
 ## Library intelligence (2.6)
 
 Two server-only tools (`search_library`, `find_similar` in mcp_server/

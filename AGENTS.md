@@ -33,6 +33,29 @@ design rationale and Live API facts: [docs/architecture.md](docs/architecture.md
 - Native devices: `insert_device` by exact name, no browser round-trip.
 - First `load_item` in a fresh Live session can take up to 120 s (indexing).
 
+## Take lanes & deep device control (2.7, verified on real Live 12.4.3)
+
+- **Variations without timeline clutter:** `create_take_lane` (name it), then
+  `create_arrangement_clip`/`add_notes`/`transform_clip` with the SAME
+  `take_lane_index` + `arrangement_clip_index` — indices count within the
+  lane. Lanes and their clips show up in `get_arrangement`. **Lanes cannot be
+  deleted, ever** (no API) — reuse before creating, cap is 8 per track, and a
+  lane clip can't be deleted either (it dies with its track). The user
+  auditions/comps lanes in Live's UI; you write into them.
+- **Simpler, EQ Eight, Drift go deeper than their parameter lists:**
+  `get_devices` with a device_index reports `class_properties` (Simpler's
+  playback_mode/slicing modes/voices, EQ Eight's global_mode (Stereo|L/R|M/S)
+  and oversample, Drift's voice mode/count and full mod matrix with Live's
+  own choice labels) plus `class_methods`. Set them through
+  set_device_parameters by NAME with the label ("One-Shot", "M/S") or
+  true/false; run Simpler's sample ops via `invoke`:
+  `[{method: "reverse"}]`, `[{method: "warp_as", beats: 4}]` — warp methods
+  appear in class_methods only when their can_warp_* gate is true.
+- **One instrument per chain:** `insert_device` refuses a second instrument
+  on a track that already has one (Live's rule). To swap the sound, load the
+  new sample/instrument with load_item (it replaces in place) or delete the
+  old device first.
+
 ## Finding sounds (2.6, verified on real Live 12.4.3)
 
 - **Search before you browse.** `search_library` reads Live's own library

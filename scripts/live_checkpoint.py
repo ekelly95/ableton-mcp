@@ -252,8 +252,9 @@ def check_devices(client):
     assert devices, "expected the loaded instrument in the device list"
     detail = client.send("get_devices", track_index=state["track"], device_index=0)["device"]
     assert detail["parameters"], "device reported no parameters"
+    # Since 2.5, is_quantized is ABSENT when false (absent = default).
     target = next(
-        (p for p in detail["parameters"][1:] if not p["is_quantized"]),
+        (p for p in detail["parameters"][1:] if not p.get("is_quantized", False)),
         None,
     )
     if target is None:
@@ -471,7 +472,8 @@ def check_import_audio(client):
         file_path=wav_path,
         position=8.0,
     )
-    assert result["imported"]["is_audio_clip"] is True, result
+    # is_audio_clip is derivable and no longer emitted (2.5): audio = NOT midi.
+    assert result["imported"]["is_midi_clip"] is False, result
 
     session_result = client.send(
         "import_audio",
@@ -586,8 +588,9 @@ def check_param_metadata(client):
     assert device_on is not None, list(by_name)[:10]
     assert device_on["is_quantized"] is True, device_on
     assert len(device_on.get("value_items", [])) >= 2, device_on
-    assert device_on["automation_state"] in ("none", "active", "overridden"), device_on
-    assert isinstance(device_on["is_enabled"], bool), device_on
+    # Since 2.5 these are ABSENT at their defaults (none / true).
+    assert device_on.get("automation_state", "none") in ("none", "active", "overridden"), device_on
+    assert isinstance(device_on.get("is_enabled", True), bool), device_on
     return f"Device On value_items={device_on['value_items']}"
 
 
@@ -613,7 +616,9 @@ def check_meters(client):
     time.sleep(0.8)
     meters = client.send("get_track_meters")
     client.send("stop_clips", track_index=state["track"])
-    test_track = next(t for t in meters["tracks"] if t["name"] == "MCP Test")
+    # Match by INDEX, not name: a leftover 'MCP Test' track from an earlier
+    # checkpoint run shares the name and reads 0.0 (found the hard way).
+    test_track = next(t for t in meters["tracks"] if t["index"] == state["track"])
     master = meters["master_track"]
     assert test_track["output_meter_level"] > 0.0, test_track
     assert master["output_meter_level"] > 0.0, master
@@ -799,38 +804,40 @@ def check_eq8_class_props(client):
 
 @step("Drift indexed properties: runtime lists + label writes")
 def check_drift_class_props(client):
-    inserted = client.send("insert_device", track_index=state["track"], device_name="Drift")[
-        "inserted"
-    ]
-    idx = inserted["index"]
-    props = client.send("get_devices", track_index=state["track"], device_index=idx)["device"][
-        "class_properties"
-    ]
-    voice_modes = props["voice_mode"]["items"]
-    sources = props["mod_matrix_lfo_source"]["items"]
-    assert len(voice_modes) >= 2 and len(sources) >= 2, props
-    assert isinstance(props["pitch_bend_range"], int), props
+    # Drift needs its OWN track: the MCP Test track already holds the Simpler,
+    # and Live refuses a second instrument per chain (CONFIRMED on 12.4.3 —
+    # "Device chains cannot have more than one instrument each", first 2.7
+    # checkpoint run).
+    drift_track = client.send("create_track", type="midi")["track_index"]
+    try:
+        inserted = client.send("insert_device", track_index=drift_track, device_name="Drift")[
+            "inserted"
+        ]
+        idx = inserted["index"]
+        props = client.send("get_devices", track_index=drift_track, device_index=idx)["device"][
+            "class_properties"
+        ]
+        voice_modes = props["voice_mode"]["items"]
+        sources = props["mod_matrix_lfo_source"]["items"]
+        assert len(voice_modes) >= 2 and len(sources) >= 2, props
+        assert isinstance(props["pitch_bend_range"], int), props
 
-    # Write by label taken from Live's OWN list, then restore.
-    original = props["voice_mode"]["value"]
-    target = next(m for m in voice_modes if m != original)
-    client.send(
-        "set_device_parameters",
-        track_index=state["track"],
-        device_index=idx,
-        parameters=[{"parameter": "voice_mode", "value": target}],
-    )
-    readback = client.send("get_devices", track_index=state["track"], device_index=idx)["device"][
-        "class_properties"
-    ]["voice_mode"]["value"]
-    assert readback == target, (readback, target)
-    client.send(
-        "set_device_parameters",
-        track_index=state["track"],
-        device_index=idx,
-        parameters=[{"parameter": "voice_mode", "value": original}],
-    )
-    client.send("delete_device", track_index=state["track"], device_index=idx)
+        # Write by label taken from Live's OWN list; the track is deleted
+        # afterwards, so no restore write is needed.
+        original = props["voice_mode"]["value"]
+        target = next(m for m in voice_modes if m != original)
+        client.send(
+            "set_device_parameters",
+            track_index=drift_track,
+            device_index=idx,
+            parameters=[{"parameter": "voice_mode", "value": target}],
+        )
+        readback = client.send("get_devices", track_index=drift_track, device_index=idx)["device"][
+            "class_properties"
+        ]["voice_mode"]["value"]
+        assert readback == target, (readback, target)
+    finally:
+        client.send("delete_track", track_index=drift_track)
     # Echo the REAL vocabularies into the record for docs + mock backport.
     return f"voice_modes={voice_modes} mod_sources={sources[:8]}{'...' if len(sources) > 8 else ''}"
 
