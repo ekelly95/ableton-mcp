@@ -37,18 +37,27 @@ _MAX_TIME_SPAN = 1_000_000.0
 
 
 def _serialize_note(note: Any) -> dict[str, Any]:
-    return {
+    # Fields at Live's defaults are omitted (absent = default) — on real clips
+    # 4 of these fields are noise on nearly every note, and note payloads are
+    # the bridge's dominant recurring token cost. pitch_name stays: what Claude
+    # says must match what the user sees in Live's piano roll.
+    serialized = {
         "note_id": note.note_id,
         "pitch": note.pitch,
         "pitch_name": midi_to_pitch_name(note.pitch),
         "start_time": note.start_time,
         "duration": note.duration,
         "velocity": note.velocity,
-        "mute": note.mute,
-        "probability": note.probability,
-        "velocity_deviation": note.velocity_deviation,
-        "release_velocity": note.release_velocity,
     }
+    if note.mute:
+        serialized["mute"] = note.mute
+    if note.probability != 1.0:
+        serialized["probability"] = note.probability
+    if note.velocity_deviation != 0.0:
+        serialized["velocity_deviation"] = note.velocity_deviation
+    if note.release_velocity != 64.0:
+        serialized["release_velocity"] = note.release_velocity
+    return serialized
 
 
 def _fetch_all_notes(clip: Any):
@@ -351,12 +360,24 @@ def delete_scene(ctx, scene_index: int) -> dict[str, Any]:
             min_value=0,
             description="Defaults to the whole clip",
         ),
+        ParamSchema(
+            "format",
+            ParamType.STRING,
+            required=False,
+            default="json",
+            enum_values=["json", "compact"],
+            description=(
+                "'compact' returns one notation string instead of note objects — "
+                "far fewer tokens, but no note_ids; use 'json' before surgical edits"
+            ),
+        ),
     ],
     category="notes",
     read_only=True,
     description=(
         "Read MIDI notes from a clip. Every note has a stable note_id usable with "
-        "update_notes/remove_notes. Times are in beats."
+        "update_notes/remove_notes. Times are in beats. Fields at Live defaults "
+        "are omitted (absent = default)."
     ),
     output_schema={
         "type": "object",
@@ -377,6 +398,8 @@ def get_notes(
     pitch_span: int = 128,
     from_time: float = 0.0,
     time_span: float | None = None,
+    format: str = "json",  # rendering happens in the MCP server; accepted here
+    # so a drifted server forwarding it doesn't crash the command.
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
@@ -402,15 +425,30 @@ def get_notes(
         ParamSchema(
             "notes",
             ParamType.NOTE_LIST,
+            required=False,
             description=(
                 "Notes to add; times/durations in beats; pitch as MIDI number or "
                 "name like 'C3' (ABLETON convention: C3=60). Existing notes are kept."
             ),
         ),
+        ParamSchema(
+            "notation",
+            ParamType.STRING,
+            required=False,
+            description=(
+                "Compact alternative to notes — STRONGLY preferred (10-100x fewer "
+                "tokens). Stateful prefixes v100 (velocity, v90-110=range) n/16 "
+                "(duration, d=dotted t=triplet) p0.9 (probability); pitches C3 E3 "
+                "(C3=60); place at bar|beat 1|1 (beat=quarter-note); repeat "
+                "1|1x8@n/8; copy bars @2=1 @3-8=1-2; v0 deletes. Example: "
+                "'v100 n/16 C1 1|1 D1 1|3 F#1 1|1x16@n/16 @2-4=1'"
+            ),
+        ),
     ],
     category="notes",
     description=(
-        "Add MIDI notes to a session or arrangement clip in one batch. Pitches "
+        "Add MIDI notes to a session or arrangement clip in one batch, as either "
+        "a notes array or a notation string (exactly one of the two). Pitches "
         "accept names ('C3', 'F#4' — Ableton convention: C3=60). Supports "
         "per-note probability and velocity deviation (Live 11+)."
     ),
@@ -421,9 +459,17 @@ def add_notes(
     slot_index: int | None = None,
     arrangement_clip_index: int | None = None,
     notes: list[dict[str, Any]] | None = None,
+    notation: str | None = None,  # expanded to notes by the MCP server; accepted
+    # here only so a drifted server forwarding it doesn't crash the command.
 ) -> dict[str, Any]:
     import Live  # inside Live's runtime only; tests install a mock module
 
+    if not notes:
+        raise ValidationError(
+            "add_notes needs 'notes' (or 'notation', which the MCP server expands "
+            "into notes before the command reaches Live)",
+            param="notes",
+        )
     track = get_track(ctx.song, track_index)
     clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
 

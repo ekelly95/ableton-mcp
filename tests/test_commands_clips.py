@@ -178,7 +178,9 @@ class TestNotes:
         first = read["notes"][0]
         assert first["pitch"] == 60
         assert first["velocity"] == 100.0
-        assert first["probability"] == 1.0
+        # Fields at Live defaults are omitted (absent = default).
+        assert "probability" not in first
+        assert "mute" not in first
         assert isinstance(first["note_id"], int)
         third = read["notes"][2]
         assert third["probability"] == 0.75

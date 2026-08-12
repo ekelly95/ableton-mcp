@@ -31,6 +31,7 @@ from .client import (  # noqa: E402
     CommandError,
 )
 from .m4l import AUDIO_LEVELS_TOOL, TapClient, get_audio_levels  # noqa: E402
+from .notation import parse_notation, serialize_notation  # noqa: E402
 
 BRIDGE_STATUS_TOOL = types.Tool(
     name="get_bridge_status",
@@ -152,11 +153,41 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
         if name not in REGISTRY:
             raise ValueError(f"Unknown tool: {name}")
 
+        def _signature() -> tuple[int, int]:
+            transport = ableton.send("get_transport_state")
+            return (
+                int(transport.get("signature_numerator", 4)),
+                int(transport.get("signature_denominator", 4)),
+            )
+
         def _dispatch() -> Any:
             if not drift.done:
                 drift.check(ableton.ping())
+            args = dict(arguments)
+
+            # Notation is a server-side dialect: Live only ever sees note dicts.
+            if name == "add_notes" and args.get("notation"):
+                if args.get("notes"):
+                    raise ValueError("Pass either 'notes' or 'notation', not both")
+                num, den = _signature()
+                notes, warnings = parse_notation(args.pop("notation"), num, den)
+                if not notes:
+                    raise ValueError("Notation produced no notes: " + "; ".join(warnings))
+                args["notes"] = notes
+                result = ableton.send_resolving_seek(name, **args)
+                if warnings and isinstance(result, dict):
+                    result["notation_warnings"] = warnings
+                return result
+
+            if name == "get_notes" and args.pop("format", "json") == "compact":
+                result = ableton.send_resolving_seek(name, **args)
+                if isinstance(result, dict) and "notes" in result:
+                    num, den = _signature()
+                    result["notation"] = serialize_notation(result.pop("notes"), num, den)
+                return result
+
             # Resolves two-phase seeks so the model sees a single tool call.
-            return ableton.send_resolving_seek(name, **arguments)
+            return ableton.send_resolving_seek(name, **args)
 
         try:
             result = await anyio.to_thread.run_sync(_dispatch)
