@@ -1,10 +1,21 @@
 # ableton-mcp
 
+[![Tests](https://github.com/ekelly95/ableton-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/ekelly95/ableton-mcp/actions/workflows/tests.yml)
+
 AI agents control Ableton Live. You describe what you want — a drum groove, a
 chord progression, a filter sweep, a song arrangement — and your AI assistant
 builds it in your Live session while you watch. Works with any MCP client:
 Claude Desktop, Claude Code, Codex, or anything else that speaks the Model
 Context Protocol over stdio.
+
+What sets this bridge apart from the other Ableton MCP projects (see
+[Alternatives](#alternatives)): the agent can **read back the MIDI it wrote**
+(stable note IDs, surgical edits), **draw and read real automation envelopes**,
+**load third-party VST/VST3 plug-ins**, and — uniquely — **hear the result**
+(per-track meters, plus optional calibrated loudness/spectrum metering). It
+runs on **any Live edition with no Max for Live required**, and it's MIT
+licensed. Trade-offs, stated plainly: Windows-only for now, one MCP client at
+a time, and installation is git-clone rather than one-click.
 
 **Status: experimental, Windows-only for now** (macOS support is roadmap: the
 Live-side script already supports Unix sockets, but the client and installer
@@ -122,6 +133,37 @@ encoding real-Live behaviour verified on 12.4.3 with provenance comments.
 `scripts/live_checkpoint.py` re-verifies the full surface against a running
 Live and leaves an audible "MCP Test" track behind. Generated samples go in
 `samples/` (override with `ABLETON_MCP_SAMPLES_DIR`).
+
+## Alternatives
+
+Three other projects connect AI agents to Ableton Live, each with a different
+center of gravity — credit to all of them for mapping this space:
+
+- **[producer-pal](https://github.com/adamjmurray/producer-pal)** — the most
+  polished of the field: a compact bar|beat music notation, a note-transform
+  language, take lanes, deep APIs for ten native devices, excellent docs and
+  one-click install. It runs entirely inside a Max for Live device, so it
+  needs Live 12.3+ *with* Max for Live (Suite or the paid add-on), and it's
+  GPL-3.0. By its own docs it has no automation/clip-envelope support, can't
+  instantiate third-party plug-ins, and has no audio metering — the three
+  areas this bridge focuses on.
+- **[ahujasid/ableton-mcp](https://github.com/ahujasid/ableton-mcp)** — the
+  original and by far the most popular. A simple ~22-tool surface with an easy
+  uvx install; a good first taste of the idea.
+- **[uisato/ableton-mcp-extended](https://github.com/uisato/ableton-mcp-extended)** —
+  same remote-script architecture as this project, adds rack/drum-pad
+  introspection and a bundled ElevenLabs server. MIDI is write-only (no
+  reading notes back) and automation support is limited.
+
+If you need macOS today, use one of those. If you want an agent that can
+revise what it wrote, automate parameters, load your plug-ins, and check its
+own mix — that's this project's lane.
+
+## Support expectations
+
+Shared as-is: this is a personal tool I use for my own music. Issues and PRs
+are welcome and I read them, but there's no promised response time and no
+roadmap commitment. Fork freely — it's MIT.
 
 ## License
 
