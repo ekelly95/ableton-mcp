@@ -70,6 +70,15 @@ class TestEndToEnd:
             assert "get_session_overview" in names
             assert "add_notes" in names
 
+    async def test_optional_capability_probes_answer_instead_of_erroring(self):
+        """Codex asks every server for resources, resource templates and prompts
+        at startup and reads a -32601 refusal as the server failing to start, so
+        these three must answer even though the server has none of them."""
+        async with await self._session(FakeAbletonClient()) as session:
+            assert (await session.list_resources()).resources == []
+            assert (await session.list_resource_templates()).resourceTemplates == []
+            assert (await session.list_prompts()).prompts == []
+
     async def test_call_tool_structured_and_text(self):
         fake = FakeAbletonClient()
         async with await self._session(fake) as session:

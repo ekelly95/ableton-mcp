@@ -86,8 +86,19 @@ Register with your MCP client — e.g. Claude Desktop
 }
 ```
 
+Or Codex (`~/.codex/config.toml`) — single-quoted so Windows backslashes are
+taken literally, and pointing at the real `.exe` rather than a shim, which is
+what Codex's Windows process launcher wants:
+
+```toml
+[mcp_servers.ableton]
+command = 'C:\path\to\ableton-mcp\.venv\Scripts\ableton-mcp.exe'
+startup_timeout_sec = 30
+```
+
 Run only ONE MCP client against it at a time (the bridge serves one client,
-serially, on purpose).
+serially, on purpose). `scripts/toggle_desktop_client.py on|off` flips Claude
+Desktop's registration so switching between Desktop and Codex is one command.
 
 ## Health check
 

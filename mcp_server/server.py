@@ -152,4 +152,21 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
             return result
         return {"result": result}
 
+    # This server has no resources or prompts, and initialize says so. Codex
+    # probes for them anyway and treats the correct -32601 "no such method"
+    # reply as the server failing to start (openai/codex#37468, still open in
+    # 0.147.0). Empty handlers cost nothing and keep it quiet. Do not delete
+    # these as dead code.
+    @server.list_resources()
+    async def list_resources() -> list[types.Resource]:
+        return []
+
+    @server.list_resource_templates()
+    async def list_resource_templates() -> list[types.ResourceTemplate]:
+        return []
+
+    @server.list_prompts()
+    async def list_prompts() -> list[types.Prompt]:
+        return []
+
     return server
