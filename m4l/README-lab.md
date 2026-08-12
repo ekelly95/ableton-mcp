@@ -12,6 +12,18 @@ Requires Live Suite or Standard+M4L (the trial is Suite). The core bridge
 never depends on this — it is an OPTIONAL extra by design (get_track_meters
 gives coarse core-API metering without it).
 
+## Prebuilt device (skip the build)
+
+`AbletonMCP Tap.amxd` in this folder is the finished v2 device — no Max
+editing needed. Copy **BOTH** it and `tap_server.js` into the same folder in
+your User Library (e.g. `User Library/Presets/Audio Effects/Max Audio
+Effect/`), then drag the device onto the Main track. The pairing matters:
+the device is not self-contained — its node.script brain is `tap_server.js`,
+and Max resolves it from the device's folder. With the .js missing the
+device loads, reports itself active, and serves nothing ("can't find file
+tap_server.js" in Live's Log.txt is the tell). Verified working on Windows
+and macOS (checkpoint 5/5 on both).
+
 ## Upgrading from v1
 
 The v2 patch changed the measurement protocol (stereo power messages instead

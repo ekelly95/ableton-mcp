@@ -26,7 +26,7 @@ required.
 
 ## What the AI can do with it
 
-44 tools: read the whole session at a glance; create/rename/mix tracks;
+46 tools: read the whole session at a glance; create/rename/mix tracks;
 create, duplicate, launch and edit clips; write MIDI notes by name ("C3",
 "F#4" — Ableton convention, C3=60) with per-note chance and velocity spread;
 edit single notes precisely by ID without rewriting the clip; **draw
@@ -71,13 +71,13 @@ verified Live API facts.
 
 ## Setup
 
-Requirements: Windows or macOS (macOS not yet hardware-verified — see Status),
+Requirements: Windows or macOS (both hardware-verified — see Status),
 Python 3.11+, [uv](https://docs.astral.sh/uv/), Ableton Live 11.1+ (12.x
 verified; `insert_device` needs Live 12.3+ — every other tool works on the
 older versions).
 
 ```bash
-git clone <this-repo> && cd ableton-mcp
+git clone https://github.com/ekelly95/ableton-mcp.git && cd ableton-mcp
 uv venv
 uv pip install -e ".[dev]"
 .venv/Scripts/python.exe scripts/install_control_surface.py
