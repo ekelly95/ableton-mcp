@@ -35,7 +35,8 @@ from __future__ import annotations
 import math
 import random
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from control_surface.utils.pitch import pitch_to_midi, root_name_to_pitch_class
 
@@ -539,7 +540,7 @@ def _grid_ratchet(note: dict[str, Any], grid: float) -> list[dict[str, Any]]:
         return [note]
     pieces = []
     edges = [start] + cuts + [end]
-    for a, b in zip(edges, edges[1:]):
+    for a, b in zip(edges, edges[1:], strict=False):
         piece = {k: v for k, v in note.items() if k != "note_id"}
         piece["start_time"], piece["duration"] = a, b - a
         pieces.append(piece)

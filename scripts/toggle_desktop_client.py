@@ -23,15 +23,21 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SERVER_NAME = "ableton"
-CONFIG = (
-    Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    / "Claude"
-    / "claude_desktop_config.json"
-)
-ENTRY = {
-    "command": str(REPO_ROOT / ".venv" / "Scripts" / "ableton-mcp.exe"),
-    "args": [],
-}
+if sys.platform == "darwin":
+    CONFIG = (
+        Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    )
+    ENTRY = {"command": str(REPO_ROOT / ".venv" / "bin" / "ableton-mcp"), "args": []}
+else:
+    CONFIG = (
+        Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+        / "Claude"
+        / "claude_desktop_config.json"
+    )
+    ENTRY = {
+        "command": str(REPO_ROOT / ".venv" / "Scripts" / "ableton-mcp.exe"),
+        "args": [],
+    }
 
 
 def load() -> dict:

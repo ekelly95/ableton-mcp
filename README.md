@@ -14,18 +14,21 @@ What sets this bridge apart from the other Ableton MCP projects (see
 **load third-party VST/VST3 plug-ins**, and — uniquely — **hear the result**
 (per-track meters, plus optional calibrated loudness/spectrum metering). It
 runs on **any Live edition with no Max for Live required**, and it's MIT
-licensed. Trade-offs, stated plainly: Windows-only for now, one MCP client at
-a time, and installation is git-clone rather than one-click.
+licensed. Trade-offs, stated plainly: Windows-verified with macOS awaiting its
+first real-hardware confirmation, one MCP client at a time, and installation
+is git-clone rather than one-click.
 
-**Status: experimental, Windows-only for now** (macOS support is roadmap: the
-Live-side script already supports Unix sockets, but the client and installer
-don't yet). Verified end-to-end against Ableton Live 12.4.3 on Windows 11.
-Works with **any Live edition** — Intro, Standard, or Suite; no Max for Live
-required.
+**Status: experimental.** Verified end-to-end against Ableton Live 12.4.3 on
+Windows 11. **macOS: implemented, not yet hardware-verified** — the full test
+suite, including the Unix-socket transport the Mac build uses, is green on
+macOS CI, but no real Mac + Live has run the final handshake. If you try it
+on a Mac: `scripts/smoke_test.py`, then `scripts/live_checkpoint.py`, is the
+30-minute confirmation path — a report either way is welcome. Works with
+**any Live edition** — Intro, Standard, or Suite; no Max for Live required.
 
 ## What the AI can do with it
 
-42 tools: read the whole session at a glance; create/rename/mix tracks;
+44 tools: read the whole session at a glance; create/rename/mix tracks;
 create, duplicate, launch and edit clips; write MIDI notes by name ("C3",
 "F#4" — Ableton convention, C3=60) with per-note chance and velocity spread;
 edit single notes precisely by ID without rewriting the clip; **draw
@@ -38,6 +41,9 @@ the session or onto the timeline (the landing pad for sample generation —
 generators just write a file and call import_audio); browse Live's library
 and load instruments/effects — including third-party VST/AU plug-ins and the
 presets Live indexes for them (2.4) — or insert native devices directly by name;
+search Live's own library database offline — samples, presets, MIDI, grooves,
+plug-ins by name/tag/kind, ranked by how often you use them — and rank sounds
+by **sonic similarity** to a reference using Live's own audio analysis (2.6);
 turn any device knob with its human-readable choices visible; read every
 track's output meters (core API — is it making sound, how loud?); control
 tempo, loop, metronome, playback and (via its own guarded tool) arrangement
@@ -67,9 +73,10 @@ verified Live API facts.
 
 ## Setup
 
-Requirements: Windows, Python 3.11+, [uv](https://docs.astral.sh/uv/),
-Ableton Live 11.1+ (12.x verified; `insert_device` needs Live 12.3+ — every
-other tool works on the older versions).
+Requirements: Windows or macOS (macOS not yet hardware-verified — see Status),
+Python 3.11+, [uv](https://docs.astral.sh/uv/), Ableton Live 11.1+ (12.x
+verified; `insert_device` needs Live 12.3+ — every other tool works on the
+older versions).
 
 ```bash
 git clone <this-repo> && cd ableton-mcp
@@ -77,6 +84,9 @@ uv venv
 uv pip install -e ".[dev]"
 .venv/Scripts/python.exe scripts/install_control_surface.py
 ```
+
+On macOS, the venv paths are `.venv/bin/python` and `.venv/bin/ableton-mcp`
+wherever this README says `.venv/Scripts/...exe`.
 
 Then, one-time, in Ableton Live: **Options → Preferences → Link, Tempo &
 MIDI**, set a free Control Surface dropdown to **AbletonMCP** (Input/Output:
@@ -155,7 +165,8 @@ center of gravity — credit to all of them for mapping this space:
   introspection and a bundled ElevenLabs server. MIDI is write-only (no
   reading notes back) and automation support is limited.
 
-If you need macOS today, use one of those. If you want an agent that can
+If you need a field-proven macOS setup today, use one of those (this bridge's
+macOS build awaits its first real-hardware report). If you want an agent that can
 revise what it wrote, automate parameters, load your plug-ins, and check its
 own mix — that's this project's lane.
 

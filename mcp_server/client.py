@@ -19,8 +19,10 @@ from control_surface.config import (
     COMMAND_TIMEOUTS,
     HEADER_SIZE,
     MAX_MESSAGE_SIZE,
+    SOCKET_PATH,
     TCP_HOST,
     TCP_PORT,
+    USE_TCP,
 )
 
 # Answered by the socket server without touching Live state.
@@ -91,25 +93,48 @@ class AbletonClient:
         host: str = TCP_HOST,
         port: int = TCP_PORT,
         timeout: float = DEFAULT_TIMEOUT,
+        socket_path: str = SOCKET_PATH,
+        use_tcp: bool = USE_TCP,
     ):
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.socket_path = socket_path
+        self.use_tcp = use_tcp
         self._socket: socket.socket | None = None
         self._lock = threading.Lock()
 
     # -- connection management -------------------------------------------------
 
+    def _endpoint(self) -> str:
+        return f"{self.host}:{self.port}" if self.use_tcp else self.socket_path
+
     def _connect(self) -> None:
+        # Mirrors the control surface's _create_socket branch: TCP on Windows,
+        # Unix socket elsewhere (config.USE_TCP decides; both are overridable
+        # so tests can exercise either transport on any platform).
         try:
-            sock = socket.create_connection((self.host, self.port), timeout=CONNECT_TIMEOUT)
+            if self.use_tcp:
+                sock = socket.create_connection((self.host, self.port), timeout=CONNECT_TIMEOUT)
+            else:
+                if not hasattr(socket, "AF_UNIX"):
+                    raise AbletonConnectionError(
+                        "Unix sockets are unavailable on this platform; use use_tcp=True"
+                    )
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                try:
+                    sock.settimeout(CONNECT_TIMEOUT)
+                    sock.connect(self.socket_path)
+                except OSError:
+                    sock.close()
+                    raise
         except OSError as e:
             raise AbletonConnectionError(
-                f"Cannot connect to {self.host}:{self.port}. {NOT_RUNNING_HINT} ({e})"
+                f"Cannot connect to {self._endpoint()}. {NOT_RUNNING_HINT} ({e})"
             ) from e
         sock.settimeout(self.timeout)
         self._socket = sock
-        logger.info(f"Connected to control surface at {self.host}:{self.port}")
+        logger.info(f"Connected to control surface at {self._endpoint()}")
 
     def _disconnect(self) -> None:
         if self._socket is not None:

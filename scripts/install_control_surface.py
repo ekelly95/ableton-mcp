@@ -2,9 +2,11 @@
 
 Copies the control_surface package to a Remote Scripts location as "AbletonMCP".
 Probes, in order of preference:
-  1. User Library Remote Scripts (survives Live upgrades, no admin rights),
-     including the OneDrive-redirected Documents variant common on Windows 11.
-  2. Each installed Live's own MIDI Remote Scripts folder under ProgramData.
+  1. User Library Remote Scripts (survives Live upgrades, no admin rights).
+     Windows: including the OneDrive-redirected Documents variant common on
+     Windows 11. macOS: ~/Music/Ableton/User Library.
+  2. Each installed Live's own MIDI Remote Scripts folder — under ProgramData
+     on Windows, inside the app bundle on macOS.
 
 Run:  python scripts/install_control_surface.py
 """
@@ -19,10 +21,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE = REPO_ROOT / "control_surface"
 TARGET_NAME = "AbletonMCP"
 PROGRAMDATA_ABLETON = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "Ableton"
+MACOS_APPLICATIONS = Path("/Applications")
 
 
-def candidate_user_libraries() -> list[Path]:
+def candidate_user_libraries(platform: str = sys.platform) -> list[Path]:
     home = Path.home()
+    if platform == "darwin":
+        return [home / "Music" / "Ableton" / "User Library"]
     return [
         home / "Documents" / "Ableton" / "User Library",
         home / "OneDrive" / "Documents" / "Ableton" / "User Library",
@@ -40,6 +45,19 @@ def candidate_programdata_script_dirs() -> list[Path]:
     return dirs
 
 
+def candidate_macos_app_script_dirs(applications: Path = MACOS_APPLICATIONS) -> list[Path]:
+    # macOS installs are self-contained app bundles named per version
+    # ("Ableton Live 12 Suite.app") — glob rather than hard-code editions.
+    if not applications.exists():
+        return []
+    dirs = []
+    for bundle in sorted(applications.glob("Ableton Live*.app")):
+        scripts = bundle / "Contents" / "App-Resources" / "MIDI Remote Scripts"
+        if scripts.is_dir():
+            dirs.append(scripts)
+    return dirs
+
+
 def pick_target() -> Path:
     probed: list[str] = []
 
@@ -50,11 +68,17 @@ def pick_target() -> Path:
             target_root.mkdir(exist_ok=True)
             return target_root
 
-    programdata = candidate_programdata_script_dirs()
-    if programdata:
-        return programdata[-1]  # newest install wins (sorted)
+    if sys.platform == "darwin":
+        app_dirs = candidate_macos_app_script_dirs()
+        if app_dirs:
+            return app_dirs[-1]  # newest install wins (sorted by bundle name)
+        probed.append(str(MACOS_APPLICATIONS / "Ableton Live*.app" / "Contents" / "App-Resources"))
+    else:
+        programdata = candidate_programdata_script_dirs()
+        if programdata:
+            return programdata[-1]  # newest install wins (sorted)
+        probed.append(str(PROGRAMDATA_ABLETON / "*" / "Resources" / "MIDI Remote Scripts"))
 
-    probed.append(str(PROGRAMDATA_ABLETON / "*" / "Resources" / "MIDI Remote Scripts"))
     print("Could not find an install location. Probed:")
     for p in probed:
         print(f"  - {p}")
