@@ -182,21 +182,26 @@ Two tiers, deliberately separate:
   (Track.insert_device, Live 12.3+) without touching the browser or the
   selected track; plug-ins/M4L/presets still go through browse + load_item.
 
-## Plug-in browser root (2.4 — real-Live probe pending)
+## Plug-in browser root (2.4 — probed on real Live 12.4.3, 2026-08-12)
 
 - `browse`/`load_item` reach third-party plug-ins via the `plugins` root (LOM
   `Browser.plugins`), closing the gap where insert_device's own error text
   pointed at a route that didn't exist. History: the missing root sent two
   different agents (Claude and Codex, Aug 2026) to the identical LiveAPIError;
   Codex worked around it with desktop screen automation, which ekelly95 vetoed.
-- Plugin items are loadable AND carry children (the presets Live indexes for
-  them) — `is_folder` alone does not decide walkability; the mock encodes this
-  shape.
-- Boundary that stays: libraries rendered inside a plugin's own window
-  (Omnisphere's STEAM browser, Purity's bank picker) are invisible to Live's
-  browser and therefore to the bridge. Patch choice there remains manual
-  unless Live indexes the preset format. Per-plugin truth (Omnisphere VST3,
-  Purity VST2) to be recorded here after the 2.4.0 real-Live checkpoint.
+- CONFIRMED tree shape: `plugins` → format folder (`VST`, `VST3`) → vendor
+  folder → loadable plugin item. Both installed plug-ins load via `load_item`:
+  `['plugins','VST','SonicCat','Purity_x64']` (VST2) and
+  `['plugins','VST3','Spectrasonics','Omnisphere']`. Loading onto a fresh MIDI
+  track auto-renames it after the plugin.
+- Plugin items CAN carry children (presets Live indexes for them) — the mock
+  encodes that loadable-with-children shape. CONFIRMED for the two installed
+  plug-ins: children are EMPTY — Omnisphere's STEAM library and Purity's bank
+  picker live inside the plugin UI and are invisible to Live's browser. Patch
+  choice there remains a human step.
+- CONFIRMED: a freshly loaded PluginDevice exposes `parameter_count: 1`
+  ("Device On") until the user hand-clicks Configure in Live — so parameter
+  writes are not a patch-selection route either.
 
 ## Arrangement view (2.1)
 
