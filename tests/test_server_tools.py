@@ -24,7 +24,14 @@ class TestToolGeneration:
     def test_bridge_status_included(self):
         tool_names = [t.name for t in registry_tools()]
         assert "get_bridge_status" in tool_names
-        assert len(tool_names) == len(REGISTRY) + 3  # bridge_status, audio_levels, transform_clip
+        # bridge_status, audio_levels, transform_clip, search_library, find_similar
+        assert len(tool_names) == len(REGISTRY) + 5
+
+    def test_library_tools_are_read_only(self):
+        tools = {t.name: t for t in registry_tools()}
+        for name in ("search_library", "find_similar"):
+            assert tools[name].annotations.readOnlyHint is True
+            assert tools[name].annotations.destructiveHint is False
 
     def test_wire_specials_are_not_tools(self):
         tool_names = {t.name for t in registry_tools()}

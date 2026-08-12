@@ -33,6 +33,26 @@ design rationale and Live API facts: [docs/architecture.md](docs/architecture.md
 - Native devices: `insert_device` by exact name, no browser round-trip.
 - First `load_item` in a fresh Live session can take up to 120 s (indexing).
 
+## Finding sounds (2.6, verified on real Live 12.4.3)
+
+- **Search before you browse.** `search_library` reads Live's own library
+  database directly (works even with Live closed): samples, presets/racks,
+  MIDI files, grooves, Sets, plug-ins — by name substring, Live tags
+  (comma-separated, all must match; mine the `tags` field of results for the
+  vocabulary), kind, and source, sorted by how often the user actually used
+  each item. `find_similar` ranks by sonic similarity to a reference sound
+  using Live's own audio analysis — "more 808s like this one".
+- **Loading a hit:** when a result carries `browser_path_guess`, pass it
+  straight to `load_item` (verified: user-library sample → Simpler on the
+  target track). Samples always also work via `import_audio` with the
+  result's absolute `path` (forward slashes are fine). Core Library hits
+  carry no browser path (Live's browser arranges them by category, not disk
+  layout) — for those, search gave you the exact NAME, so load native
+  presets via `insert_device`/browse by name, or ask the user.
+- A `staleness` field on results means Live has database writes not yet
+  visible to the search — very recent additions may be missing; everything
+  else is current.
+
 ## Token economy (2.5) — how to not burn the user's usage
 
 - **Write notes as notation, not JSON.** `add_notes` takes a `notation` string:

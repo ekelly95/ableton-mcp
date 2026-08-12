@@ -2,8 +2,10 @@
 
 Tools are generated from control_surface's REGISTRY — imported directly, the
 single source of truth. Nothing here defines a tool schema by hand except the
-two tools that cannot run inside Live: get_bridge_status (reports whether Live
-is reachable) and get_audio_levels (mcp_server/m4l.py, the optional tap).
+tools that cannot or need not run inside Live: get_bridge_status (reports
+whether Live is reachable), get_audio_levels (mcp_server/m4l.py, the optional
+tap), transform_clip (server-side composite), and search_library/find_similar
+(mcp_server/library.py — read Live's database files, never Live itself).
 
 All logging goes to stderr: stdout belongs to the MCP stdio transport.
 """
@@ -30,6 +32,8 @@ from .client import (  # noqa: E402
     AbletonConnectionError,
     CommandError,
 )
+from .library import find_similar as _find_similar  # noqa: E402
+from .library import search_library as _search_library  # noqa: E402
 from .m4l import AUDIO_LEVELS_TOOL, TapClient, get_audio_levels  # noqa: E402
 from .notation import parse_notation, serialize_notation  # noqa: E402
 from .transforms import apply_transforms  # noqa: E402
@@ -88,6 +92,96 @@ TRANSFORM_CLIP_TOOL = types.Tool(
     },
     annotations=types.ToolAnnotations(readOnlyHint=False, destructiveHint=True),
 )
+
+SEARCH_LIBRARY_TOOL = types.Tool(
+    name="search_library",
+    description=(
+        "Search Live's own library database (works even while Live is closed): "
+        "samples, presets/racks, clips, MIDI files, grooves, Sets, plug-ins. "
+        "Filter by name substring, Live tags, kind, source; sorted by how often "
+        "each item has been used. Give at least one filter. To load a hit: "
+        "browse/load_item with its browser_path_guess when present; for samples "
+        "import_audio with its absolute path always works. Results reflect "
+        "Live's last database snapshot (a staleness field says when that lags)."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Case-insensitive substring of the item name, e.g. '808'",
+            },
+            "tags": {
+                "type": "string",
+                "description": (
+                    "Comma-separated Live tags that must ALL match, e.g. "
+                    "'Kick,Punchy'. Hits list their tags — mine those for the "
+                    "vocabulary."
+                ),
+            },
+            "kind": {
+                "type": "string",
+                "enum": ["sample", "preset", "clip", "midi", "set", "groove", "plugin", "any"],
+                "description": "preset covers .adv/.adg/.amxd; default any",
+            },
+            "source": {
+                "type": "string",
+                "enum": [
+                    "user_library",
+                    "core_library",
+                    "builtin",
+                    "current_project",
+                    "cloud",
+                    "any",
+                ],
+            },
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+        },
+        "additionalProperties": False,
+    },
+    annotations=types.ToolAnnotations(readOnlyHint=True, destructiveHint=False),
+    outputSchema={
+        "type": "object",
+        "properties": {
+            "matches": {"type": "array", "items": {"type": "object"}},
+            "truncated": {"type": "boolean"},
+            "staleness": {"type": "string"},
+        },
+        "required": ["matches"],
+    },
+)
+
+FIND_SIMILAR_TOOL = types.Tool(
+    name="find_similar",
+    description=(
+        "Rank library files by sonic similarity to a reference, using Live's "
+        "own per-file audio analysis (64-dim feature vectors — 'more sounds "
+        "like this 808'). Reference: exactly one of path (absolute) or query "
+        "(name substring; best-used match wins). Only files Live has analyzed "
+        "appear. Load hits like search_library hits."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Absolute path of the reference file"},
+            "query": {"type": "string", "description": "Name substring of the reference"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+        },
+        "additionalProperties": False,
+    },
+    annotations=types.ToolAnnotations(readOnlyHint=True, destructiveHint=False),
+    outputSchema={
+        "type": "object",
+        "properties": {
+            "reference": {"type": "object"},
+            "matches": {"type": "array", "items": {"type": "object"}},
+            "note": {"type": "string"},
+            "staleness": {"type": "string"},
+        },
+        "required": ["reference", "matches"],
+    },
+)
+
 
 # Fields transform statements may change; the write-back diff compares these.
 _TRANSFORM_FIELDS = (
@@ -175,6 +269,10 @@ def registry_tools() -> list[types.Tool]:
     tools.append(BRIDGE_STATUS_TOOL)
     tools.append(AUDIO_LEVELS_TOOL)  # always listed; answers available:false without the tap
     tools.append(TRANSFORM_CLIP_TOOL)  # server-side composite: outside the registry hash
+    # Library intelligence reads Live's database files, never Live itself —
+    # also outside the registry hash.
+    tools.append(SEARCH_LIBRARY_TOOL)
+    tools.append(FIND_SIMILAR_TOOL)
     return tools
 
 
@@ -266,6 +364,14 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
                 raise RuntimeError(f"Ableton is not reachable: {e}") from e
             except CommandError as e:
                 raise RuntimeError(f"Ableton rejected the command: {e}") from e
+
+        # Library tools read the database files directly — no Live, no
+        # connection errors to translate; sqlite is blocking I/O, so thread it.
+        if name == "search_library":
+            return _tool_result(await anyio.to_thread.run_sync(_search_library, arguments))
+
+        if name == "find_similar":
+            return _tool_result(await anyio.to_thread.run_sync(_find_similar, arguments))
 
         if name not in REGISTRY:
             raise ValueError(f"Unknown tool: {name}")
