@@ -160,7 +160,7 @@ def load_item(
 
     if track_index is not None or track_type != "track":
         # Selecting the master/return track is how a load reaches it —
-        # VERIFY at checkpoint (selection of non-regular tracks).
+        # CONFIRMED at checkpoint (master-selection step).
         song.view.selected_track = resolve_track(song, track_type, track_index)
 
     browser.load_item(node)

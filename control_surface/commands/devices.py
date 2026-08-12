@@ -31,9 +31,9 @@ TRACK_TYPE_PARAM = ParamSchema(
 )
 
 # --- Class-level property tables (2.7) ---------------------------------------
-# Data from the Live 12.3.5 LOM docs (docs.cycling74.com/apiref/lom/); every
-# entry is VERIFY until the 2.7 checkpoint confirms it on real Live, including
-# the class_name keys themselves (Simpler is believed "OriginalSimpler").
+# Data from the Live 12.3.5 LOM docs (docs.cycling74.com/apiref/lom/);
+# CONFIRMED on real Live 12.4.3 by the 2.7 checkpoint (re-covered at 2.8),
+# including the class_name keys (Simpler really is "OriginalSimpler").
 #
 # Property kinds:
 #   "bool"     LOM bool property, exposed as true/false
@@ -516,9 +516,9 @@ def insert_device(
     target = before if device_index is None else max(0, min(device_index, before))
     try:
         # Track.insert_device, Live 12.3+ (LOM). Always pass an explicit index
-        # so the landing position is deterministic. VERIFY at checkpoint:
-        # unknown-name behaviour (assumed to raise) and return value (assumed
-        # None; we re-scan the chain).
+        # so the landing position is deterministic. CONFIRMED at checkpoint
+        # (insert_device step): unknown names raise. The return value is not
+        # relied on — we re-scan the chain.
         track.insert_device(device_name, target)
     except Exception as e:
         raise LiveAPIError(

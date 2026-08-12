@@ -29,7 +29,7 @@ logger = logging.getLogger("ableton-mcp.m4l")
 
 UNAVAILABLE_HINT = (
     "Audio tap not detected. Drop the 'AbletonMCP Tap' Max Audio Effect on the "
-    "Master track (requires Live Suite or Max for Live) — build steps in "
+    "Main track (requires Live Suite or Max for Live) — build steps in "
     "m4l/README-lab.md. Then ensure the device is powered on and Live's audio "
     "engine is running."
 )

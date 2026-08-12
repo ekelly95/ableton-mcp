@@ -40,8 +40,8 @@ class _LivePrintHandler(logging.Handler):
 
     stderr on purpose: this module is also imported by the MCP server process
     (registry import chain), where any stdout write corrupts the MCP stdio
-    transport. Inside Live, stderr reaches Log.txt like stdout does (VERIFY at
-    P4 checkpoint; the rotating file log is the primary channel regardless).
+    transport. Inside Live, stderr reaches Log.txt like stdout does (CONFIRMED
+    at checkpoint; the rotating file log is the primary channel regardless).
     """
 
     def emit(self, record: logging.LogRecord) -> None:

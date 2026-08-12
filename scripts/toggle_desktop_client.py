@@ -72,7 +72,7 @@ def main() -> None:
             print(f"{SERVER_NAME} is already registered in Claude Desktop. Nothing to do.")
             return
         if not Path(ENTRY["command"]).exists():
-            sys.exit(f'{ENTRY["command"]} is missing — run `uv pip install -e ".[dev]"` first.')
+            sys.exit(f"{ENTRY['command']} is missing — run `uv pip install -e .` first.")
         servers[SERVER_NAME] = ENTRY
         save(config)
         print(f"Registered {SERVER_NAME} in Claude Desktop.")

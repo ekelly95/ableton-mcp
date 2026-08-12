@@ -209,9 +209,9 @@ def set_transport(
     # leaves every other field untouched.
     if scale_name is not None:
         song.scale_name = scale_name
-        # VERIFY at checkpoint (invalid-scale step): assumed Live silently
-        # keeps the old scale on unknown names; the read-back turns that into
-        # a typed error instead of pretending.
+        # CONFIRMED at checkpoint (invalid-scale step): Live silently keeps
+        # the old scale on unknown names; the read-back turns that into a
+        # typed error instead of pretending.
         if song.scale_name != scale_name:
             raise LiveAPIError(
                 f"Live rejected scale name '{scale_name}' (kept '{song.scale_name}'). "

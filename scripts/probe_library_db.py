@@ -1,13 +1,15 @@
-"""Probe Live's library SQLite databases before mcp_server/library.py exists.
+"""Probe Live's library SQLite databases: the measurement oracle library.py trusts.
 
 Read-only, stdlib-only. Run with Live open AND closed if possible — the
 mode=ro&immutable=1 safety claim only means something while Live holds the DB.
+Deliberately independent of mcp_server/library.py (shares no helpers with it),
+so it can re-verify that module's assumptions after a Live upgrade.
 
 Run:  python scripts/probe_library_db.py [--db-dir PATH] [--ref-query 808]
 
 Every fact mcp_server/library.py relies on must appear in this output first
-(roadmap ground rule 5: measure, don't assume). Sections are independent —
-a failure prints and the next section still runs.
+(roadmap constraint: verify before documenting support). Sections are
+independent — a failure prints and the next section still runs.
 """
 
 import argparse

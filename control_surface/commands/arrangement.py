@@ -75,7 +75,7 @@ def _track_arrangement(track_index: int, track: Any) -> dict[str, Any]:
         "truncated": truncated,
     }
     # Take lanes: absent when the track has none (absent = default). LOM:
-    # Track.take_lanes excludes the main lane (VERIFY at checkpoint).
+    # Track.take_lanes excludes the main lane (CONFIRMED at checkpoint).
     lanes = list(getattr(track, "take_lanes", []) or [])
     if lanes:
         entry["take_lanes"] = [
@@ -185,7 +185,7 @@ def create_arrangement_clip(
 
     # Both routes confirm by re-scan: neither create_midi_clip documents a
     # return value. Take-lane clips must be created ON THE LANE OBJECT —
-    # track-scoped clip APIs don't reach them (LOM; VERIFY at checkpoint).
+    # track-scoped clip APIs don't reach them (LOM; CONFIRMED at checkpoint).
     holder = get_take_lane(track, take_lane_index) if take_lane_index is not None else track
     try:
         holder.create_midi_clip(start_time, length_beats)
