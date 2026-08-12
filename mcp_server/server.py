@@ -81,6 +81,11 @@ TRANSFORM_CLIP_TOOL = types.Tool(
             "track_index": {"type": "integer", "minimum": 0},
             "slot_index": {"type": "integer", "minimum": 0},
             "arrangement_clip_index": {"type": "integer", "minimum": 0},
+            "take_lane_index": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "With arrangement_clip_index: address a clip inside this take lane",
+            },
             "transforms": {"type": "string"},
             "seed": {
                 "type": "integer",
@@ -199,7 +204,7 @@ def _transform_clip(ableton: AbletonClient, arguments: dict[str, Any]) -> dict:
     """get_notes -> apply_transforms -> write back the diff by note_id."""
     clip_ref = {
         key: arguments[key]
-        for key in ("track_index", "slot_index", "arrangement_clip_index")
+        for key in ("track_index", "slot_index", "arrangement_clip_index", "take_lane_index")
         if key in arguments
     }
     read = ableton.send("get_notes", **clip_ref)

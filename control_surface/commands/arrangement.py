@@ -16,7 +16,13 @@ from typing import Any
 from ..config import AUDIO_EXTENSIONS, MAX_ARRANGEMENT_CLIPS_PER_READ, SEEK_EPSILON
 from ..errors import ValidationError
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
-from ..utils.live_helpers import get_arrangement_clip, get_clip, get_clip_slot, get_track
+from ..utils.live_helpers import (
+    get_arrangement_clip,
+    get_clip,
+    get_clip_slot,
+    get_take_lane,
+    get_track,
+)
 
 # Exact-match tolerance for confirming/guarding clip and cue positions.
 _TIME_EPSILON = 1e-3
@@ -59,7 +65,7 @@ def _find_clip_at(track: Any, time: float, want: Any = None) -> tuple[int, Any] 
 def _track_arrangement(track_index: int, track: Any) -> dict[str, Any]:
     clips = list(track.arrangement_clips)
     truncated = len(clips) > MAX_ARRANGEMENT_CLIPS_PER_READ
-    return {
+    entry = {
         "track_index": track_index,
         "track_name": track.name,
         "arrangement_clips": [
@@ -68,6 +74,24 @@ def _track_arrangement(track_index: int, track: Any) -> dict[str, Any]:
         ],
         "truncated": truncated,
     }
+    # Take lanes: absent when the track has none (absent = default). LOM:
+    # Track.take_lanes excludes the main lane (VERIFY at checkpoint).
+    lanes = list(getattr(track, "take_lanes", []) or [])
+    if lanes:
+        entry["take_lanes"] = [
+            {
+                "take_lane_index": i,
+                "name": lane.name,
+                "clips": [
+                    _serialize_arrangement_clip(j, c)
+                    for j, c in enumerate(
+                        list(lane.arrangement_clips)[:MAX_ARRANGEMENT_CLIPS_PER_READ]
+                    )
+                ],
+            }
+            for i, lane in enumerate(lanes)
+        ]
+    return entry
 
 
 @REGISTRY.register(
@@ -128,35 +152,109 @@ def get_arrangement(ctx, track_index: int | None = None) -> dict[str, Any]:
             description="Timeline position in beats (bar N at 4/4 starts at (N-1)*4)",
         ),
         ParamSchema("length_beats", ParamType.FLOAT, min_value=0.25),
+        ParamSchema(
+            "take_lane_index",
+            ParamType.INT,
+            required=False,
+            min_value=0,
+            description=(
+                "Create the clip inside this take lane (from get_arrangement / "
+                "create_take_lane) instead of the track's main lane"
+            ),
+        ),
     ],
     category="arrangement",
     description=(
         "Create an EMPTY MIDI clip directly on the Arrangement timeline of a "
-        "MIDI track, then write notes into it with add_notes using "
-        "arrangement_clip_index. The direct composition route — no session "
-        "slot needed."
+        "MIDI track — in the main lane, or in a take lane via take_lane_index "
+        "(stack variations side by side without timeline clutter). Then write "
+        "notes into it with add_notes using arrangement_clip_index (+ the same "
+        "take_lane_index)."
     ),
 )
 def create_arrangement_clip(
-    ctx, track_index: int, start_time: float, length_beats: float
+    ctx,
+    track_index: int,
+    start_time: float,
+    length_beats: float,
+    take_lane_index: int | None = None,
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     if not track.has_midi_input:
         raise LiveAPIError(f"Track {track_index} is not a MIDI track")
 
+    # Both routes confirm by re-scan: neither create_midi_clip documents a
+    # return value. Take-lane clips must be created ON THE LANE OBJECT —
+    # track-scoped clip APIs don't reach them (LOM; VERIFY at checkpoint).
+    holder = get_take_lane(track, take_lane_index) if take_lane_index is not None else track
     try:
-        track.create_midi_clip(start_time, length_beats)
+        holder.create_midi_clip(start_time, length_beats)
     except RuntimeError as e:
         # LOM: errors on frozen tracks, out-of-range times, or recording tracks
         raise LiveAPIError(f"Live refused to create the clip: {e}") from e
 
-    placed = _find_clip_at(track, start_time, lambda c: c.is_midi_clip)
+    placed = _find_clip_at(holder, start_time, lambda c: c.is_midi_clip)
     if placed is None:
         raise LiveAPIError(
             f"Clip creation at {start_time} could not be confirmed — re-read with get_arrangement"
         )
     index, clip = placed
-    return {"created": _serialize_arrangement_clip(index, clip)}
+    created = _serialize_arrangement_clip(index, clip)
+    if take_lane_index is not None:
+        created["take_lane_index"] = take_lane_index
+    return {"created": created}
+
+
+# Believed Live cap on non-main take lanes; enforced here so a runaway agent
+# cannot create dozens of permanent lanes (VERIFY the real cap at checkpoint).
+MAX_TAKE_LANES = 8
+
+
+@REGISTRY.register(
+    "create_take_lane",
+    params=[
+        ParamSchema("track_index", ParamType.INT, min_value=0),
+        ParamSchema(
+            "name",
+            ParamType.STRING,
+            required=False,
+            description="Lane header name, e.g. 'Take 2 — sparse'",
+        ),
+    ],
+    category="arrangement",
+    description=(
+        "Append a take lane to a track — a parallel arrangement lane for "
+        "stacking MIDI variations side by side. CREATE SPARINGLY: Live has no "
+        "API to delete a take lane, so every lane is permanent for this "
+        "session (capped at 8 per track here for that reason)."
+    ),
+)
+def create_take_lane(ctx, track_index: int, name: str | None = None) -> dict[str, Any]:
+    track = get_track(ctx.song, track_index)
+    lanes_attr = getattr(track, "take_lanes", None)
+    if lanes_attr is None:
+        raise LiveAPIError("This Live version exposes no take lanes on tracks")
+    before = len(list(lanes_attr))
+    if before >= MAX_TAKE_LANES:
+        raise LiveAPIError(
+            f"Track already has {before} take lanes (cap {MAX_TAKE_LANES}); "
+            f"lanes cannot be deleted via the API — reuse an existing one"
+        )
+    try:
+        track.create_take_lane()
+    except RuntimeError as e:
+        raise LiveAPIError(f"Live refused to create a take lane: {e}") from e
+    lanes = list(track.take_lanes)
+    if len(lanes) <= before:
+        raise LiveAPIError("Take lane creation could not be confirmed")
+    lane = lanes[-1]
+    if name is not None:
+        lane.name = name
+    return {
+        "take_lane_index": len(lanes) - 1,
+        "name": lane.name,
+        "take_lane_count": len(lanes),
+    }
 
 
 @REGISTRY.register(

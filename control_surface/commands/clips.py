@@ -30,6 +30,16 @@ _ARR_XOR = ParamSchema(
     min_value=0,
     description="Timeline clip (positional, from get_arrangement) — exactly one of the two",
 )
+_TAKE_LANE = ParamSchema(
+    "take_lane_index",
+    ParamType.INT,
+    required=False,
+    min_value=0,
+    description=(
+        "Address a take-lane clip: arrangement_clip_index then counts within "
+        "this lane (lanes and their clips come from get_arrangement)"
+    ),
+)
 
 # Full-range note query bounds: all pitches, generous time span.
 _ALL_PITCHES = (0, 128)
@@ -171,6 +181,7 @@ def delete_clip(ctx, track_index: int, slot_index: int) -> dict[str, Any]:
         ParamSchema("track_index", ParamType.INT, min_value=0),
         _SLOT_XOR,
         _ARR_XOR,
+        _TAKE_LANE,
         ParamSchema("name", ParamType.STRING, required=False),
         ParamSchema(
             "color_index", ParamType.INT, required=False, min_value=0, max_value=MAX_COLOR_INDEX
@@ -193,6 +204,7 @@ def set_clip(
     track_index: int,
     slot_index: int | None = None,
     arrangement_clip_index: int | None = None,
+    take_lane_index: int | None = None,
     name: str | None = None,
     color_index: int | None = None,
     looping: bool | None = None,
@@ -201,7 +213,9 @@ def set_clip(
     warping: bool | None = None,
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    clip = resolve_clip_ref(track, slot_index, arrangement_clip_index)
+    clip = resolve_clip_ref(
+        track, slot_index, arrangement_clip_index, take_lane_index=take_lane_index
+    )
 
     # All cross-field validation happens before the first write.
     if warping is not None and not clip.is_audio_clip:
@@ -348,6 +362,7 @@ def delete_scene(ctx, scene_index: int) -> dict[str, Any]:
         ParamSchema("track_index", ParamType.INT, min_value=0),
         _SLOT_XOR,
         _ARR_XOR,
+        _TAKE_LANE,
         ParamSchema(
             "from_pitch", ParamType.INT, required=False, default=0, min_value=0, max_value=127
         ),
@@ -394,6 +409,7 @@ def get_notes(
     track_index: int,
     slot_index: int | None = None,
     arrangement_clip_index: int | None = None,
+    take_lane_index: int | None = None,
     from_pitch: int = 0,
     pitch_span: int = 128,
     from_time: float = 0.0,
@@ -402,7 +418,13 @@ def get_notes(
     # so a drifted server forwarding it doesn't crash the command.
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
+    clip = resolve_clip_ref(
+        track,
+        slot_index,
+        arrangement_clip_index,
+        require_midi=True,
+        take_lane_index=take_lane_index,
+    )
     span = time_span if time_span is not None else max(clip.length - from_time, 0.0)
     notes = clip.get_notes_extended(from_pitch, pitch_span, from_time, span)
 
@@ -422,6 +444,7 @@ def get_notes(
         ParamSchema("track_index", ParamType.INT, min_value=0),
         _SLOT_XOR,
         _ARR_XOR,
+        _TAKE_LANE,
         ParamSchema(
             "notes",
             ParamType.NOTE_LIST,
@@ -468,6 +491,7 @@ def add_notes(
     track_index: int,
     slot_index: int | None = None,
     arrangement_clip_index: int | None = None,
+    take_lane_index: int | None = None,
     notes: list[dict[str, Any]] | None = None,
     notation: str | None = None,  # expanded to notes by the MCP server; accepted
     transforms: str | None = None,  # applied by the MCP server; both accepted
@@ -482,7 +506,13 @@ def add_notes(
             param="notes",
         )
     track = get_track(ctx.song, track_index)
-    clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
+    clip = resolve_clip_ref(
+        track,
+        slot_index,
+        arrangement_clip_index,
+        require_midi=True,
+        take_lane_index=take_lane_index,
+    )
 
     specs = tuple(
         Live.Clip.MidiNoteSpecification(
@@ -509,6 +539,7 @@ def add_notes(
         ParamSchema("track_index", ParamType.INT, min_value=0),
         _SLOT_XOR,
         _ARR_XOR,
+        _TAKE_LANE,
         ParamSchema(
             "modifications",
             ParamType.OBJECT_LIST,
@@ -536,10 +567,17 @@ def update_notes(
     track_index: int,
     slot_index: int | None = None,
     arrangement_clip_index: int | None = None,
+    take_lane_index: int | None = None,
     modifications: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
+    clip = resolve_clip_ref(
+        track,
+        slot_index,
+        arrangement_clip_index,
+        require_midi=True,
+        take_lane_index=take_lane_index,
+    )
 
     # Fetch-modify-apply: note objects can't be constructed by scripts, only
     # obtained from the clip, mutated, and handed back. Verified in real Live
@@ -590,6 +628,7 @@ def update_notes(
         ParamSchema("track_index", ParamType.INT, min_value=0),
         _SLOT_XOR,
         _ARR_XOR,
+        _TAKE_LANE,
         ParamSchema(
             "note_ids",
             ParamType.INT_LIST,
@@ -613,6 +652,7 @@ def remove_notes(
     track_index: int,
     slot_index: int | None = None,
     arrangement_clip_index: int | None = None,
+    take_lane_index: int | None = None,
     note_ids: list[int] | None = None,
     from_pitch: int | None = None,
     pitch_span: int | None = None,
@@ -620,7 +660,13 @@ def remove_notes(
     time_span: float | None = None,
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    clip = resolve_clip_ref(track, slot_index, arrangement_clip_index, require_midi=True)
+    clip = resolve_clip_ref(
+        track,
+        slot_index,
+        arrangement_clip_index,
+        require_midi=True,
+        take_lane_index=take_lane_index,
+    )
 
     region_given = any(v is not None for v in (from_pitch, pitch_span, from_time, time_span))
 

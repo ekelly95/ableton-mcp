@@ -68,18 +68,45 @@ def get_arrangement_clip(track: Any, index: int) -> Any:
     return clips[index]
 
 
+def get_take_lane(track: Any, take_lane_index: int) -> Any:
+    lanes = list(getattr(track, "take_lanes", []) or [])
+    if not 0 <= take_lane_index < len(lanes):
+        raise LiveAPIError(
+            f"Take lane index {take_lane_index} out of range (track has {len(lanes)} "
+            f"take lanes — create one with create_take_lane)"
+        )
+    return lanes[take_lane_index]
+
+
+def get_take_lane_clip(lane: Any, index: int) -> Any:
+    clips = list(lane.arrangement_clips)
+    if not 0 <= index < len(clips):
+        raise LiveAPIError(
+            f"Clip index {index} out of range (take lane has {len(clips)} clips). "
+            f"Indices are positional within the lane — re-read with get_arrangement."
+        )
+    return clips[index]
+
+
 def resolve_clip_ref(
     track: Any,
     slot_index: int | None,
     arrangement_clip_index: int | None,
     require_midi: bool = False,
+    take_lane_index: int | None = None,
 ) -> Any:
-    """One clip from EITHER a session slot or an arrangement position.
+    """One clip from a session slot, the arrangement, or a take lane.
 
     Exactly one of slot_index / arrangement_clip_index must be given — the
     schema can't express that (no oneOf in our tool generator), so it's
-    enforced here.
+    enforced here. take_lane_index redirects arrangement_clip_index to count
+    within that lane's clips instead of the track's main-lane clips.
     """
+    if take_lane_index is not None and arrangement_clip_index is None:
+        raise ValidationError(
+            "take_lane_index needs arrangement_clip_index too (the clip's "
+            "position within that lane, from get_arrangement's take_lanes)"
+        )
     if (slot_index is None) == (arrangement_clip_index is None):
         raise ValidationError(
             "Provide exactly one of slot_index (session clip) or "
@@ -87,6 +114,8 @@ def resolve_clip_ref(
         )
     if slot_index is not None:
         clip = get_clip(track, slot_index)
+    elif take_lane_index is not None:
+        clip = get_take_lane_clip(get_take_lane(track, take_lane_index), arrangement_clip_index)
     else:
         clip = get_arrangement_clip(track, arrangement_clip_index)
     if require_midi and not clip.is_midi_clip:
