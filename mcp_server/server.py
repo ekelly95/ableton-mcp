@@ -8,6 +8,7 @@ is reachable) and get_audio_levels (mcp_server/m4l.py, the optional tap).
 All logging goes to stderr: stdout belongs to the MCP stdio transport.
 """
 
+import json
 import logging
 import sys
 from typing import Any
@@ -112,6 +113,19 @@ def _bridge_status(client: AbletonClient, drift: _DriftCheck) -> dict:
     }
 
 
+def _tool_result(result: Any) -> tuple[list[types.TextContent], dict]:
+    """Compact text + structured dict, replacing the SDK's default emission.
+
+    A bare dict return makes the SDK serialize the SAME payload twice, the text
+    copy with indent=2 — a measured 1.5-1.9x token multiplier on every result.
+    The text copy is what the model actually reads, so it must be compact; the
+    structured copy stays for output_schema validation and typed clients.
+    """
+    payload = result if isinstance(result, dict) else {"result": result}
+    text = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    return [types.TextContent(type="text", text=text)], payload
+
+
 def build_server(client: AbletonClient | None = None, tap: TapClient | None = None) -> Server:
     ableton = client if client is not None else AbletonClient()
     tap_client = tap if tap is not None else TapClient()
@@ -123,13 +137,17 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
         return registry_tools()
 
     @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]) -> dict:
+    async def call_tool(
+        name: str, arguments: dict[str, Any]
+    ) -> tuple[list[types.TextContent], dict]:
         if name == "get_bridge_status":
-            return await anyio.to_thread.run_sync(_bridge_status, ableton, drift)
+            return _tool_result(await anyio.to_thread.run_sync(_bridge_status, ableton, drift))
 
         if name == "get_audio_levels":
             duration = float(arguments.get("duration_seconds", 0) or 0)
-            return await anyio.to_thread.run_sync(get_audio_levels, tap_client, duration)
+            return _tool_result(
+                await anyio.to_thread.run_sync(get_audio_levels, tap_client, duration)
+            )
 
         if name not in REGISTRY:
             raise ValueError(f"Unknown tool: {name}")
@@ -147,10 +165,7 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
         except CommandError as e:
             raise RuntimeError(f"Ableton rejected the command: {e}") from e
 
-        # A dict return produces structuredContent plus serialized text content.
-        if isinstance(result, dict):
-            return result
-        return {"result": result}
+        return _tool_result(result)
 
     # This server has no resources or prompts, and initialize says so. Codex
     # probes for them anyway and treats the correct -32601 "no such method"
