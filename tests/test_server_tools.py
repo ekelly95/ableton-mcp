@@ -24,8 +24,7 @@ class TestToolGeneration:
     def test_bridge_status_included(self):
         tool_names = [t.name for t in registry_tools()]
         assert "get_bridge_status" in tool_names
-        # +2 = get_bridge_status + get_audio_levels
-        assert len(tool_names) == len(REGISTRY) + 2
+        assert len(tool_names) == len(REGISTRY) + 3  # bridge_status, audio_levels, transform_clip
 
     def test_wire_specials_are_not_tools(self):
         tool_names = {t.name for t in registry_tools()}
@@ -107,6 +106,129 @@ class TestEndToEnd:
             assert result.isError is False
             assert result.structuredContent["connected"] is False
             assert "Preferences" in result.structuredContent["hint"]
+
+    async def test_compact_text_emission(self):
+        # The text copy the model reads must be compact JSON, never indent=2.
+        async with await self._session(FakeAbletonClient()) as session:
+            result = await session.call_tool("get_transport_state", {})
+            assert "\n" not in result.content[0].text
+            assert '": ' not in result.content[0].text
+
+
+class NotesFakeClient(FakeAbletonClient):
+    """Fake with a real notes store so notation/transforms round-trips work."""
+
+    def __init__(self):
+        super().__init__()
+        self.notes = [
+            {
+                "note_id": 1,
+                "pitch": 60,
+                "pitch_name": "C3",
+                "start_time": 0.0,
+                "duration": 1.0,
+                "velocity": 100.0,
+            },
+            {
+                "note_id": 2,
+                "pitch": 62,
+                "pitch_name": "D3",
+                "start_time": 0.5,
+                "duration": 1.0,
+                "velocity": 100.0,
+            },
+        ]
+
+    def send(self, command, **params):
+        if command == "get_notes":
+            self.sent.append((command, params))
+            return {
+                "notes": [dict(n) for n in self.notes],
+                "note_count": len(self.notes),
+                "truncated": False,
+                "clip_length": 4.0,
+            }
+        if command in ("update_notes", "remove_notes", "add_notes"):
+            self.sent.append((command, params))
+            return {"ok": True}
+        return super().send(command, **params)
+
+
+@pytest.mark.anyio
+class TestNotationAndTransforms:
+    async def _session(self, client):
+        from mcp.shared.memory import create_connected_server_and_client_session
+
+        return create_connected_server_and_client_session(build_server(client))
+
+    async def test_add_notes_notation_expanded_server_side(self):
+        fake = FakeAbletonClient()
+        async with await self._session(fake) as session:
+            result = await session.call_tool(
+                "add_notes",
+                {"track_index": 0, "slot_index": 0, "notation": "v90 n/8 C3 E3 1|1"},
+            )
+            assert result.isError is False
+        command, params = next(c for c in fake.sent if c[0] == "add_notes")
+        assert "notation" not in params  # Live never sees the dialect
+        assert [n["pitch"] for n in params["notes"]] == [60, 64]
+        assert all(n["velocity"] == 90.0 for n in params["notes"])
+
+    async def test_add_notes_with_transforms_applied(self):
+        fake = FakeAbletonClient()
+        async with await self._session(fake) as session:
+            await session.call_tool(
+                "add_notes",
+                {
+                    "track_index": 0,
+                    "slot_index": 0,
+                    "notation": "v100 C3 1|1 D3 1|2",
+                    "transforms": "velocity = 60",
+                },
+            )
+        _, params = next(c for c in fake.sent if c[0] == "add_notes")
+        assert all(n["velocity"] == 60.0 for n in params["notes"])
+
+    async def test_get_notes_compact_renders_notation(self):
+        fake = NotesFakeClient()
+        async with await self._session(fake) as session:
+            result = await session.call_tool(
+                "get_notes", {"track_index": 0, "slot_index": 0, "format": "compact"}
+            )
+            assert result.isError is False
+            payload = result.structuredContent
+            assert "notes" not in payload
+            assert "C3" in payload["notation"] and "D3" in payload["notation"]
+        _, params = next(c for c in fake.sent if c[0] == "get_notes")
+        assert "format" not in params  # stripped before Live
+
+    async def test_transform_clip_diffs_by_note_id(self):
+        fake = NotesFakeClient()
+        async with await self._session(fake) as session:
+            result = await session.call_tool(
+                "transform_clip",
+                {"track_index": 0, "slot_index": 0, "transforms": "D3: v0; C3: velocity = 40"},
+            )
+            assert result.isError is False
+            assert result.structuredContent["removed"] == 1
+            assert result.structuredContent["updated"] == 1
+            assert result.structuredContent["added"] == 0
+        removed = next(c for c in fake.sent if c[0] == "remove_notes")
+        assert removed[1]["note_ids"] == [2]
+        updated = next(c for c in fake.sent if c[0] == "update_notes")
+        assert updated[1]["modifications"] == [{"note_id": 1, "velocity": 40.0}]
+
+    async def test_transform_clip_note_ops_add_notes(self):
+        fake = NotesFakeClient()
+        async with await self._session(fake) as session:
+            result = await session.call_tool(
+                "transform_clip",
+                {"track_index": 0, "slot_index": 0, "transforms": "C3: ratchet(2)"},
+            )
+            assert result.isError is False
+            # ratchet replaces the original (1 removed) with 2 new pieces
+            assert result.structuredContent["removed"] == 1
+            assert result.structuredContent["added"] == 2
 
     async def test_bridge_status_connected_in_sync(self):
         async with await self._session(FakeAbletonClient()) as session:

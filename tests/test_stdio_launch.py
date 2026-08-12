@@ -23,7 +23,7 @@ async def test_stdio_handshake_and_tools():
             assert "get_session_overview" in names
             assert "add_notes" in names
             # +2 = get_bridge_status + get_audio_levels
-            assert len(names) == len(REGISTRY) + 2
+            assert len(names) == len(REGISTRY) + 3  # bridge_status, audio_levels, transform_clip
 
 
 @pytest.mark.anyio

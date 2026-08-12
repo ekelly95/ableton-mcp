@@ -42,9 +42,7 @@ from control_surface.utils.pitch import pitch_to_midi, root_name_to_pitch_class
 from .notation import _parse_duration_token
 
 _PITCH_SEL_RE = re.compile(r"^([A-Ga-g][#b]{0,2}-?\d+)(?:-([A-Ga-g][#b]{0,2}-?\d+))?$")
-_TIME_SEL_RE = re.compile(
-    r"^(\d+)\|(\*|\d+(?:\.\d+)?)(?:-(<)?(\d+)\|(\*|\d+(?:\.\d+)?))?$"
-)
+_TIME_SEL_RE = re.compile(r"^(\d+)\|(\*|\d+(?:\.\d+)?)(?:-(<)?(\d+)\|(\*|\d+(?:\.\d+)?))?$")
 _SHORTHAND_V_RE = re.compile(r"^v(\d+)(?:-(\d+))?$")
 _SHORTHAND_V_DELTA_RE = re.compile(r"^v([+-]\d+(?:\.\d+)?)$")
 _SHORTHAND_P_RE = re.compile(r"^p(\d*\.\d+|\d+)$")
@@ -235,7 +233,12 @@ def _call_function(name: str, args: list[float], env: _Env, raw_args: list[str])
             raise TransformError("snap(C, Eb, ...) needs pitch classes")
         pitch = env.note.get("pitch", 60)
         best = min(
-            (p for octave in (-12, 0, 12) for c in classes if 0 <= (p := (pitch // 12) * 12 + c + octave) <= 127),
+            (
+                p
+                for octave in (-12, 0, 12)
+                for c in classes
+                if 0 <= (p := (pitch // 12) * 12 + c + octave) <= 127
+            ),
             key=lambda p: (abs(p - pitch), p),
         )
         return float(best)
@@ -498,7 +501,9 @@ def _matches(note: dict[str, Any], selector: _Selector, env: _Env) -> bool:
 
 
 _NOTE_OP_RE = re.compile(r"^(ratchet|repeat|merge)\((.*)\)$")
-_ASSIGN_RE = re.compile(r"^(velocity|pitch|timing|duration|probability|deviation)\s*(\+=|-=|\*=|/=|=)\s*(.+)$")
+_ASSIGN_RE = re.compile(
+    r"^(velocity|pitch|timing|duration|probability|deviation)\s*(\+=|-=|\*=|/=|=)\s*(.+)$"
+)
 
 
 def _apply_assignment(field: str, op: str, value: float, note: dict[str, Any]) -> None:
@@ -661,9 +666,7 @@ def apply_transforms(
 
             note_op = _NOTE_OP_RE.match(action)
             if note_op:
-                replaced, removed = _apply_note_op(
-                    note_op.group(1), note_op.group(2), matched, env
-                )
+                replaced, removed = _apply_note_op(note_op.group(1), note_op.group(2), matched, env)
                 removed_ids = {id(n) for n in removed}
                 matched_ids = {id(n) for n in matched}
                 if note_op.group(1) == "ratchet":

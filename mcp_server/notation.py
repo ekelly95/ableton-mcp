@@ -180,7 +180,9 @@ class _Parser:
         if match.group(5):
             parsed = _parse_duration_token(match.group(5), self.beats_per_bar)
             if parsed is None:
-                self.warnings.append(f"repeat step '@{match.group(5)}' unrecognized; using current duration")
+                self.warnings.append(
+                    f"repeat step '@{match.group(5)}' unrecognized; using current duration"
+                )
             else:
                 step = parsed
         if start < 0:

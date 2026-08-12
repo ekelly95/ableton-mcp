@@ -32,6 +32,7 @@ from .client import (  # noqa: E402
 )
 from .m4l import AUDIO_LEVELS_TOOL, TapClient, get_audio_levels  # noqa: E402
 from .notation import parse_notation, serialize_notation  # noqa: E402
+from .transforms import apply_transforms  # noqa: E402
 
 BRIDGE_STATUS_TOOL = types.Tool(
     name="get_bridge_status",
@@ -54,6 +55,111 @@ BRIDGE_STATUS_TOOL = types.Tool(
 )
 
 
+TRANSFORM_CLIP_TOOL = types.Tool(
+    name="transform_clip",
+    description=(
+        "Reshape a clip's EXISTING notes with transform statements — the notes "
+        "never enter the conversation. Statements are ';'-separated: "
+        "[selectors ':'] action. Selectors: pitch (C1 or C1-C3), time (2|1, "
+        "1|1-3|4, 1|1-<3|1 exclusive, 3|* whole bar), where(note.velocity > 80). "
+        "Actions: velocity/pitch/timing/duration/probability/deviation with "
+        "= += -= *= /=; shorthands v90 v90-110 v+10 p0.8 n/8, v0 deletes; note "
+        "ops ratchet(4|n/16) repeat(n/8[,count]) merge([gap]). Value functions: "
+        "sin/cos/tri/saw/square(period), ramp(a,b), swing([amt]), quant(grid"
+        "[,strength]), legato([tol]), snap(C,Eb,...), rand(), choose(...), "
+        "clamp/round/floor/ceil/abs/min/max/pow. Times/durations in n/X or "
+        "Nbar units. Example: 'F#1: timing = swing(0.57); where(note.velocity "
+        "> 100): v-15; C1 1|1-2|*: ratchet(n/16)'"
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "track_index": {"type": "integer", "minimum": 0},
+            "slot_index": {"type": "integer", "minimum": 0},
+            "arrangement_clip_index": {"type": "integer", "minimum": 0},
+            "transforms": {"type": "string"},
+            "seed": {
+                "type": "integer",
+                "description": "Seeds rand()/choose() for reproducible results",
+            },
+        },
+        "required": ["track_index", "transforms"],
+        "additionalProperties": False,
+    },
+    annotations=types.ToolAnnotations(readOnlyHint=False, destructiveHint=True),
+)
+
+# Fields transform statements may change; the write-back diff compares these.
+_TRANSFORM_FIELDS = (
+    "pitch",
+    "start_time",
+    "duration",
+    "velocity",
+    "probability",
+    "velocity_deviation",
+)
+_TRANSFORM_FIELD_DEFAULTS = {"probability": 1.0, "velocity_deviation": 0.0}
+
+
+def _transform_clip(ableton: AbletonClient, arguments: dict[str, Any]) -> dict:
+    """get_notes -> apply_transforms -> write back the diff by note_id."""
+    clip_ref = {
+        key: arguments[key]
+        for key in ("track_index", "slot_index", "arrangement_clip_index")
+        if key in arguments
+    }
+    read = ableton.send("get_notes", **clip_ref)
+    transport = ableton.send("get_transport_state")
+    transformed, matched, warnings = apply_transforms(
+        read["notes"],
+        arguments["transforms"],
+        int(transport.get("signature_numerator", 4)),
+        int(transport.get("signature_denominator", 4)),
+        clip_duration=read.get("clip_length"),
+        seed=arguments.get("seed"),
+    )
+
+    def field_value(note: dict, field: str) -> Any:
+        return note.get(field, _TRANSFORM_FIELD_DEFAULTS.get(field))
+
+    original_by_id = {n["note_id"]: n for n in read["notes"]}
+    surviving_ids = {n["note_id"] for n in transformed if "note_id" in n}
+    removed_ids = [nid for nid in original_by_id if nid not in surviving_ids]
+    modifications = []
+    added = []
+    for note in transformed:
+        if "note_id" not in note:
+            added.append({k: v for k, v in note.items() if k in _TRANSFORM_FIELDS})
+            continue
+        original = original_by_id[note["note_id"]]
+        changed = {
+            field: field_value(note, field)
+            for field in _TRANSFORM_FIELDS
+            if field_value(note, field) is not None
+            and field_value(note, field) != field_value(original, field)
+        }
+        if changed:
+            modifications.append({"note_id": note["note_id"], **changed})
+
+    if removed_ids:
+        ableton.send("remove_notes", **clip_ref, note_ids=removed_ids)
+    if modifications:
+        ableton.send("update_notes", **clip_ref, modifications=modifications)
+    if added:
+        ableton.send("add_notes", **clip_ref, notes=added)
+
+    result = {
+        "matched": matched,
+        "updated": len(modifications),
+        "removed": len(removed_ids),
+        "added": len(added),
+        "note_count": len(transformed),
+    }
+    if warnings:
+        result["warnings"] = warnings
+    return result
+
+
 def registry_tools() -> list[types.Tool]:
     tools = []
     for spec in REGISTRY.generate_mcp_tools():
@@ -68,6 +174,7 @@ def registry_tools() -> list[types.Tool]:
         )
     tools.append(BRIDGE_STATUS_TOOL)
     tools.append(AUDIO_LEVELS_TOOL)  # always listed; answers available:false without the tap
+    tools.append(TRANSFORM_CLIP_TOOL)  # server-side composite: outside the registry hash
     return tools
 
 
@@ -150,6 +257,16 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
                 await anyio.to_thread.run_sync(get_audio_levels, tap_client, duration)
             )
 
+        if name == "transform_clip":
+            try:
+                return _tool_result(
+                    await anyio.to_thread.run_sync(_transform_clip, ableton, arguments)
+                )
+            except AbletonConnectionError as e:
+                raise RuntimeError(f"Ableton is not reachable: {e}") from e
+            except CommandError as e:
+                raise RuntimeError(f"Ableton rejected the command: {e}") from e
+
         if name not in REGISTRY:
             raise ValueError(f"Unknown tool: {name}")
 
@@ -165,15 +282,29 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
                 drift.check(ableton.ping())
             args = dict(arguments)
 
-            # Notation is a server-side dialect: Live only ever sees note dicts.
-            if name == "add_notes" and args.get("notation"):
-                if args.get("notes"):
-                    raise ValueError("Pass either 'notes' or 'notation', not both")
+            # Notation and transforms are server-side dialects: Live only ever
+            # sees note dicts.
+            if name == "add_notes" and (args.get("notation") or args.get("transforms")):
+                warnings: list[str] = []
                 num, den = _signature()
-                notes, warnings = parse_notation(args.pop("notation"), num, den)
+                if args.get("notation"):
+                    if args.get("notes"):
+                        raise ValueError("Pass either 'notes' or 'notation', not both")
+                    notes, warnings = parse_notation(args.pop("notation"), num, den)
+                else:
+                    notes = args.get("notes") or []
+                if args.get("transforms"):
+                    notes, _, transform_warnings = apply_transforms(
+                        notes, args.pop("transforms"), num, den
+                    )
+                    warnings = warnings + transform_warnings
                 if not notes:
-                    raise ValueError("Notation produced no notes: " + "; ".join(warnings))
+                    raise ValueError(
+                        "No notes left to add after notation/transforms: "
+                        + ("; ".join(warnings) or "empty input")
+                    )
                 args["notes"] = notes
+                args.pop("transforms", None)
                 result = ableton.send_resolving_seek(name, **args)
                 if warnings and isinstance(result, dict):
                     result["notation_warnings"] = warnings

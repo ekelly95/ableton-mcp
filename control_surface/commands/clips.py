@@ -444,6 +444,16 @@ def get_notes(
                 "'v100 n/16 C1 1|1 D1 1|3 F#1 1|1x16@n/16 @2-4=1'"
             ),
         ),
+        ParamSchema(
+            "transforms",
+            ParamType.STRING,
+            required=False,
+            description=(
+                "Transform statements applied to the incoming notes before they "
+                "are written (';'-separated, see transform_clip for the language), "
+                "e.g. 'timing = swing(0.57); velocity = 90 + 30 * tri(1bar)'"
+            ),
+        ),
     ],
     category="notes",
     description=(
@@ -460,7 +470,8 @@ def add_notes(
     arrangement_clip_index: int | None = None,
     notes: list[dict[str, Any]] | None = None,
     notation: str | None = None,  # expanded to notes by the MCP server; accepted
-    # here only so a drifted server forwarding it doesn't crash the command.
+    transforms: str | None = None,  # applied by the MCP server; both accepted
+    # here only so a drifted server forwarding them doesn't crash the command.
 ) -> dict[str, Any]:
     import Live  # inside Live's runtime only; tests install a mock module
 
