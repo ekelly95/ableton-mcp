@@ -8,10 +8,12 @@ there; anything tests import by name lives here.
 import json
 import socket
 import struct
+import threading
 from typing import Any
 
 from control_surface.commands import REGISTRY
 from control_surface.config import VERSION
+from control_surface.registry import CommandRegistry, ParamSchema, ParamType
 from mcp_server.client import AbletonConnectionError, CommandError
 
 # --- wire codec (4-byte big-endian length + UTF-8 JSON) ---
@@ -71,6 +73,116 @@ def run_command(registry, ctx, name, /, **params):
 
     ctx.control_surface.schedule_message(1, task)
     return box["result"]
+
+
+# --- scripted transport server ---
+
+
+class ScriptedServer:
+    """Tiny server whose per-connection behaviour is scripted; TCP or AF_UNIX.
+
+    behaviours: list of strings, one per accepted connection:
+      "serve"         — answer requests normally until the client disconnects
+      "drop"          — accept, then immediately close (simulates dead socket)
+      "stall"         — accept, read the request, never answer
+      "read_then_die" — read (and record) ONE request, then close without
+                        replying: the request WAS delivered, response lost
+
+    One implementation for both transports, so the client's reconnect/resend
+    matrix can be scripted identically over TCP and Unix sockets. Construct
+    via ScriptedServer.tcp(...) (sets .port) or ScriptedServer.unix(path, ...).
+    """
+
+    def __init__(self, sock: socket.socket, behaviours):
+        self.behaviours = list(behaviours)
+        self.requests_received = []
+        self._sock = sock
+        self._sock.listen(5)
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    @classmethod
+    def tcp(cls, behaviours) -> "ScriptedServer":
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", 0))
+        server = cls(sock, behaviours)
+        server.port = sock.getsockname()[1]
+        return server
+
+    @classmethod
+    def unix(cls, path: str, behaviours) -> "ScriptedServer":
+        # Callers are responsible for the AF_UNIX skipif guard.
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.bind(path)
+        return cls(sock, behaviours)
+
+    def _run(self):
+        for behaviour in self.behaviours:
+            try:
+                conn, _ = self._sock.accept()
+            except OSError:
+                return
+            if behaviour == "drop":
+                conn.close()
+                continue
+            try:
+                while True:
+                    request = read_frame(conn)
+                    if request is None:
+                        break
+                    self.requests_received.append(request)
+                    if behaviour == "read_then_die":
+                        break  # delivered but no response — connection dies
+                    if behaviour == "stall":
+                        continue  # swallow it, never reply
+                    response = {
+                        "status": "success",
+                        "result": {"echo": request.get("type")},
+                        "id": request.get("id"),
+                    }
+                    if request.get("type") == "explode":
+                        response = {
+                            "status": "error",
+                            "error": "boom",
+                            "error_type": "LiveAPIError",
+                            "id": request.get("id"),
+                        }
+                    if request.get("type") == "partial":
+                        response = {
+                            "status": "error",
+                            "error": "arm failed: nope. Already applied: name, volume.",
+                            "error_type": "PartialApplyError",
+                            "applied": ["name", "volume"],
+                            "id": request.get("id"),
+                        }
+                    write_frame(conn, response)
+            except OSError:
+                pass
+            finally:
+                conn.close()
+        self._sock.close()
+
+    def close(self):
+        try:
+            self._sock.close()
+        except OSError:
+            pass
+
+
+def echo_registry() -> CommandRegistry:
+    """Minimal one-command registry for socket-server tests."""
+    registry = CommandRegistry()
+
+    @registry.register(
+        "echo",
+        params=[ParamSchema("value", ParamType.STRING)],
+        description="Echo a value",
+    )
+    def echo(ctx, value):
+        return {"echoed": value}
+
+    return registry
 
 
 # --- reusable fakes ---

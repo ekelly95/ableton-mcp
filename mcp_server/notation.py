@@ -44,6 +44,16 @@ _DEFAULT_DURATION = 1.0  # n/4
 _DEFAULT_PROBABILITY = 1.0
 
 _VELOCITY_RE = re.compile(r"^v(\d+)(?:-(\d+))?$")
+
+
+def _velocity_range_fields(low: int, high: int) -> tuple[float, float]:
+    """Map a vLOW-HIGH shorthand to (velocity, velocity_deviation).
+
+    Base velocity is the clamped low bound; deviation spans to the clamped
+    high bound. Shared with transforms.py — one dialect feature, one formula.
+    """
+    low, high = sorted((low, high))
+    return float(min(low, 127)), float(min(high, 127) - min(low, 127))
 _PROB_RE = re.compile(r"^p(\d*\.?\d+)$")
 _DURATION_RE = re.compile(r"^n(\d+(?:\.\d+)?)?/(\d+)([dt])?$")
 _BAR_DURATION_RE = re.compile(r"^(\d+)bar(?:([+-])n(\d+(?:\.\d+)?)?/(\d+)([dt])?)?$")
@@ -155,9 +165,7 @@ class _Parser:
             if low == 0 or high == 0:
                 self.warnings.append(f"'{token}': 0 is reserved for deletion, range skipped")
                 return
-            low, high = min(low, high), max(low, high)
-            self.velocity = float(min(low, 127))
-            self.velocity_deviation = float(min(high, 127) - min(low, 127))
+            self.velocity, self.velocity_deviation = _velocity_range_fields(low, high)
         else:
             if low > 127:
                 self.warnings.append(f"velocity '{token}' clamped to 127")

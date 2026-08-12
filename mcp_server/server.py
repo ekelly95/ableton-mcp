@@ -36,7 +36,7 @@ from .library import find_similar as _find_similar  # noqa: E402
 from .library import search_library as _search_library  # noqa: E402
 from .m4l import AUDIO_LEVELS_TOOL, TapClient, get_audio_levels  # noqa: E402
 from .notation import parse_notation, serialize_notation  # noqa: E402
-from .transforms import apply_transforms  # noqa: E402
+from .transforms import TRANSFORM_FIELD_DEFAULTS, apply_transforms  # noqa: E402
 
 BRIDGE_STATUS_TOOL = types.Tool(
     name="get_bridge_status",
@@ -197,7 +197,6 @@ _TRANSFORM_FIELDS = (
     "probability",
     "velocity_deviation",
 )
-_TRANSFORM_FIELD_DEFAULTS = {"probability": 1.0, "velocity_deviation": 0.0}
 
 
 def _transform_clip(ableton: AbletonClient, arguments: dict[str, Any]) -> dict:
@@ -219,7 +218,7 @@ def _transform_clip(ableton: AbletonClient, arguments: dict[str, Any]) -> dict:
     )
 
     def field_value(note: dict, field: str) -> Any:
-        return note.get(field, _TRANSFORM_FIELD_DEFAULTS.get(field))
+        return note.get(field, TRANSFORM_FIELD_DEFAULTS.get(field))
 
     original_by_id = {n["note_id"]: n for n in read["notes"]}
     surviving_ids = {n["note_id"] for n in transformed if "note_id" in n}

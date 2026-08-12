@@ -7,16 +7,20 @@ recorded in the architecture document and development record.
 
 import socket
 import tempfile
-import threading
 import uuid
 from pathlib import Path
 
 import pytest
 
-from control_surface.registry import CommandRegistry, ParamSchema, ParamType
 from control_surface.socket_server import SocketServer
 from mcp_server.client import AbletonClient, AbletonConnectionError
-from tests.helpers import ImmediateControlSurface, read_frame, write_frame
+from tests.helpers import (
+    ImmediateControlSurface,
+    ScriptedServer,
+    echo_registry,
+    read_frame,
+    write_frame,
+)
 
 pytestmark = pytest.mark.skipif(
     not hasattr(socket, "AF_UNIX"), reason="Unix sockets unavailable on this platform"
@@ -31,62 +35,12 @@ def socket_path():
     yield str(Path(workdir) / "bridge.sock")
 
 
-class UnixScriptedServer:
-    """Minimal scripted server on a Unix socket (mirrors test_client's TCP one).
-
-    behaviours, one per accepted connection: "serve" answers echo responses
-    until disconnect; "drop" accepts then immediately closes.
-    """
-
-    def __init__(self, path: str, behaviours):
-        self.behaviours = list(behaviours)
-        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._sock.bind(path)
-        self._sock.listen(5)
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def _run(self):
-        for behaviour in self.behaviours:
-            try:
-                conn, _ = self._sock.accept()
-            except OSError:
-                return
-            if behaviour == "drop":
-                conn.close()
-                continue
-            try:
-                while True:
-                    request = read_frame(conn)
-                    if request is None:
-                        break
-                    write_frame(
-                        conn,
-                        {
-                            "status": "success",
-                            "result": {"echo": request.get("type")},
-                            "id": request.get("id"),
-                        },
-                    )
-            except OSError:
-                pass
-            finally:
-                conn.close()
-        self._sock.close()
-
-    def close(self):
-        try:
-            self._sock.close()
-        except OSError:
-            pass
-
-
 def _unix_client(path: str, **kwargs) -> AbletonClient:
     return AbletonClient(socket_path=path, use_tcp=False, **kwargs)
 
 
 def test_client_round_trip_over_unix_socket(socket_path):
-    server = UnixScriptedServer(socket_path, ["serve"])
+    server = ScriptedServer.unix(socket_path, ["serve"])
     client = _unix_client(socket_path)
     try:
         assert client.send("hello") == {"echo": "hello"}
@@ -97,11 +51,25 @@ def test_client_round_trip_over_unix_socket(socket_path):
 
 
 def test_client_reconnects_once_over_unix_socket(socket_path):
-    server = UnixScriptedServer(socket_path, ["drop", "serve"])
+    server = ScriptedServer.unix(socket_path, ["drop", "serve"])
     client = _unix_client(socket_path)
     try:
         # Read-only command: eligible for the one reconnect-and-resend.
         assert client.send("get_tracks") == {"echo": "get_tracks"}
+    finally:
+        client.close()
+        server.close()
+
+
+def test_timeout_does_not_resend_over_unix(socket_path):
+    # Same no-resend rule test_client runs over TCP — recv timeout semantics
+    # are the one part of that rule the transport could plausibly change.
+    server = ScriptedServer.unix(socket_path, ["stall", "serve"])
+    client = _unix_client(socket_path, timeout=0.3)
+    try:
+        with pytest.raises(AbletonConnectionError, match="No response within"):
+            client.send("slow_thing")
+        assert len(server.requests_received) == 1
     finally:
         client.close()
         server.close()
@@ -113,27 +81,13 @@ def test_missing_socket_error_names_the_path(socket_path):
         client.send("anything")
 
 
-def _echo_registry() -> CommandRegistry:
-    registry = CommandRegistry()
-
-    @registry.register(
-        "echo",
-        params=[ParamSchema("value", ParamType.STRING)],
-        description="Echo a value",
-    )
-    def echo(ctx, value):
-        return {"echoed": value}
-
-    return registry
-
-
 @pytest.fixture()
 def unix_server(socket_path):
     srv = SocketServer(
         ImmediateControlSurface(),
         socket_path=socket_path,
         use_tcp=False,
-        registry=_echo_registry(),
+        registry=echo_registry(),
     )
     srv.start()
     yield srv, socket_path
@@ -167,7 +121,7 @@ def test_socket_server_replaces_stale_socket_file(socket_path):
         ImmediateControlSurface(),
         socket_path=socket_path,
         use_tcp=False,
-        registry=_echo_registry(),
+        registry=echo_registry(),
     )
     srv.start()
     try:

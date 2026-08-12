@@ -38,13 +38,21 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from control_surface.registry import NOTE_FIELD_DEFAULTS
 from control_surface.utils.pitch import pitch_to_midi, root_name_to_pitch_class
 
-from .notation import _parse_duration_token
+from .notation import _VELOCITY_RE as _SHORTHAND_V_RE
+from .notation import _parse_duration_token, _velocity_range_fields
 
 _PITCH_SEL_RE = re.compile(r"^([A-Ga-g][#b]{0,2}-?\d+)(?:-([A-Ga-g][#b]{0,2}-?\d+))?$")
 _TIME_SEL_RE = re.compile(r"^(\d+)\|(\*|\d+(?:\.\d+)?)(?:-(<)?(\d+)\|(\*|\d+(?:\.\d+)?))?$")
-_SHORTHAND_V_RE = re.compile(r"^v(\d+)(?:-(\d+))?$")
+
+# The two note fields the compact emission omits when default-valued — the
+# transform path must rehydrate them with Live's own defaults, single-sourced
+# from the registry's NOTE_FIELD_DEFAULTS.
+TRANSFORM_FIELD_DEFAULTS = {
+    k: NOTE_FIELD_DEFAULTS[k] for k in ("probability", "velocity_deviation")
+}
 _SHORTHAND_V_DELTA_RE = re.compile(r"^v([+-]\d+(?:\.\d+)?)$")
 _SHORTHAND_P_RE = re.compile(r"^p(\d*\.\d+|\d+)$")
 _SHORTHAND_P_DELTA_RE = re.compile(r"^p([+-]\d*\.?\d+)$")
@@ -507,8 +515,7 @@ _ASSIGN_RE = re.compile(
 
 
 def _apply_assignment(field: str, op: str, value: float, note: dict[str, Any]) -> None:
-    defaults = {"probability": 1.0, "velocity_deviation": 0.0}
-    current = float(note.get(field, defaults.get(field, 0.0)))
+    current = float(note.get(field, TRANSFORM_FIELD_DEFAULTS.get(field, 0.0)))
     if op == "=":
         result = value
     elif op == "+=":
@@ -685,10 +692,12 @@ def apply_transforms(
                 continue
             if field == "__range__":
                 range_match = _SHORTHAND_V_RE.match(expression)
-                low, high = sorted((int(range_match.group(1)), int(range_match.group(2))))
+                velocity, deviation = _velocity_range_fields(
+                    int(range_match.group(1)), int(range_match.group(2))
+                )
                 for note in matched:
-                    note["velocity"] = float(min(low, 127))
-                    note["velocity_deviation"] = float(min(high, 127) - min(low, 127))
+                    note["velocity"] = velocity
+                    note["velocity_deviation"] = deviation
                 continue
             env.count = len(matched)
             env.selection = sorted(matched, key=lambda n: n["start_time"])

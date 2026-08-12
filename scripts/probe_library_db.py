@@ -30,6 +30,18 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, errors="replace")
 FILES_DB_RE = re.compile(r"^Live-files-(\d+)\.db$")
 PLUGINS_DB_RE = re.compile(r"^Live-plugins-\d+\.db$")
 
+# Verified fact (run 1): full paths reconstruct by walking parent_id upward;
+# a root named like "X:" is a Windows drive. Used by two sections below.
+PATH_CHAIN_CTE = """
+WITH RECURSIVE chain(file_id, name, parent_id, depth) AS (
+    SELECT file_id, name, parent_id, 0 FROM files WHERE file_id = ?
+    UNION ALL
+    SELECT f.file_id, f.name, f.parent_id, chain.depth + 1
+    FROM files f JOIN chain ON f.file_id = chain.parent_id
+)
+SELECT name FROM chain ORDER BY depth DESC
+"""
+
 
 def default_db_dir() -> Path:
     if os.name == "nt":
@@ -138,17 +150,6 @@ def probe_schema(files_db: Path):
 @section("4. Path reconstruction via recursive CTE, verified on disk")
 def probe_paths(files_db: Path):
     conn = open_ro(files_db)
-    # Roadmap fact: full paths reconstruct by walking parent_id upward; a root
-    # named like "X:" is a Windows drive.
-    cte = """
-    WITH RECURSIVE chain(file_id, name, parent_id, depth) AS (
-        SELECT file_id, name, parent_id, 0 FROM files WHERE file_id = ?
-        UNION ALL
-        SELECT f.file_id, f.name, f.parent_id, chain.depth + 1
-        FROM files f JOIN chain ON f.file_id = chain.parent_id
-    )
-    SELECT name FROM chain ORDER BY depth DESC
-    """
     rows = conn.execute(
         "SELECT file_id, name FROM files WHERE name LIKE '%.wav' AND use_count > 0 LIMIT 5"
     ).fetchall()
@@ -158,7 +159,7 @@ def probe_paths(files_db: Path):
         ).fetchall()
     ok = 0
     for file_id, _name in rows:
-        parts = [r[0] for r in conn.execute(cte, (file_id,))]
+        parts = [r[0] for r in conn.execute(PATH_CHAIN_CTE, (file_id,))]
         path = join_parts(parts)
         exists = os.path.exists(path)
         ok += exists
@@ -338,15 +339,6 @@ def probe_seam(files_db: Path):
     conn = open_ro(files_db)
     # Print a few user-library and pack files with reconstructed paths; the
     # live round trip decides which folder kinds get browser guesses at all.
-    cte = """
-    WITH RECURSIVE chain(file_id, name, parent_id, depth) AS (
-        SELECT file_id, name, parent_id, 0 FROM files WHERE file_id = ?
-        UNION ALL
-        SELECT f.file_id, f.name, f.parent_id, chain.depth + 1
-        FROM files f JOIN chain ON f.file_id = chain.parent_id
-    )
-    SELECT name FROM chain ORDER BY depth DESC
-    """
     # Run 1: places has NO place_id column — it keys on file_id (each place IS
     # a files row; files.place_id points at that row).
     rows = conn.execute(
@@ -355,7 +347,7 @@ def probe_seam(files_db: Path):
         "WHERE f.use_count > 0 ORDER BY f.use_count DESC LIMIT 15"
     ).fetchall()
     for file_id, _name, place_name, folder_kind in rows:
-        parts = [r[0] for r in conn.execute(cte, (file_id,))]
+        parts = [r[0] for r in conn.execute(PATH_CHAIN_CTE, (file_id,))]
         print(f"  place={place_name!r:18} kind={folder_kind} {join_parts(parts)}")
     conn.close()
 

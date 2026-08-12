@@ -11,21 +11,13 @@ import control_surface.thread_marshal as thread_marshal
 from control_surface.errors import LiveAPIError, PartialApplyError
 from control_surface.registry import CommandRegistry, ParamSchema, ParamType
 from control_surface.socket_server import SocketServer
-from tests.helpers import ImmediateControlSurface, read_frame, write_frame
+from tests.helpers import ImmediateControlSurface, echo_registry, read_frame, write_frame
 
 EXECUTION_COUNTS = {"counter": 0}
 
 
 def build_test_registry() -> CommandRegistry:
-    registry = CommandRegistry()
-
-    @registry.register(
-        "echo",
-        params=[ParamSchema("value", ParamType.STRING)],
-        description="Echo a value",
-    )
-    def echo(ctx, value):
-        return {"echoed": value}
+    registry = echo_registry()
 
     @registry.register("count_executions")
     def count_executions(ctx):
