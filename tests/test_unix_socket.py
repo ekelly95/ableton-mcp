@@ -1,9 +1,8 @@
 """AF_UNIX transport: client, control-surface server, and the full pair.
 
-This code path had NEVER run before 2.6.0 (Windows-only development) — treat
-it as new code. These tests are skipped on Windows and run for real on the
-macOS CI job, which is the only machine that can execute them: a green macos
-run IS the macOS transport claim (no Mac hardware exists in-house).
+These tests are skipped where AF_UNIX is unavailable and run on the macOS CI
+job. They cover the transport in isolation; real-Live macOS verification is
+recorded in the architecture document and development record.
 """
 
 import socket

@@ -48,7 +48,7 @@ def load() -> dict:
 
 def save(config: dict) -> None:
     # Keep a copy of the last good version: this file also holds every other
-    # server ekelly95 has registered, and a bad write would take them all with it.
+    # MCP server registration, and a bad write would take them all with it.
     shutil.copy2(CONFIG, CONFIG.with_suffix(".json.bak"))
     CONFIG.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 

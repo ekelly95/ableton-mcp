@@ -1,18 +1,17 @@
-# Driving this bridge well — guidance for AI agents
+# Operating guidance for AI agents
 
 You (an AI agent, any MCP client) are controlling a real Ableton Live session
-that a human is watching. This file exists because two agents drove the same
-bridge in Aug 2026 and one used a fraction of its surface: everything below is
-either verified against real Live or learned from that comparison. Deeper
-design rationale and Live API facts: [docs/architecture.md](docs/architecture.md).
+that a human is watching. These instructions summarize operating practices
+verified against real Live. Deeper design rationale and Live API facts:
+[docs/architecture.md](docs/architecture.md).
 
 ## Ground rules
 
-- **Bridge first, always.** Never fall back to screenshots, window automation,
-  or synthetic keystrokes to reach something the bridge can't — the user has
-  explicitly vetoed screen puppeteering (it's disruptive to watch, brittle, and
-  this bridge exists to replace it). If the bridge can't do a thing, say so
-  plainly and name the exact manual step you need from the user.
+- **Use the bridge for Live control.** Never fall back to screenshots, window automation,
+  or synthetic keystrokes to reach something the bridge can't. Screen
+  automation is intentionally unsupported because it is disruptive to watch,
+  brittle, and contrary to the bridge's purpose. If the bridge can't do a
+  thing, say so plainly and name the exact manual step you need from the user.
 - Orient before acting: `get_session_overview` first, `get_bridge_status` when
   calls fail. Don't rebuild state you can read.
 - The user hears everything live. Stop the transport when you're done playing;
@@ -23,8 +22,8 @@ design rationale and Live API facts: [docs/architecture.md](docs/architecture.md
 - Load third-party plug-ins via the `plugins` browser root:
   `browse ['plugins']` → format (`VST`/`VST3`) → vendor → loadable item, then
   `load_item` with `track_index`. Verified working for Purity (VST2) and
-  Omnisphere (VST3). No more asking the user to drag plug-ins in.
-- **Patch/preset selection inside a plugin stays human.** Verified: these
+  Omnisphere (VST3); no manual drag step is needed.
+- **Patch/preset selection inside a plug-in remains manual.** These
   plug-ins publish no presets to Live's browser (children empty), and a fresh
   PluginDevice exposes only "Device On" until the user clicks Configure. So:
   pick the patch *name* yourself (read the plugin's own library files on disk
@@ -35,19 +34,19 @@ design rationale and Live API facts: [docs/architecture.md](docs/architecture.md
 
 ## Take lanes & deep device control (2.7, verified on real Live 12.4.3)
 
-- **Variations without timeline clutter:** `create_take_lane` (name it), then
-  `create_arrangement_clip`/`add_notes`/`transform_clip` with the SAME
+- **Take-lane variations:** `create_take_lane` (name it), then
+  `create_arrangement_clip`/`add_notes`/`transform_clip` with the same
   `take_lane_index` + `arrangement_clip_index` — indices count within the
-  lane. Lanes and their clips show up in `get_arrangement`. **Lanes cannot be
-  deleted, ever** (no API) — reuse before creating, cap is 8 per track, and a
-  lane clip can't be deleted either (it dies with its track). The user
-  auditions/comps lanes in Live's UI; you write into them.
-- **Simpler, EQ Eight, Drift go deeper than their parameter lists:**
+  lane. Lanes and their clips show up in `get_arrangement`. Live exposes no API
+  for deleting take lanes, so reuse them before creating more; the bridge caps
+  them at 8 per track. A lane clip also remains until its track is deleted. The
+  user auditions and comps lanes in Live's UI; the bridge writes into them.
+- **Simpler, EQ Eight, and Drift expose class-level controls:**
   `get_devices` with a device_index reports `class_properties` (Simpler's
   playback_mode/slicing modes/voices, EQ Eight's global_mode (Stereo|L/R|M/S)
   and oversample, Drift's voice mode/count and full mod matrix with Live's
   own choice labels) plus `class_methods`. Set them through
-  set_device_parameters by NAME with the label ("One-Shot", "M/S") or
+  set_device_parameters by name with the label ("One-Shot", "M/S") or
   true/false; run Simpler's sample ops via `invoke`:
   `[{method: "reverse"}]`, `[{method: "warp_as", beats: 4}]` — warp methods
   appear in class_methods only when their can_warp_* gate is true.
@@ -70,13 +69,13 @@ design rationale and Live API facts: [docs/architecture.md](docs/architecture.md
   target track). Samples always also work via `import_audio` with the
   result's absolute `path` (forward slashes are fine). Core Library hits
   carry no browser path (Live's browser arranges them by category, not disk
-  layout) — for those, search gave you the exact NAME, so load native
+  layout) — for those, search gives the exact name, so load native
   presets via `insert_device`/browse by name, or ask the user.
 - A `staleness` field on results means Live has database writes not yet
   visible to the search — very recent additions may be missing; everything
   else is current.
 
-## Token economy (2.5) — how to not burn the user's usage
+## Reducing model usage (2.5)
 
 - **Write notes as notation, not JSON.** `add_notes` takes a `notation` string:
   stateful prefixes (`v100` velocity / `v90-110` range, `n/16` duration with
@@ -95,11 +94,11 @@ design rationale and Live API facts: [docs/architecture.md](docs/architecture.md
   `swing`, `quant`, `legato`, `snap(C,Eb,G)`, `rand`/`choose` (pass `seed` for
   reproducibility), and note ops `ratchet`/`repeat`/`merge`. The same language
   is available inline via `transforms` on `add_notes`.
-- **Reads omit noise by default:** session overview skips empty clip slots and
+- **Reads omit default-valued fields:** session overview skips empty clip slots and
   sends (flags bring them back); device/note fields at their defaults are
   simply absent — absent = default, never "unknown".
 
-## The arrangement playbook (proven in production)
+## Verified arrangement workflow
 
 Work Session view → Arrangement, in this order:
 
@@ -113,12 +112,12 @@ Work Session view → Arrangement, in this order:
    versions. Name clips by section: "HOOK — Cedar Full", "VERSE — 808 Sparse".
 4. **Clip envelopes for dynamics** (`set_clip_envelope`, session clips only):
    volume rises into hooks, fades out of outros.
-5. **Stamp the timeline:** `place_clip_in_arrangement` per your section map —
-   a 3–4 minute song is ~60–80 placements, that's normal.
+5. **Stamp the timeline:** `place_clip_in_arrangement` per your section map.
+   A 3–4 minute song commonly requires about 60–80 placements.
 6. **Drop a locator at every section** (`create_locator`: "INTRO", "HOOK 1",
-   "BRIDGE"…). Transport must be STOPPED. Locators are how the user navigates
+   "BRIDGE"…). Transport must be stopped. Locators are how the user navigates
    what you built.
-7. **Revise by listening, not assuming:** `transport_control` play at each
+7. **Verify section transitions:** use `transport_control` to play at each
    section boundary, sample `get_audio_levels` (≤10 s per call) or
    `get_track_meters`, then `get_arrangement` → `delete_arrangement_clip`
    (always pass `expected_start_time`) → re-place a different variant.
@@ -126,7 +125,7 @@ Work Session view → Arrangement, in this order:
    if `back_to_arranger` is true, Session clips will render instead of the
    song. Clear it via `set_transport`.
 
-## Hard limits (verified — don't rediscover these)
+## Verified limitations
 
 - Device tools reach master and return chains since 2.8: pass
   `track_type: "master"` (no track_index) or `"return"` to get_devices /
@@ -140,12 +139,12 @@ Work Session view → Arrangement, in this order:
 - Arrangement clip indices are positional and go stale on any change —
   re-read `get_arrangement` before touching them.
 - `load_item` on a `.mid` file ignores `track_index` (known bug — it lands on
-  a new track at the end; the result's `onto_track` names it). Recovery both
-  agents used successfully: keep the auto-created track, delete your empty
-  placeholder, rename. And DO load kit MIDI as the real file — never re-type
-  a kit's notes from a disk parse; edit the imported clip in place instead.
+  a new track at the end; the result's `onto_track` names it). Recovery: keep
+  the auto-created track, delete the empty placeholder, and rename the imported
+  track. Load kit MIDI from the original file rather than recreating its notes
+  from a disk parse; edit the imported clip in place.
 - Pitch convention: **C3 = 60** (Ableton), everywhere.
 - `get_audio_levels` needs the optional M4L tap on the Main track; max 10 s
   per sample. Without it, `get_track_meters` still answers "is it sounding?".
-- One MCP client at a time, serially, by design
+- The bridge serves one MCP client at a time, serially
   (`scripts/toggle_desktop_client.py` flips Claude Desktop's registration).

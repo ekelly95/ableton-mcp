@@ -16,9 +16,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # macOS is in the matrix because it is the only machine that executes
-        # the AF_UNIX transport paths (client and control surface) — no Mac
-        # hardware exists in-house, so a green macos job is the macOS claim.
+        # The macOS job exercises the AF_UNIX client and control-surface paths;
+        # the separate real-Live checkpoint covers Apple Silicon hardware.
         os: [windows-latest, macos-latest]
         # 3.11 included because it is the interpreter Live embeds for the
         # control surface — the one version the shipped code must run on.

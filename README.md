@@ -8,21 +8,18 @@ builds it in your Live session while you watch. Works with any MCP client:
 Claude Desktop, Claude Code, Codex, or anything else that speaks the Model
 Context Protocol over stdio.
 
-What sets this bridge apart from the other Ableton MCP projects (see
-[Alternatives](#alternatives)): the agent can **read back the MIDI it wrote**
-(stable note IDs, surgical edits), **draw and read real automation envelopes**,
-**load third-party VST/VST3 plug-ins**, and — uniquely — **hear the result**
-(per-track meters, plus optional calibrated loudness/spectrum metering). It
-runs on **any Live edition with no Max for Live required**, and it's MIT
-licensed. Trade-offs, stated plainly: one MCP client at a time, and
-installation is git-clone rather than one-click.
+The bridge focuses on **stable MIDI readback and precise edits**, **clip
+automation envelopes**, **loading third-party VST/VST3 plug-ins**, and
+**audio-level feedback** through per-track meters and an optional calibrated
+loudness/spectrum meter. It runs on **any Live edition** — Intro, Standard or
+Suite — the core bridge needs no Max for Live, and it is MIT licensed. Current
+limitations: it serves one MCP client at a time, and installation requires a
+local checkout.
 
 **Status: experimental, verified on both platforms.** Windows: end-to-end
 against Ableton Live 12.4.3 on Windows 11. macOS: full 42-step live checkpoint
 passed against Live 12.4.3 (Trial) on an Apple Silicon Mac mini running macOS
-Tahoe 26.6 (2026-08-12), over the Unix-socket transport the Mac build uses.
-Works with **any Live edition** — Intro, Standard, or Suite; no Max for Live
-required.
+Tahoe 26.6.1 (2026-08-12), over the Unix-socket transport the Mac build uses.
 
 ## What the AI can do with it
 
@@ -45,17 +42,17 @@ by **sonic similarity** to a reference using Live's own audio analysis (2.6);
 turn any device knob with its human-readable choices visible; read every
 track's output meters (core API — is it making sound, how loud?); control
 tempo, loop, metronome, playback and (via its own guarded tool) arrangement
-recording; and optionally *hear* the result properly (next section).
+recording; and inspect calibrated audio levels with the optional device below.
 
-## Optional: audio ears (Suite / Max for Live only)
+## Optional audio metering (needs Max for Live)
 
-The `get_audio_levels` tool lets the AI *hear* the set — stereo loudness and
-peaks in dBFS (anti-phase safe), a latched clipping flag, and a 10-band
-octave picture (31 Hz–16 kHz) — via the "AbletonMCP Tap" Max for Live device
-on the Main track. Build-once instructions: [m4l/README-lab.md](m4l/README-lab.md).
-Without the device the tool simply reports `available: false`; everything
-else works on any Live edition (get_track_meters covers coarse level checks
-without M4L).
+The `get_audio_levels` tool reports stereo loudness and peaks in dBFS
+(anti-phase safe), a latched clipping flag, and a 10-band octave view
+(31 Hz–16 kHz) from the "AbletonMCP Tap" Max for Live device on the Main
+track — so Suite, or Standard with the Max for Live add-on. It provides
+measurements rather than streamed audio. Setup instructions:
+[m4l/README-lab.md](m4l/README-lab.md). Without the device, the tool reports
+`available: false`; `get_track_meters` still provides coarse level checks.
 
 ## How it works
 
@@ -79,7 +76,7 @@ older versions).
 ```bash
 git clone https://github.com/ekelly95/ableton-mcp.git && cd ableton-mcp
 uv venv
-uv pip install -e ".[dev]"
+uv pip install -e .
 .venv/Scripts/python.exe scripts/install_control_surface.py
 ```
 
@@ -115,9 +112,9 @@ command = 'C:\path\to\ableton-mcp\.venv\Scripts\ableton-mcp.exe'
 startup_timeout_sec = 30
 ```
 
-Run only ONE MCP client against it at a time (the bridge serves one client,
-serially, on purpose). `scripts/toggle_desktop_client.py on|off` flips Claude
-Desktop's registration so switching between Desktop and Codex is one command.
+Run one MCP client against it at a time; the bridge processes a single serial
+connection. `scripts/toggle_desktop_client.py on|off` changes Claude Desktop's
+registration so switching between Desktop and Codex is one command.
 
 ## Health check
 
@@ -133,6 +130,7 @@ surface isn't enabled in Preferences.
 ## Development
 
 ```bash
+uv pip install -e ".[dev]"
 .venv/Scripts/python.exe -m pytest
 ```
 
@@ -141,30 +139,6 @@ encoding real-Live behaviour verified on 12.4.3 with provenance comments.
 `scripts/live_checkpoint.py` re-verifies the full surface against a running
 Live and leaves an audible "MCP Test" track behind. Generated samples go in
 `samples/` (override with `ABLETON_MCP_SAMPLES_DIR`).
-
-## Alternatives
-
-Three other projects connect AI agents to Ableton Live, each with a different
-center of gravity — credit to all of them for mapping this space:
-
-- **[producer-pal](https://github.com/adamjmurray/producer-pal)** — the most
-  polished of the field: a compact bar|beat music notation, a note-transform
-  language, take lanes, deep APIs for ten native devices, excellent docs and
-  one-click install. It runs entirely inside a Max for Live device, so it
-  needs Live 12.3+ *with* Max for Live (Suite or the paid add-on), and it's
-  GPL-3.0. By its own docs it has no automation/clip-envelope support, can't
-  instantiate third-party plug-ins, and has no audio metering — the three
-  areas this bridge focuses on.
-- **[ahujasid/ableton-mcp](https://github.com/ahujasid/ableton-mcp)** — the
-  original and by far the most popular. A simple ~22-tool surface with an easy
-  uvx install; a good first taste of the idea.
-- **[uisato/ableton-mcp-extended](https://github.com/uisato/ableton-mcp-extended)** —
-  same remote-script architecture as this project, adds rack/drum-pad
-  introspection and a bundled ElevenLabs server. MIDI is write-only (no
-  reading notes back) and automation support is limited.
-
-If you want an agent that can revise what it wrote, automate parameters, load
-your plug-ins, and check its own mix — that's this project's lane.
 
 ## Support expectations
 
