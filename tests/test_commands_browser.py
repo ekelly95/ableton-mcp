@@ -71,7 +71,7 @@ def test_load_item_plugin(registry, ctx, song):
     assert [d.name for d in song.tracks[1].devices] == ["Omnisphere"]
 
 
-def test_load_item_plugin_preset(registry, ctx, song):
+def test_load_item_plugin_preset(registry, ctx):
     result = run_command(
         registry,
         ctx,

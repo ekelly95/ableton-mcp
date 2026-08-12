@@ -12,6 +12,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Ruff's verdict is platform- and interpreter-independent (target-version
+  # is pinned in pyproject), so lint runs once instead of on all four legs.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+
   pytest:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -29,5 +42,3 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: pytest
-      - run: ruff check .
-      - run: ruff format --check .

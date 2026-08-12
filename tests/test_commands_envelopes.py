@@ -32,7 +32,7 @@ def unwarped_audio_track_index(song) -> int:
 
 
 class TestSetAndGet:
-    def test_device_parameter_round_trip(self, registry, ctx, song, with_clip_and_device):
+    def test_device_parameter_round_trip(self, registry, ctx, with_clip_and_device):
         result = run_command(
             registry,
             ctx,
@@ -61,7 +61,7 @@ class TestSetAndGet:
         times = [p["time"] for p in read["points"]]
         assert times == [0.0, 1.0, 2.0, 3.0, 4.0]
 
-    def test_mixer_volume_envelope(self, registry, ctx, song, with_clip_and_device):
+    def test_mixer_volume_envelope(self, registry, ctx, with_clip_and_device):
         run_command(
             registry,
             ctx,
@@ -83,7 +83,7 @@ class TestSetAndGet:
         assert read["exists"] is True
         assert [p["value"] for p in read["points"]] == [0.85, 0.0, 0.0]
 
-    def test_pan_envelope_denormalizes(self, registry, ctx, song, with_clip_and_device):
+    def test_pan_envelope_denormalizes(self, registry, ctx, with_clip_and_device):
         # pan native range is -1..1; normalized 0.5 = center = native 0.0
         run_command(
             registry,
@@ -106,7 +106,7 @@ class TestSetAndGet:
         assert read["points"][0]["native_value"] == 0.0
         assert read["points"][0]["value"] == 0.5
 
-    def test_absent_envelope_reports_not_exists(self, registry, ctx, song, with_clip_and_device):
+    def test_absent_envelope_reports_not_exists(self, registry, ctx, with_clip_and_device):
         read = run_command(
             registry,
             ctx,
@@ -165,7 +165,7 @@ class TestSetAndGet:
         assert arr_clip.automation_envelope(object()) is None
 
     def test_unwarped_audio_rejected_for_set_and_get(
-        self, registry, ctx, song, unwarped_audio_track_index
+        self, registry, ctx, unwarped_audio_track_index
     ):
         # Unwarped audio: loop bounds in SECONDS, clip.length undefined (LOM).
         with pytest.raises(ValidationError, match="[Ww]arp"):
@@ -188,9 +188,7 @@ class TestSetAndGet:
                 mixer_parameter="volume",
             )
 
-    def test_unwarped_audio_clear_still_allowed(
-        self, registry, ctx, song, unwarped_audio_track_index
-    ):
+    def test_unwarped_audio_clear_still_allowed(self, registry, ctx, unwarped_audio_track_index):
         # Clearing does no time arithmetic — cleanup must stay possible.
         result = run_command(
             registry,
@@ -201,9 +199,7 @@ class TestSetAndGet:
         )
         assert result == {"cleared": "all"}
 
-    def test_warped_audio_clip_accepts_envelopes(
-        self, registry, ctx, song, unwarped_audio_track_index
-    ):
+    def test_warped_audio_clip_accepts_envelopes(self, registry, ctx, unwarped_audio_track_index):
         run_command(
             registry,
             ctx,
@@ -225,7 +221,7 @@ class TestSetAndGet:
 
 
 class TestValidation:
-    def test_target_xor_enforced(self, registry, ctx, song, with_clip_and_device):
+    def test_target_xor_enforced(self, registry, ctx, with_clip_and_device):
         with pytest.raises(ValidationError, match="exactly one target"):
             run_command(
                 registry,
@@ -248,7 +244,7 @@ class TestValidation:
                 points=RAMP,
             )
 
-    def test_device_target_needs_both_halves(self, registry, ctx, song, with_clip_and_device):
+    def test_device_target_needs_both_halves(self, registry, ctx, with_clip_and_device):
         with pytest.raises(ValidationError, match="BOTH device_index and parameter"):
             run_command(
                 registry,
@@ -260,7 +256,7 @@ class TestValidation:
                 points=RAMP,
             )
 
-    def test_unknown_parameter_lists_available(self, registry, ctx, song, with_clip_and_device):
+    def test_unknown_parameter_lists_available(self, registry, ctx, with_clip_and_device):
         with pytest.raises(LiveAPIError, match="Available"):
             run_command(
                 registry,
@@ -273,7 +269,7 @@ class TestValidation:
                 points=RAMP,
             )
 
-    def test_empty_points_rejected(self, registry, ctx, song, with_clip_and_device):
+    def test_empty_points_rejected(self, registry, ctx, with_clip_and_device):
         with pytest.raises(ValidationError, match="at least one"):
             run_command(
                 registry,
@@ -286,7 +282,7 @@ class TestValidation:
                 points=[],
             )
 
-    def test_point_beyond_clip_length_rejected(self, registry, ctx, song, with_clip_and_device):
+    def test_point_beyond_clip_length_rejected(self, registry, ctx, with_clip_and_device):
         # Previously time=1000 on a 4-beat clip was silently written as a
         # 0.01-beat step and counted as a success.
         with pytest.raises(ValidationError, match="beyond the clip's length"):
@@ -304,7 +300,7 @@ class TestValidation:
         assert not with_clip_and_device.has_envelopes
 
     def test_invalid_points_never_destroy_existing_envelope(
-        self, registry, ctx, song, with_clip_and_device
+        self, registry, ctx, with_clip_and_device
     ):
         # THE destructive-edge regression: with clear_first=true (the default),
         # a failing request must not wipe the envelope it meant to replace.
@@ -344,7 +340,7 @@ class TestValidation:
 
 
 class TestClear:
-    def test_clear_one_parameter(self, registry, ctx, song, with_clip_and_device):
+    def test_clear_one_parameter(self, registry, ctx, with_clip_and_device):
         run_command(
             registry,
             ctx,
@@ -376,7 +372,7 @@ class TestClear:
         )
         assert read["exists"] is False
 
-    def test_clear_all(self, registry, ctx, song, with_clip_and_device):
+    def test_clear_all(self, registry, ctx, with_clip_and_device):
         run_command(
             registry,
             ctx,
@@ -406,7 +402,7 @@ class TestClear:
 
 
 class TestOverwrite:
-    def test_clear_first_replaces(self, registry, ctx, song, with_clip_and_device):
+    def test_clear_first_replaces(self, registry, ctx, with_clip_and_device):
         run_command(
             registry,
             ctx,
@@ -440,7 +436,7 @@ class TestOverwrite:
         assert [p["value"] for p in read["points"]] == [0.2, 0.2, 0.2]
 
     def test_clear_first_recreates_envelope_never_reuses_handle(
-        self, registry, ctx, song, with_clip_and_device
+        self, registry, ctx, with_clip_and_device
     ):
         # clear_envelope may invalidate a held envelope object on real Live
         # (unprobed) — the handler must re-fetch after clearing, never write

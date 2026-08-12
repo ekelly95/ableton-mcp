@@ -420,7 +420,7 @@ def test_drift_indexed_properties_read_runtime_lists(registry, ctx, with_drift):
     assert with_drift.mod_matrix_lfo_source_index == 3
 
 
-def test_inserted_native_devices_get_class_mocks(registry, ctx, song):
+def test_inserted_native_devices_get_class_mocks(registry, ctx):
     run_command(registry, ctx, "insert_device", track_index=0, device_name="Simpler")
     result = run_command(registry, ctx, "get_devices", track_index=0, device_index=0)
     assert result["device"]["class_name"] == "OriginalSimpler"

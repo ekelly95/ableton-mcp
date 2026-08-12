@@ -76,6 +76,14 @@ class TestEndToEnd:
             assert "get_session_overview" in names
             assert "add_notes" in names
 
+    async def test_tool_count_matches_readme(self):
+        # Guards the README's "46 tools" headline — a feature round that adds
+        # tools must update both this number and the README sentence.
+        async with await self._session(FakeAbletonClient()) as session:
+            result = await session.list_tools()
+            names = [t.name for t in result.tools]
+            assert len(names) == len(set(names)) == 46
+
     async def test_optional_capability_probes_answer_instead_of_erroring(self):
         """Codex asks every server for resources, resource templates and prompts
         at startup and reads a -32601 refusal as the server failing to start, so

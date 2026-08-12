@@ -27,7 +27,7 @@ class TestClips:
         assert result["length"] == 8.0
         assert song.tracks[0].clip_slots[1].has_clip
 
-    def test_create_clip_occupied_slot(self, registry, ctx, song, with_clip):
+    def test_create_clip_occupied_slot(self, registry, ctx, with_clip):
         with pytest.raises(LiveAPIError, match="already has a clip"):
             run_command(registry, ctx, "create_clip", track_index=0, slot_index=0, length_beats=4.0)
 
@@ -37,7 +37,7 @@ class TestClips:
         with pytest.raises(LiveAPIError, match="not a MIDI track"):
             run_command(registry, ctx, "create_clip", track_index=1, slot_index=0, length_beats=4.0)
 
-    def test_set_clip(self, registry, ctx, song, with_clip):
+    def test_set_clip(self, registry, ctx, with_clip):
         result = run_command(
             registry,
             ctx,
@@ -53,7 +53,7 @@ class TestClips:
         assert with_clip.loop_end == 2.0
         assert result["name"] == "Verse"
 
-    def test_set_clip_rejects_inverted_loop_bounds(self, registry, ctx, song, with_clip):
+    def test_set_clip_rejects_inverted_loop_bounds(self, registry, ctx, with_clip):
         original_name = with_clip.name
         with pytest.raises(ValidationError, match="loop_start must be < loop_end"):
             run_command(
@@ -69,7 +69,7 @@ class TestClips:
         # Cross-field validation runs before ANY write — the rename didn't land.
         assert with_clip.name == original_name
 
-    def test_set_clip_rejects_start_beyond_existing_end(self, registry, ctx, song, with_clip):
+    def test_set_clip_rejects_start_beyond_existing_end(self, registry, ctx, with_clip):
         # Only loop_start given: it must be checked against the CURRENT end.
         with pytest.raises(ValidationError, match="effective"):
             run_command(
@@ -81,7 +81,7 @@ class TestClips:
                 loop_start=with_clip.loop_end + 4.0,
             )
 
-    def test_set_clip_moves_loop_window_forward(self, registry, ctx, song, with_clip):
+    def test_set_clip_moves_loop_window_forward(self, registry, ctx, with_clip):
         # New window entirely beyond the old one forces the end-first write
         # order (start-first would transiently invert the pair).
         run_command(
@@ -96,7 +96,7 @@ class TestClips:
         assert with_clip.loop_start == 8.0
         assert with_clip.loop_end == 12.0
 
-    def test_set_clip_warping_rejected_on_midi_clip(self, registry, ctx, song, with_clip):
+    def test_set_clip_warping_rejected_on_midi_clip(self, registry, ctx, with_clip):
         with pytest.raises(ValidationError, match="audio clips only"):
             run_command(registry, ctx, "set_clip", track_index=0, slot_index=0, warping=False)
 
@@ -118,7 +118,7 @@ class TestClips:
         copy = song.tracks[0].clip_slots[1].clip
         assert copy.name == "Original"
 
-    def test_duplicate_clip_next_occupied(self, registry, ctx, song, with_clip):
+    def test_duplicate_clip_next_occupied(self, registry, ctx, with_clip):
         run_command(registry, ctx, "create_clip", track_index=0, slot_index=1, length_beats=4.0)
         with pytest.raises(LiveAPIError, match="occupied"):
             run_command(registry, ctx, "duplicate_clip", track_index=0, slot_index=0)
@@ -127,19 +127,19 @@ class TestClips:
         run_command(registry, ctx, "delete_clip", track_index=0, slot_index=0)
         assert not song.tracks[0].clip_slots[0].has_clip
 
-    def test_launch_and_stop(self, registry, ctx, song, with_clip):
+    def test_launch_and_stop(self, registry, ctx, with_clip):
         run_command(registry, ctx, "launch_clip", track_index=0, slot_index=0)
         assert with_clip.is_playing
         run_command(registry, ctx, "stop_clips", track_index=0)
         assert not with_clip.is_playing
 
-    def test_stop_all_clips(self, registry, ctx, song, with_clip):
+    def test_stop_all_clips(self, registry, ctx, with_clip):
         run_command(registry, ctx, "launch_clip", track_index=0, slot_index=0)
         result = run_command(registry, ctx, "stop_clips")
         assert result["stopped"] == "all"
         assert not with_clip.is_playing
 
-    def test_get_clips(self, registry, ctx, song, with_clip):
+    def test_get_clips(self, registry, ctx, with_clip):
         result = run_command(registry, ctx, "get_clips")
         assert len(result["tracks"]) == 2
         assert result["tracks"][0]["clip_slots"][0]["has_clip"] is True
@@ -157,7 +157,7 @@ class TestScenes:
         assert result["scene_count"] == 5
         assert len(song.tracks[0].clip_slots) == 5
 
-    def test_create_scene_at_index(self, registry, ctx, song):
+    def test_create_scene_at_index(self, registry, ctx):
         result = run_command(registry, ctx, "create_scene", index=0)
         assert result["scene_index"] == 0
 
@@ -168,7 +168,7 @@ class TestScenes:
 
 
 class TestNotes:
-    def test_add_and_get_notes(self, registry, ctx, song, with_clip):
+    def test_add_and_get_notes(self, registry, ctx, with_clip):
         result = run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
         assert result == {"added": 3, "note_count": 3}
 
@@ -185,7 +185,7 @@ class TestNotes:
         third = read["notes"][2]
         assert third["probability"] == 0.75
 
-    def test_note_ids_stable_across_reads(self, registry, ctx, song, with_clip):
+    def test_note_ids_stable_across_reads(self, registry, ctx, with_clip):
         run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
         ids_a = [
             n["note_id"]
@@ -197,7 +197,7 @@ class TestNotes:
         ]
         assert ids_a == ids_b
 
-    def test_get_notes_region(self, registry, ctx, song, with_clip):
+    def test_get_notes_region(self, registry, ctx, with_clip):
         run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
         read = run_command(
             registry,
@@ -211,7 +211,7 @@ class TestNotes:
         assert read["note_count"] == 1
         assert read["notes"][0]["pitch"] == 64
 
-    def test_update_notes_by_id(self, registry, ctx, song, with_clip):
+    def test_update_notes_by_id(self, registry, ctx, with_clip):
         run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
         notes = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]
         target = notes[1]
@@ -233,7 +233,7 @@ class TestNotes:
         untouched = next(n for n in reread if n["note_id"] == notes[0]["note_id"])
         assert untouched["pitch"] == 60
 
-    def test_update_notes_unknown_id(self, registry, ctx, song, with_clip):
+    def test_update_notes_unknown_id(self, registry, ctx, with_clip):
         run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
         with pytest.raises(LiveAPIError, match="Unknown note_ids"):
             run_command(
@@ -245,7 +245,7 @@ class TestNotes:
                 modifications=[{"note_id": 999999, "velocity": 45}],
             )
 
-    def test_remove_notes_by_id(self, registry, ctx, song, with_clip):
+    def test_remove_notes_by_id(self, registry, ctx, with_clip):
         run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
         notes = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]
         result = run_command(
@@ -258,7 +258,7 @@ class TestNotes:
         )
         assert result["note_count"] == 2
 
-    def test_remove_notes_by_region(self, registry, ctx, song, with_clip):
+    def test_remove_notes_by_region(self, registry, ctx, with_clip):
         run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
         result = run_command(
             registry,
@@ -271,18 +271,18 @@ class TestNotes:
         )
         assert result["note_count"] == 1
 
-    def test_remove_notes_requires_selector(self, registry, ctx, song, with_clip):
+    def test_remove_notes_requires_selector(self, registry, ctx, with_clip):
         with pytest.raises(LiveAPIError, match="Provide note_ids or a region"):
             run_command(registry, ctx, "remove_notes", track_index=0, slot_index=0)
 
-    def test_notes_on_audio_clip_rejected(self, registry, ctx, song, with_clip):
+    def test_notes_on_audio_clip_rejected(self, registry, ctx, with_clip):
         with_clip.is_midi_clip = False
         with pytest.raises(LiveAPIError, match="not a MIDI clip"):
             run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)
 
 
 class TestSessionOverview:
-    def test_overview_shape(self, registry, ctx, song, with_clip):
+    def test_overview_shape(self, registry, ctx, with_clip):
         result = run_command(registry, ctx, "get_session_overview")
         assert result["transport"]["tempo"] == 120.0
         assert len(result["tracks"]) == 2

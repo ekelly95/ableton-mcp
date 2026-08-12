@@ -36,7 +36,7 @@ def wav_file(tmp_path) -> Path:
 
 
 class TestScale:
-    def test_scale_in_transport_state(self, registry, ctx, song):
+    def test_scale_in_transport_state(self, registry, ctx):
         state = run_command(registry, ctx, "get_transport_state")
         assert state["scale"] == {
             "root": "C",
@@ -59,13 +59,13 @@ class TestScale:
         run_command(registry, ctx, "set_transport", scale_root=7)
         assert song.root_note == 7
 
-    def test_invalid_scale_name_surfaces(self, registry, ctx, song):
+    def test_invalid_scale_name_surfaces(self, registry, ctx):
         with pytest.raises(LiveAPIError, match="rejected scale name"):
             run_command(registry, ctx, "set_transport", scale_name="Klingon Phrygian")
 
 
 class TestTimelineOverrideFlags:
-    def test_back_to_arranger_flag(self, registry, ctx, song):
+    def test_back_to_arranger_flag(self, registry, ctx):
         state = run_command(registry, ctx, "set_transport", back_to_arranger=False)
         assert state["back_to_arranger"] is False
 
@@ -81,7 +81,7 @@ class TestTimelineOverrideFlags:
 
 
 class TestPitchNamesInNotes:
-    def test_add_notes_with_names(self, registry, ctx, song, with_session_clip):
+    def test_add_notes_with_names(self, registry, ctx, with_session_clip):
         notes = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]
         pitches = sorted(n["pitch"] for n in notes)
         # Ableton convention: C3=60, Eb3=63 (NOT 48/51 — that's the C4=60 world)
@@ -90,7 +90,7 @@ class TestPitchNamesInNotes:
         assert by_pitch[60] == "C3"
         assert by_pitch[63] == "D#3"
 
-    def test_update_note_pitch_by_name(self, registry, ctx, song, with_session_clip):
+    def test_update_note_pitch_by_name(self, registry, ctx, with_session_clip):
         notes = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]
         target = notes[0]
         run_command(
@@ -106,7 +106,7 @@ class TestPitchNamesInNotes:
         assert edited["pitch"] == 69
         assert edited["pitch_name"] == "A3"
 
-    def test_bad_name_is_validation_error(self, registry, ctx, song, with_session_clip):
+    def test_bad_name_is_validation_error(self, registry, ctx, with_session_clip):
         with pytest.raises(ValidationError, match="Cannot parse pitch"):
             run_command(
                 registry,
@@ -119,7 +119,7 @@ class TestPitchNamesInNotes:
 
 
 class TestArrangement:
-    def test_place_clip(self, registry, ctx, song, with_session_clip):
+    def test_place_clip(self, registry, ctx, with_session_clip):
         result = run_command(
             registry,
             ctx,
@@ -137,7 +137,7 @@ class TestArrangement:
         assert "arrangement_clips" not in result  # write path returns count, never the full list
         assert "back_to_arranger" in result
 
-    def test_placed_clips_are_time_ordered(self, registry, ctx, song, with_session_clip):
+    def test_placed_clips_are_time_ordered(self, registry, ctx, with_session_clip):
         run_command(
             registry,
             ctx,
@@ -158,7 +158,7 @@ class TestArrangement:
         starts = [c["start_time"] for c in arrangement["tracks"][0]["arrangement_clips"]]
         assert starts == [0.0, 16.0]
 
-    def test_edit_notes_in_arrangement_clip(self, registry, ctx, song, with_session_clip):
+    def test_edit_notes_in_arrangement_clip(self, registry, ctx, with_session_clip):
         run_command(
             registry,
             ctx,
@@ -184,7 +184,7 @@ class TestArrangement:
         ]
         assert all(n["velocity"] != 33 for n in session_notes), "session copy must be untouched"
 
-    def test_xor_addressing_enforced(self, registry, ctx, song, with_session_clip):
+    def test_xor_addressing_enforced(self, registry, ctx, with_session_clip):
         with pytest.raises(ValidationError, match="exactly one"):
             run_command(registry, ctx, "get_notes", track_index=0)
         with pytest.raises(ValidationError, match="exactly one"):
@@ -192,7 +192,7 @@ class TestArrangement:
                 registry, ctx, "get_notes", track_index=0, slot_index=0, arrangement_clip_index=0
             )
 
-    def test_delete_with_guard(self, registry, ctx, song, with_session_clip):
+    def test_delete_with_guard(self, registry, ctx, with_session_clip):
         run_command(
             registry,
             ctx,
@@ -220,7 +220,7 @@ class TestArrangement:
         )
         assert result["remaining"] == 0
 
-    def test_delete_guard_is_mandatory(self, registry, ctx, song, with_session_clip):
+    def test_delete_guard_is_mandatory(self, registry, ctx, with_session_clip):
         run_command(
             registry,
             ctx,
@@ -238,7 +238,7 @@ class TestArrangement:
                 arrangement_clip_index=0,
             )
 
-    def test_create_arrangement_clip_direct(self, registry, ctx, song):
+    def test_create_arrangement_clip_direct(self, registry, ctx):
         result = run_command(
             registry,
             ctx,
@@ -315,7 +315,7 @@ class TestArrangement:
         second = run_command(registry, ctx, "create_locator", time=32.0, name="Chorus")
         assert second["locator"] == {"name": "Chorus", "time": 32.0}
 
-    def test_locator_create_and_collision(self, registry, ctx, song):
+    def test_locator_create_and_collision(self, registry, ctx):
         result = self._create_locator(registry, ctx, time=32.0, name="Chorus")
         assert result["locator"] == {"name": "Chorus", "time": 32.0}
         with pytest.raises(LiveAPIError, match="already exists"):
@@ -329,7 +329,7 @@ class TestImportAudio:
     def audio_track(self, registry, ctx, song) -> int:
         return run_command(registry, ctx, "create_track", type="audio")["track_index"]
 
-    def test_import_onto_audio_track(self, registry, ctx, song, wav_file, audio_track):
+    def test_import_onto_audio_track(self, registry, ctx, wav_file, audio_track):
         result = run_command(
             registry,
             ctx,
@@ -342,7 +342,7 @@ class TestImportAudio:
         assert result["imported"]["is_midi_clip"] is False
         assert result["imported"]["start_time"] == 8.0
 
-    def test_relative_path_rejected(self, registry, ctx, song, audio_track):
+    def test_relative_path_rejected(self, registry, ctx, audio_track):
         with pytest.raises(LiveAPIError, match="ABSOLUTE"):
             run_command(
                 registry,
@@ -353,7 +353,7 @@ class TestImportAudio:
                 position=0.0,
             )
 
-    def test_missing_file_rejected(self, registry, ctx, song, tmp_path, audio_track):
+    def test_missing_file_rejected(self, registry, ctx, tmp_path, audio_track):
         # tmp_path keeps this absolute on every platform — r"C:\..." is not
         # absolute on POSIX and trips the ABSOLUTE guard instead (macOS CI).
         with pytest.raises(LiveAPIError, match="not found"):
@@ -366,7 +366,7 @@ class TestImportAudio:
                 position=0.0,
             )
 
-    def test_bad_extension_rejected(self, registry, ctx, song, tmp_path, audio_track):
+    def test_bad_extension_rejected(self, registry, ctx, tmp_path, audio_track):
         bad = tmp_path / "notes.txt"
         bad.write_text("not audio")
         with pytest.raises(LiveAPIError, match="Unsupported extension"):
@@ -379,7 +379,7 @@ class TestImportAudio:
                 position=0.0,
             )
 
-    def test_midi_track_rejected(self, registry, ctx, song, wav_file):
+    def test_midi_track_rejected(self, registry, ctx, wav_file):
         with pytest.raises(LiveAPIError, match="audio track"):
             run_command(
                 registry,
@@ -402,7 +402,7 @@ class TestImportAudio:
         assert result["imported"]["view"] == "session"
         assert song.tracks[audio_track].clip_slots[0].has_clip
 
-    def test_session_import_occupied_slot(self, registry, ctx, song, wav_file, audio_track):
+    def test_session_import_occupied_slot(self, registry, ctx, wav_file, audio_track):
         run_command(
             registry,
             ctx,
@@ -421,7 +421,7 @@ class TestImportAudio:
                 slot_index=0,
             )
 
-    def test_import_xor_enforced(self, registry, ctx, song, wav_file, audio_track):
+    def test_import_xor_enforced(self, registry, ctx, wav_file, audio_track):
         with pytest.raises(ValidationError, match="exactly one"):
             run_command(
                 registry,

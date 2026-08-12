@@ -27,19 +27,19 @@ def test_create_take_lane_appends_and_names(registry, ctx, song):
     assert song.tracks[0].take_lanes[0].name == "Sparse"
 
 
-def test_create_take_lane_capped(registry, ctx, song):
+def test_create_take_lane_capped(registry, ctx):
     for _ in range(8):
         run_command(registry, ctx, "create_take_lane", track_index=0)
     with pytest.raises(LiveAPIError, match="cannot be deleted"):
         run_command(registry, ctx, "create_take_lane", track_index=0)
 
 
-def test_arrangement_omits_lanes_when_none(registry, ctx, song):
+def test_arrangement_omits_lanes_when_none(registry, ctx):
     result = run_command(registry, ctx, "get_arrangement", track_index=0)
     assert "take_lanes" not in result["tracks"][0]
 
 
-def test_arrangement_lists_lanes_with_clips(registry, ctx, song, with_lane):
+def test_arrangement_lists_lanes_with_clips(registry, ctx, with_lane):
     run_command(
         registry,
         ctx,
@@ -60,7 +60,7 @@ def test_arrangement_lists_lanes_with_clips(registry, ctx, song, with_lane):
     assert result["tracks"][0]["arrangement_clips"] == []
 
 
-def test_create_arrangement_clip_in_lane_reports_lane(registry, ctx, song, with_lane):
+def test_create_arrangement_clip_in_lane_reports_lane(registry, ctx, with_lane):
     result = run_command(
         registry,
         ctx,
@@ -75,7 +75,7 @@ def test_create_arrangement_clip_in_lane_reports_lane(registry, ctx, song, with_
     assert len(with_lane.arrangement_clips) == 1
 
 
-def test_create_arrangement_clip_unknown_lane(registry, ctx, song):
+def test_create_arrangement_clip_unknown_lane(registry, ctx):
     with pytest.raises(LiveAPIError, match="take lanes"):
         run_command(
             registry,
@@ -88,7 +88,7 @@ def test_create_arrangement_clip_unknown_lane(registry, ctx, song):
         )
 
 
-def test_notes_round_trip_in_lane_clip(registry, ctx, song, with_lane):
+def test_notes_round_trip_in_lane_clip(registry, ctx, with_lane):
     run_command(
         registry,
         ctx,
@@ -153,7 +153,7 @@ def test_notes_round_trip_in_lane_clip(registry, ctx, song, with_lane):
     assert read["note_count"] == 0
 
 
-def test_set_clip_renames_lane_clip(registry, ctx, song, with_lane):
+def test_set_clip_renames_lane_clip(registry, ctx, with_lane):
     run_command(
         registry,
         ctx,
@@ -175,12 +175,12 @@ def test_set_clip_renames_lane_clip(registry, ctx, song, with_lane):
     assert with_lane.arrangement_clips[0].name == "Take A — sparse"
 
 
-def test_take_lane_index_requires_arrangement_clip_index(registry, ctx, song, with_lane):
+def test_take_lane_index_requires_arrangement_clip_index(registry, ctx, with_lane):
     with pytest.raises(ValidationError, match="arrangement_clip_index"):
         run_command(registry, ctx, "get_notes", track_index=0, slot_index=0, take_lane_index=0)
 
 
-def test_lane_clip_indices_are_per_lane(registry, ctx, song, with_lane):
+def test_lane_clip_indices_are_per_lane(registry, ctx, with_lane):
     # A main-lane clip at index 0 must not shadow lane clip addressing.
     run_command(
         registry, ctx, "create_arrangement_clip", track_index=0, start_time=0.0, length_beats=4.0
