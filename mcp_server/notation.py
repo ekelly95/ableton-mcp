@@ -54,6 +54,8 @@ def _velocity_range_fields(low: int, high: int) -> tuple[float, float]:
     """
     low, high = sorted((low, high))
     return float(min(low, 127)), float(min(high, 127) - min(low, 127))
+
+
 _PROB_RE = re.compile(r"^p(\d*\.?\d+)$")
 _DURATION_RE = re.compile(r"^n(\d+(?:\.\d+)?)?/(\d+)([dt])?$")
 _BAR_DURATION_RE = re.compile(r"^(\d+)bar(?:([+-])n(\d+(?:\.\d+)?)?/(\d+)([dt])?)?$")
