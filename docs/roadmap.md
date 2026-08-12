@@ -150,14 +150,26 @@ Work items:
    run validates everything except the final real-Live handshake.
 5. **README:** platform section updated to say exactly what macOS status is.
 
-**Verification constraint (be honest about it):** ekelly95 has no Mac, so the
-final real-Live handshake cannot be verified in-house. Ship as "implemented,
-tests green on macOS CI, awaiting real-hardware confirmation" and say so in
-the README — the first Mac user is the verifier, and their confirmation (or
-bug report) gets folded back in. Do NOT claim macOS "support" as verified
-fact anywhere (memory, README, AGENTS.md) until a real Mac + Live has run
-the checkpoint. If a Mac becomes borrowable, scripts/smoke_test.py +
-live_checkpoint.py are the 30-minute confirmation path.
+**VERIFIED 2026-08-12: 42/42 checkpoint on real hardware.** Rented Scaleway
+Mac mini M2 Pro (Paris, ~€5/24 h), macOS Tahoe 26.6.1, Live 12.4.3 Trial,
+Unix-socket transport. Lessons for any future rented-Mac session, learned
+the hard way:
+- Tahoe's screen sharing accepts CLASSIC VNC input only once a real console
+  session exists — enable auto-login (kcpassword + loginwindow autoLoginUser,
+  reboot) FIRST, before touching any VNC client. Before that, third-party
+  viewers connect but input is dead; RealVNC can't even authenticate against
+  Apple's modern handshake ("key length too long").
+- Everything else installs headless over SSH: Ableton trial DMG is directly
+  curl-able from cdn-downloads.ableton.com (license prompt needs `yes Y |
+  hdiutil attach`; volume is named "... Installer"), quarantine cleared with
+  xattr, app copied to /Applications without sudo. GUI is needed ONLY for
+  Live's trial dialog and the control-surface dropdown (a Windows
+  Preferences.cfg transplant did NOT survive first-run).
+- The checkpoint hardcodes personal library content ("CLOUD PluggNB Drum Kit
+  (Producergrind)/PG CLOUD 808 - Tremble - C.wav") — scp the kit into the
+  ACTIVE User Library (Settings → Library shows its location; Live scaffolds
+  a fresh default one wherever it's pointed). TODO someday: make the
+  checkpoint self-seed a generated sample instead of assuming ekelly95's kits.
 
 ## Round D — Only when the surface stabilizes
 

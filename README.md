@@ -14,17 +14,15 @@ What sets this bridge apart from the other Ableton MCP projects (see
 **load third-party VST/VST3 plug-ins**, and — uniquely — **hear the result**
 (per-track meters, plus optional calibrated loudness/spectrum metering). It
 runs on **any Live edition with no Max for Live required**, and it's MIT
-licensed. Trade-offs, stated plainly: Windows-verified with macOS awaiting its
-first real-hardware confirmation, one MCP client at a time, and installation
-is git-clone rather than one-click.
+licensed. Trade-offs, stated plainly: one MCP client at a time, and
+installation is git-clone rather than one-click.
 
-**Status: experimental.** Verified end-to-end against Ableton Live 12.4.3 on
-Windows 11. **macOS: implemented, not yet hardware-verified** — the full test
-suite, including the Unix-socket transport the Mac build uses, is green on
-macOS CI, but no real Mac + Live has run the final handshake. If you try it
-on a Mac: `scripts/smoke_test.py`, then `scripts/live_checkpoint.py`, is the
-30-minute confirmation path — a report either way is welcome. Works with
-**any Live edition** — Intro, Standard, or Suite; no Max for Live required.
+**Status: experimental, verified on both platforms.** Windows: end-to-end
+against Ableton Live 12.4.3 on Windows 11. macOS: full 42-step live checkpoint
+passed against Live 12.4.3 (Trial) on an Apple Silicon Mac mini running macOS
+Tahoe 26.6 (2026-08-12), over the Unix-socket transport the Mac build uses.
+Works with **any Live edition** — Intro, Standard, or Suite; no Max for Live
+required.
 
 ## What the AI can do with it
 
@@ -165,10 +163,8 @@ center of gravity — credit to all of them for mapping this space:
   introspection and a bundled ElevenLabs server. MIDI is write-only (no
   reading notes back) and automation support is limited.
 
-If you need a field-proven macOS setup today, use one of those (this bridge's
-macOS build awaits its first real-hardware report). If you want an agent that can
-revise what it wrote, automate parameters, load your plug-ins, and check its
-own mix — that's this project's lane.
+If you want an agent that can revise what it wrote, automate parameters, load
+your plug-ins, and check its own mix — that's this project's lane.
 
 ## Support expectations
 
