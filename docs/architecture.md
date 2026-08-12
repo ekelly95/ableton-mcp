@@ -232,6 +232,69 @@ Two tiers, deliberately separate:
   notation 52 chars vs 4,850 JSON; read back compact 185 chars vs 19,076
   old emission.
 
+## Library intelligence (2.6)
+
+Two server-only tools (`search_library`, `find_similar` in mcp_server/
+library.py, declared beside transform_clip — outside the registry hash, no
+Live code, work with Live closed) read Live's own library SQLite databases at
+`%LOCALAPPDATA%\Ableton\Live Database\` (macOS:
+`~/Library/Application Support/Ableton/Live Database`; override
+`ABLETON_MCP_LIVE_DB_DIR`). Facts probed on the real DBs
+(scripts/probe_library_db.py, Live 12.4.3 Trial, 2026-08-12) and pinned in
+tests/test_library.py's fixture schema:
+
+- Selection: `Live-files-*.db` highest number in the filename (mtime
+  tie-break); `Live-plugins-*.db` newest mtime (numbers not monotonic). Open
+  `file:...?mode=ro&immutable=1` (URI-quoted — the dir name has a space):
+  CONFIRMED safe while Live runs, writes refused; reads see the last
+  checkpointed snapshot, and a `-wal` newer than the `.db` becomes a
+  `staleness` note, never an error.
+- `files` is the whole tree: folders, items, AND tag rows; `file_type` is a
+  big-endian FourCC int ('wav-','aiff','oggv','adv-','adg-','amp-','alc-',
+  'midi','als-','agr-','keyw','fldr','plug',...). The kind enum maps from
+  that whitelist. Paths reconstruct by a recursive CTE up `parent_id` (the
+  drive root row is literally 'C:\'); CONFIRMED against on-disk files.
+- `places` has exactly six rows keyed by **file_id** (no place_id column):
+  folder_kind 0=Core Library, 1=User Library, 4=Current Project, 8=Built-in,
+  9=Cloud, 10=Plugins → the source enum.
+- `keywords(file_id, keyw_id)` joins files to tag rows that are themselves
+  files rows of type 'keyw' ("One Shot", "Punchy", ...). Tag filters
+  AND-match, case-insensitive.
+- `fe_values` joins on **file_id** (the `hash` column is opaque, never a
+  key); `data` is 268 bytes: uint32 LE version=18, count=64, reserved, then
+  64 float32 LE — Live's own audio feature vector. Cosine over all 6,199
+  vectors takes ~0.04 s in pure Python; find_similar ranks with it
+  (CONFIRMED plausible: Impulse 808 → Impulse 606 → 808 Core Kit).
+- `search_aggregation*` are FTS tables on a custom AbletonTokenizer that
+  raises outside Live — search uses plain LIKE (wildcards escaped).
+- Plugins DB `plugins` row shapes: `device:vst:instr:<num>?n=<name>` (VST2),
+  `device:vst3:<instr|audiofx>:<uuid>`; `subcategories` pipe-delimited;
+  disabled rows excluded.
+
+**The browser-path seam (the round's named risk), resolved by live probe:**
+`browser_path_guess` is emitted ONLY where the mapping is confident —
+user_library items (path segments relative to the User Library root mirror
+the browse tree exactly; CONFIRMED: search → browse → load_item landed a kit
+sample as a Simpler) and plugins (['plugins', VST|VST3, vendor, name] built
+from the plugins DB, NOT from the files DB's virtual `<plugins>/` paths,
+which contain an extra 'Custom' level the real browser tree doesn't show).
+Core Library items appear in the browser by category, not disk layout — no
+guess, absolute path only. CONFIRMED: `import_audio` accepts the
+forward-slash absolute paths exactly as search_library returns them.
+
+## macOS status (2.6 — implemented, NOT hardware-verified)
+
+Client (mcp_server/client.py) now mirrors the control surface's transport
+branch: TCP on Windows, AF_UNIX elsewhere (`use_tcp`/`socket_path` are
+constructor params so tests force either mode). Installer knows
+`~/Music/Ableton/User Library` and the `/Applications/Ableton Live*.app`
+bundles. CI runs the full suite on macos-latest — including
+tests/test_unix_socket.py (client, socket server, and the full pair over a
+real Unix socket), which is the ONLY place the AF_UNIX path executes: no Mac
+hardware exists in-house. Do NOT record macOS as verified anywhere until a
+real Mac + Live has run scripts/smoke_test.py + live_checkpoint.py; the
+README says exactly this.
+
 ## Arrangement view (2.1)
 
 - TWO composition routes (both LOM-confirmed): `create_arrangement_clip` →

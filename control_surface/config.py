@@ -11,7 +11,7 @@ that module.
 import os
 from pathlib import Path
 
-VERSION: str = "2.5.0"
+VERSION: str = "2.6.0"
 CONTROL_SURFACE_NAME: str = "AbletonMCP"
 
 # IPC: TCP on Windows (no Unix sockets), Unix socket elsewhere
