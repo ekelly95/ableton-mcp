@@ -206,3 +206,222 @@ def test_insert_device_unknown_name_suggests_browser(registry, ctx, song):
 def test_device_out_of_range(registry, ctx):
     with pytest.raises(LiveAPIError, match="out of range"):
         run_command(registry, ctx, "get_devices", track_index=0, device_index=5)
+
+
+# --- Class-level property tables (2.7) ---------------------------------------
+
+
+@pytest.fixture()
+def with_simpler(song):
+    from tests.mock_live import MockSimplerDevice
+
+    device = MockSimplerDevice()
+    song.tracks[0].devices.append(device)
+    return device
+
+
+@pytest.fixture()
+def with_eq8(song):
+    from tests.mock_live import MockEq8Device
+
+    device = MockEq8Device()
+    song.tracks[0].devices.append(device)
+    return device
+
+
+@pytest.fixture()
+def with_drift(song):
+    from tests.mock_live import MockDriftDevice
+
+    device = MockDriftDevice()
+    song.tracks[0].devices.append(device)
+    return device
+
+
+def test_unknown_class_has_no_class_properties(registry, ctx, with_device):
+    result = run_command(registry, ctx, "get_devices", track_index=0, device_index=0)
+    assert "class_properties" not in result["device"]
+    assert "class_methods" not in result["device"]
+
+
+def test_simpler_class_properties_serialized(registry, ctx, with_simpler):
+    result = run_command(registry, ctx, "get_devices", track_index=0, device_index=0)
+    props = result["device"]["class_properties"]
+    assert props["playback_mode"] == {
+        "value": "Classic",
+        "items": ["Classic", "One-Shot", "Slicing"],
+    }
+    assert props["retrigger"] is True
+    assert props["voices"] == 8
+    assert props["multi_sample_mode"] is False
+    # Gated methods: can_warp_half is False on the mock, so warp_half is absent.
+    methods = result["device"]["class_methods"]
+    assert "reverse" in methods and "warp_as" in methods
+    assert "warp_half" not in methods
+
+
+def test_set_class_property_by_label_and_bool(registry, ctx, with_simpler):
+    result = run_command(
+        registry,
+        ctx,
+        "set_device_parameters",
+        track_index=0,
+        device_index=0,
+        parameters=[
+            {"parameter": "playback_mode", "value": "One-Shot"},
+            {"parameter": "retrigger", "value": False},
+            {"parameter": "voices", "value": 4},
+        ],
+    )
+    assert with_simpler.playback_mode == 1
+    assert with_simpler.retrigger is False
+    assert with_simpler.voices == 4
+    changed = {c["name"]: c["value"] for c in result["changed"]}
+    assert changed == {"playback_mode": "One-Shot", "retrigger": False, "voices": 4}
+
+
+def test_set_class_property_bad_label_lists_choices(registry, ctx, with_simpler):
+    with pytest.raises(LiveAPIError, match="Classic"):
+        run_command(
+            registry,
+            ctx,
+            "set_device_parameters",
+            track_index=0,
+            device_index=0,
+            parameters=[{"parameter": "playback_mode", "value": "Granular"}],
+        )
+    assert with_simpler.playback_mode == 0  # validate-then-write held
+
+
+def test_class_property_mixed_with_regular_parameter(registry, ctx, with_simpler):
+    run_command(
+        registry,
+        ctx,
+        "set_device_parameters",
+        track_index=0,
+        device_index=0,
+        parameters=[
+            {"parameter": "Macro 1", "value": 0.7},
+            {"parameter": "slicing_playback_mode", "value": 2},
+        ],
+    )
+    assert abs(with_simpler.parameters[1].value - 0.7) < 1e-9
+    assert with_simpler.slicing_playback_mode == 2
+
+
+def test_regular_parameter_range_still_enforced(registry, ctx, with_device):
+    # The schema no longer type-locks `value` (class props take labels/bools),
+    # so the 0-1 range check for regular parameters lives in the handler now.
+    with pytest.raises(LiveAPIError, match="0-1"):
+        run_command(
+            registry,
+            ctx,
+            "set_device_parameters",
+            track_index=0,
+            device_index=0,
+            parameters=[{"parameter": "Macro 1", "value": 1.5}],
+        )
+
+
+def test_invoke_methods_with_gates_and_results(registry, ctx, with_simpler):
+    result = run_command(
+        registry,
+        ctx,
+        "set_device_parameters",
+        track_index=0,
+        device_index=0,
+        invoke=[
+            {"method": "reverse"},
+            {"method": "warp_as", "beats": 4},
+            {"method": "guess_playback_length"},
+        ],
+    )
+    assert ("reverse",) in with_simpler.method_calls
+    assert ("warp_as", 4) in with_simpler.method_calls
+    invoked = {i["method"]: i for i in result["invoked"]}
+    assert invoked["guess_playback_length"]["result"] == 4.0
+    assert "result" not in invoked["reverse"]
+
+
+def test_invoke_refused_when_gate_false(registry, ctx, with_simpler):
+    # can_warp_half is False on the mock — the gate must refuse BEFORE writes.
+    with pytest.raises(LiveAPIError, match="can_warp_half"):
+        run_command(
+            registry,
+            ctx,
+            "set_device_parameters",
+            track_index=0,
+            device_index=0,
+            parameters=[{"parameter": "retrigger", "value": False}],
+            invoke=[{"method": "warp_half"}],
+        )
+    assert with_simpler.retrigger is True  # validate-then-write held
+
+
+def test_invoke_missing_required_arg(registry, ctx, with_simpler):
+    with pytest.raises(LiveAPIError, match="beats"):
+        run_command(
+            registry,
+            ctx,
+            "set_device_parameters",
+            track_index=0,
+            device_index=0,
+            invoke=[{"method": "warp_as"}],
+        )
+
+
+def test_invoke_unknown_method_names_choices(registry, ctx, with_simpler):
+    with pytest.raises(LiveAPIError, match="reverse"):
+        run_command(
+            registry,
+            ctx,
+            "set_device_parameters",
+            track_index=0,
+            device_index=0,
+            invoke=[{"method": "granulate"}],
+        )
+
+
+def test_eq8_global_mode_labels(registry, ctx, with_eq8):
+    result = run_command(registry, ctx, "get_devices", track_index=0, device_index=0)
+    props = result["device"]["class_properties"]
+    assert props["global_mode"]["value"] == "Stereo"
+    run_command(
+        registry,
+        ctx,
+        "set_device_parameters",
+        track_index=0,
+        device_index=0,
+        parameters=[{"parameter": "global_mode", "value": "M/S"}],
+    )
+    assert with_eq8.global_mode == 2
+
+
+def test_drift_indexed_properties_read_runtime_lists(registry, ctx, with_drift):
+    result = run_command(registry, ctx, "get_devices", track_index=0, device_index=0)
+    props = result["device"]["class_properties"]
+    # Labels come from the paired *_list on the DEVICE, never from our code.
+    assert props["voice_mode"]["value"] == "Poly"
+    assert props["voice_mode"]["items"] == with_drift.voice_mode_list
+    assert props["pitch_bend_range"] == 2
+
+    run_command(
+        registry,
+        ctx,
+        "set_device_parameters",
+        track_index=0,
+        device_index=0,
+        parameters=[
+            {"parameter": "voice_mode", "value": "mono"},  # case-insensitive label
+            {"parameter": "mod_matrix_lfo_source", "value": 3},  # index form
+        ],
+    )
+    assert with_drift.voice_mode_index == 1
+    assert with_drift.mod_matrix_lfo_source_index == 3
+
+
+def test_inserted_native_devices_get_class_mocks(registry, ctx, song):
+    run_command(registry, ctx, "insert_device", track_index=0, device_name="Simpler")
+    result = run_command(registry, ctx, "get_devices", track_index=0, device_index=0)
+    assert result["device"]["class_name"] == "OriginalSimpler"
+    assert "class_properties" in result["device"]

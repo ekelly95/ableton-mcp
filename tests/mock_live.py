@@ -358,6 +358,88 @@ class MockDevice:
         return bool(on.value) if on is not None else True
 
 
+class MockSimplerDevice(MockDevice):
+    """LOM (Live 12.3.5 docs): SimplerDevice class-level properties + sample
+    ops. class_name 'OriginalSimpler' is the long-standing Remote Script name
+    (VERIFY at checkpoint). Defaults below are assumptions (VERIFY)."""
+
+    def __init__(self, name: str = "Simpler"):
+        super().__init__(name=name, class_name="OriginalSimpler")
+        self.playback_mode = 0  # 0=Classic 1=One-Shot 2=Slicing (LOM)
+        self.slicing_playback_mode = 0  # 0=Mono 1=Poly 2=Thru (LOM)
+        self.retrigger = True
+        self.pad_slicing = False
+        self.voices = 8
+        self.multi_sample_mode = False
+        self.can_warp_as = True
+        self.can_warp_double = True
+        self.can_warp_half = False  # one gate False so tests cover refusal
+        self.method_calls: list[tuple] = []
+
+    def reverse(self) -> None:
+        self.method_calls.append(("reverse",))
+
+    def crop(self) -> None:
+        self.method_calls.append(("crop",))
+
+    def warp_as(self, beats: int) -> None:
+        self.method_calls.append(("warp_as", beats))
+
+    def warp_double(self) -> None:
+        self.method_calls.append(("warp_double",))
+
+    def warp_half(self) -> None:
+        self.method_calls.append(("warp_half",))
+
+    def guess_playback_length(self) -> float:
+        # LOM: returns an estimated beat length between the markers.
+        self.method_calls.append(("guess_playback_length",))
+        return 4.0
+
+
+class MockEq8Device(MockDevice):
+    """LOM: Eq8Device class properties (global_mode 0=Stereo 1=L/R 2=M/S,
+    edit_mode bool, oversample bool). class_name 'Eq8' VERIFY at checkpoint."""
+
+    def __init__(self, name: str = "EQ Eight"):
+        super().__init__(name=name, class_name="Eq8")
+        self.global_mode = 0
+        self.edit_mode = False
+        self.oversample = False
+
+
+class MockDriftDevice(MockDevice):
+    """LOM: DriftDevice pairs every <name>_index int with a <name>_list
+    StringVector read at runtime. List CONTENTS below are placeholders —
+    the real labels come from Live and are never hard-coded in the bridge
+    (VERIFY the real lists at checkpoint; only the pairing shape matters)."""
+
+    _SOURCES = ("None", "Env 2", "LFO", "Velocity", "Mod Wheel", "Pressure")
+    _TARGETS = ("None", "Osc 1 Pitch", "Filter Freq", "Shape", "Volume")
+
+    def __init__(self, name: str = "Drift"):
+        super().__init__(name=name, class_name="Drift")
+        self.pitch_bend_range = 2
+        for prop, items in (
+            ("voice_mode", ("Poly", "Mono", "Stereo", "Unison")),
+            ("voice_count", ("2", "4", "8", "16", "24", "32")),
+            ("mod_matrix_pitch_source_1", self._SOURCES),
+            ("mod_matrix_pitch_source_2", self._SOURCES),
+            ("mod_matrix_filter_source_1", self._SOURCES),
+            ("mod_matrix_filter_source_2", self._SOURCES),
+            ("mod_matrix_shape_source", self._SOURCES),
+            ("mod_matrix_lfo_source", self._SOURCES),
+            ("mod_matrix_source_1", self._SOURCES),
+            ("mod_matrix_source_2", self._SOURCES),
+            ("mod_matrix_source_3", self._SOURCES),
+            ("mod_matrix_target_1", self._TARGETS),
+            ("mod_matrix_target_2", self._TARGETS),
+            ("mod_matrix_target_3", self._TARGETS),
+        ):
+            setattr(self, f"{prop}_index", 0)
+            setattr(self, f"{prop}_list", list(items))
+
+
 class MockMixerDevice:
     def __init__(self, send_count: int = 0):
         # CONFIRMED on real Live 12.4 (2.2 checkpoint): the mixer parameters
@@ -372,6 +454,32 @@ class MockMixerDevice:
         self.sends: list[MockParameter] = [
             MockParameter(f"Send {chr(65 + i)}", value=0.0) for i in range(send_count)
         ]
+
+
+class MockTakeLane:
+    """LOM (Live 12.3.5 docs): TakeLane has name (get/set/observe),
+    arrangement_clips (get/observe), create_midi_clip(start_time, length),
+    create_audio_clip(file_path, start_time). No delete function exists —
+    lanes are permanent for the session. VERIFY at checkpoint: Track.take_lanes
+    excludes the main lane; the non-main lane cap (assumed 8); track-scoped
+    clip APIs silently no-op on take-lane clips."""
+
+    def __init__(self, track: "MockTrack", name: str = ""):
+        self._track = track
+        self.name = name
+        self.arrangement_clips: list[MockClip] = []
+
+    def create_midi_clip(self, start_time: float, length: float) -> None:
+        # LOM: errors if the track is not MIDI, frozen, or recording.
+        if not self._track.has_midi_input:
+            raise RuntimeError("create_midi_clip called on a non-MIDI track's take lane")
+        clip = MockClip(length=length, is_midi_clip=True)
+        clip.start_time = start_time
+        clip.end_time = start_time + length
+        clip._is_arrangement_clip = True
+        self.arrangement_clips.append(clip)
+        # Assumed time-ordered like the track's own list (VERIFY at checkpoint).
+        self.arrangement_clips.sort(key=lambda c: c.start_time)
 
 
 class MockTrack:
@@ -408,6 +516,19 @@ class MockTrack:
         self.clip_slots: list[MockClipSlot] = [MockClipSlot(self) for _ in range(slot_count)]
         self.devices: list[MockDevice] = []
         self.arrangement_clips: list[MockClip] = []
+        # Non-main take lanes only (VERIFY: real Live excludes the main lane
+        # from Track.take_lanes). Starts empty on a fresh track.
+        self.take_lanes: list[MockTakeLane] = []
+
+    # Believed Live cap on non-main lanes (VERIFY at checkpoint).
+    MAX_TAKE_LANES = 8
+
+    def create_take_lane(self) -> None:
+        """LOM: no parameters, appends a lane; no delete exists. Behaviour at
+        the cap is assumed to raise (VERIFY at checkpoint)."""
+        if len(self.take_lanes) >= self.MAX_TAKE_LANES:
+            raise RuntimeError("Take lane limit reached")
+        self.take_lanes.append(MockTakeLane(self, name=f"Take {len(self.take_lanes) + 1}"))
 
     def stop_all_clips(self) -> None:
         for slot in self.clip_slots:
@@ -416,8 +537,22 @@ class MockTrack:
     def delete_device(self, device_index: int) -> None:
         del self.devices[device_index]
 
-    # Native devices the mock "knows" for insert_device.
-    KNOWN_NATIVE_DEVICES = ("Reverb", "EQ Eight", "Compressor", "Delay", "Operator", "Drift")
+    # Native devices the mock "knows" for insert_device. The three with
+    # class-property tables get their class-specific mocks (real class_name).
+    KNOWN_NATIVE_DEVICES = (
+        "Reverb",
+        "EQ Eight",
+        "Compressor",
+        "Delay",
+        "Operator",
+        "Drift",
+        "Simpler",
+    )
+    _DEVICE_FACTORIES = {
+        "EQ Eight": MockEq8Device,
+        "Drift": MockDriftDevice,
+        "Simpler": MockSimplerDevice,
+    }
 
     def insert_device(self, device_name: str, target_index: int = -1) -> None:
         """Track.insert_device, Live 12.3+ (LOM-documented; native devices
@@ -425,7 +560,11 @@ class MockTrack:
         and return value (assumed None — callers re-scan the chain)."""
         if device_name not in self.KNOWN_NATIVE_DEVICES:
             raise RuntimeError(f"Unknown device: {device_name}")
-        device = MockDevice(name=device_name, class_name=device_name.replace(" ", ""))
+        factory = self._DEVICE_FACTORIES.get(device_name)
+        if factory is not None:
+            device = factory()
+        else:
+            device = MockDevice(name=device_name, class_name=device_name.replace(" ", ""))
         if target_index < 0 or target_index >= len(self.devices):
             self.devices.append(device)
         else:
