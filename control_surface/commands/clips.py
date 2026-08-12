@@ -4,7 +4,7 @@ from typing import Any
 
 from ..config import MAX_COLOR_INDEX, MAX_NOTES_PER_READ
 from ..errors import ValidationError, batch_writer
-from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
+from ..registry import NOTE_OBJECT_SCHEMA, REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import (
     get_clip,
     get_clip_slot,
@@ -502,24 +502,16 @@ def add_notes(
             "modifications",
             ParamType.OBJECT_LIST,
             description="Per-note edits addressed by note_id from get_notes",
+            # Derived from NOTE_OBJECT_SCHEMA (single source) — defaults are
+            # stripped because an edit leaves unspecified fields untouched.
             item_schema={
                 "type": "object",
                 "properties": {
                     "note_id": {"type": "integer"},
-                    "pitch": {
-                        "anyOf": [
-                            {"type": "integer", "minimum": 0, "maximum": 127},
-                            {"type": "string"},
-                        ],
-                        "description": "MIDI number or name like 'C3' (Ableton convention: C3=60)",
+                    **{
+                        name: {k: v for k, v in prop.items() if k != "default"}
+                        for name, prop in NOTE_OBJECT_SCHEMA["properties"].items()
                     },
-                    "start_time": {"type": "number", "minimum": 0},
-                    "duration": {"type": "number", "exclusiveMinimum": 0},
-                    "velocity": {"type": "number", "minimum": 0, "maximum": 127},
-                    "mute": {"type": "boolean"},
-                    "probability": {"type": "number", "minimum": 0, "maximum": 1},
-                    "velocity_deviation": {"type": "number", "minimum": -127, "maximum": 127},
-                    "release_velocity": {"type": "number", "minimum": 0, "maximum": 127},
                 },
                 "required": ["note_id"],
             },

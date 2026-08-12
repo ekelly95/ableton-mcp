@@ -12,17 +12,23 @@ _AUTOMATION_STATES = {0: "none", 1: "active", 2: "overridden"}
 
 
 def _serialize_parameter(index: int, param: Any) -> dict[str, Any]:
+    # Absent = default: is_quantized false, is_enabled true, automation_state
+    # "none". The constant tail was ~40% of an EQ Eight dump.
     info = {
         "index": index,
         "name": param.name,
         "value": normalize_parameter(param),
         "display_value": str(param),
-        "is_quantized": param.is_quantized,
-        # False when a rack macro or live.remote~ owns the parameter — writes
-        # would be refused, so surface it up front.
-        "is_enabled": getattr(param, "is_enabled", True),
-        "automation_state": _AUTOMATION_STATES.get(getattr(param, "automation_state", 0), "none"),
     }
+    if param.is_quantized:
+        info["is_quantized"] = True
+    # False when a rack macro or live.remote~ owns the parameter — writes
+    # would be refused, so surface it up front.
+    if not getattr(param, "is_enabled", True):
+        info["is_enabled"] = False
+    automation = _AUTOMATION_STATES.get(getattr(param, "automation_state", 0), "none")
+    if automation != "none":
+        info["automation_state"] = automation
     if param.is_quantized:
         # Human-readable choices ("Lowpass", "24 dB", ...) — quantized
         # parameters only (LOM); without these the model must guess which

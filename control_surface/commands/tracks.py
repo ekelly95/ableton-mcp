@@ -35,6 +35,8 @@ def serialize_track(
     track_type: str = "track",
     include_devices: bool = False,
     include_clips: bool = False,
+    include_sends: bool = True,
+    include_empty_slots: bool = True,
 ) -> dict[str, Any]:
     mixer = track.mixer_device
     info: dict[str, Any] = {
@@ -54,10 +56,11 @@ def serialize_track(
         info["is_midi"] = track.has_midi_input
         info["can_be_armed"] = track.can_be_armed
         info["armed"] = track.arm if track.can_be_armed else False
-        info["sends"] = [
-            {"index": i, "name": send.name, "value": normalize_parameter(send)}
-            for i, send in enumerate(mixer.sends)
-        ]
+        if include_sends:
+            info["sends"] = [
+                {"index": i, "name": send.name, "value": normalize_parameter(send)}
+                for i, send in enumerate(mixer.sends)
+            ]
     if include_devices:
         info["devices"] = [
             {
@@ -69,8 +72,12 @@ def serialize_track(
             for i, device in enumerate(track.devices)
         ]
     if include_clips:
+        # Empty slots are 44-58% of a real set's overview payload; when they
+        # are omitted, slot_index on the remaining entries preserves position.
         info["clip_slots"] = [
-            serialize_clip_summary(i, slot) for i, slot in enumerate(track.clip_slots)
+            serialize_clip_summary(i, slot)
+            for i, slot in enumerate(track.clip_slots)
+            if include_empty_slots or slot.has_clip
         ]
     return info
 

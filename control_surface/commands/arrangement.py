@@ -26,14 +26,15 @@ _CUE_SNAP_EPSILON = 0.05
 
 
 def _serialize_arrangement_clip(index: int, clip: Any) -> dict[str, Any]:
+    # end_time and is_audio_clip are omitted deliberately: end = start+length,
+    # audio = not is_midi_clip. Derivable fields at 153 chars/clip added up to
+    # tens of thousands of characters on full-song reads.
     return {
         "arrangement_clip_index": index,
         "name": clip.name,
         "start_time": clip.start_time,
-        "end_time": clip.end_time,
         "length": clip.length,
         "is_midi_clip": clip.is_midi_clip,
-        "is_audio_clip": clip.is_audio_clip,
         "looping": clip.looping,
     }
 
@@ -470,7 +471,7 @@ def create_locator(ctx, time: float, name: str | None = None) -> dict[str, Any]:
     if name is not None:
         created.name = name  # CONFIRMED: checkpoint renames a cue to 'Chorus' and asserts it
 
-    return {
-        "locator": {"name": created.name, "time": created.time},
-        "locators": _serialize_locators(song),
-    }
+    # Only the created locator: returning the whole list made the playbook's
+    # drop-a-locator-per-section loop quadratic in payload. get_arrangement
+    # still lists them all.
+    return {"locator": {"name": created.name, "time": created.time}}

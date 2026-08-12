@@ -129,8 +129,10 @@ def test_parameter_metadata_exposed(registry, ctx, with_device):
     device_on = params["Device On"]
     assert device_on["is_quantized"] is True
     assert device_on["value_items"] == ["Off", "On"]
-    assert device_on["is_enabled"] is True
-    assert device_on["automation_state"] == "none"
+    # Absent = default: is_enabled true, automation_state "none". The constant
+    # tail at defaults was ~40% of a full device dump.
+    assert "is_enabled" not in device_on
+    assert "automation_state" not in device_on
     # Continuous parameters carry no value_items (LOM: quantized only).
     assert "value_items" not in params["Macro 1"]
 

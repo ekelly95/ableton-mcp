@@ -129,7 +129,9 @@ class TestArrangement:
             destination_time=8.0,
         )
         assert result["placed"]["start_time"] == 8.0
-        assert result["placed"]["end_time"] == 12.0
+        # end_time is derivable (start + length) and deliberately omitted.
+        assert result["placed"]["length"] == 4.0
+        assert "end_time" not in result["placed"]
         assert result["placed"]["is_midi_clip"] is True
         assert result["arrangement_clip_count"] == 1
         assert "arrangement_clips" not in result  # write path returns count, never the full list
@@ -336,7 +338,8 @@ class TestImportAudio:
             file_path=str(wav_file),
             position=8.0,
         )
-        assert result["imported"]["is_audio_clip"] is True
+        # is_audio_clip is derivable (not is_midi_clip) and deliberately omitted.
+        assert result["imported"]["is_midi_clip"] is False
         assert result["imported"]["start_time"] == 8.0
 
     def test_relative_path_rejected(self, registry, ctx, song, audio_track):
