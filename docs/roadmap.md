@@ -171,6 +171,15 @@ the hard way:
   a fresh default one wherever it's pointed). TODO someday: make the
   checkpoint self-seed a generated sample instead of assuming ekelly95's kits.
 
+**Known macOS residuals (untested, stated for honesty):** the M4L audio tap
+(get_audio_levels) was not built on the Mac — the tool's graceful
+available:false path ran, the tap itself is Windows-verified only; no real
+MCP client (Claude Desktop) session was run on macOS (stdio launch+handshake
+covered by the suite); long-session stability and the privacy prompts a
+personal Mac would show (our rental was auto-logged-in) await the first real
+Mac user. Hardware audio/MIDI is out of scope — the bridge controls Live, it
+never touches the audio stream.
+
 ## Round D — Only when the surface stabilizes
 
 - **Tool consolidation — DECIDED AGAINST (2026-08-12), do not build.** See
