@@ -128,8 +128,11 @@ Work Session view → Arrangement, in this order:
 
 ## Hard limits (verified — don't rediscover these)
 
-- Device tools reach regular tracks only: **master and return chains are
-  unaddressable** (no limiter-on-Main via bridge; ask the user to drag one).
+- Device tools reach master and return chains since 2.8: pass
+  `track_type: "master"` (no track_index) or `"return"` to get_devices /
+  set_device_parameters / insert_device / delete_device / load_item — a
+  limiter or mastering plug-in on Main is one call now. One instrument per
+  chain still applies everywhere.
 - Envelopes: **session clips only** (arrangement clips can't hold clip
   automation — Live API limit); unwarped audio clips are rejected (warp first).
 - No scene rename, no track reorder, no track grouping, no arrangement clip

@@ -12,11 +12,23 @@ from typing import Any
 
 from ..errors import batch_writer
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
-from ..utils.live_helpers import get_device, get_track, resolve_device_parameter
+from ..utils.live_helpers import get_device, resolve_device_parameter, resolve_track
 from ..utils.normalize import denormalize_parameter, normalize_parameter
 
 # LOM DeviceParameter.automation_state values.
 _AUTOMATION_STATES = {0: "none", 1: "active", 2: "overridden"}
+
+# Shared by every command that addresses a device chain (2.8): regular
+# tracks, return tracks, and the Main track all carry devices. 'master'
+# ignores track_index; 'return' indexes song.return_tracks.
+TRACK_TYPE_PARAM = ParamSchema(
+    "track_type",
+    ParamType.STRING,
+    required=False,
+    default="track",
+    enum_values=["track", "return", "master"],
+    description="Which list track_index addresses; 'master' needs no track_index",
+)
 
 # --- Class-level property tables (2.7) ---------------------------------------
 # Data from the Live 12.3.5 LOM docs (docs.cycling74.com/apiref/lom/); every
@@ -193,7 +205,8 @@ def _serialize_parameter(index: int, param: Any) -> dict[str, Any]:
 @REGISTRY.register(
     "get_devices",
     params=[
-        ParamSchema("track_index", ParamType.INT, min_value=0),
+        ParamSchema("track_index", ParamType.INT, required=False, min_value=0),
+        TRACK_TYPE_PARAM,
         ParamSchema(
             "device_index",
             ParamType.INT,
@@ -205,13 +218,13 @@ def _serialize_parameter(index: int, param: Any) -> dict[str, Any]:
     category="devices",
     read_only=True,
     description=(
-        "Devices on a track. Without device_index: summaries. With it: every "
-        "parameter (values normalized 0-1) plus display values, enum choices "
-        "(value_items), editability (is_enabled), and automation state. Known "
-        "native devices (Simpler, EQ Eight, Drift) also report class_properties "
-        "— state that never appears in the parameter list (playback modes, M/S "
-        "switch, mod matrix) — and class_methods, both usable via "
-        "set_device_parameters."
+        "Devices on a regular, return, or the master track (track_type). "
+        "Without device_index: summaries. With it: every parameter (values "
+        "normalized 0-1) plus display values, enum choices (value_items), "
+        "editability (is_enabled), and automation state. Known native devices "
+        "(Simpler, EQ Eight, Drift) also report class_properties — state that "
+        "never appears in the parameter list (playback modes, M/S switch, mod "
+        "matrix) — and class_methods, both usable via set_device_parameters."
     ),
     output_schema={
         "type": "object",
@@ -221,8 +234,13 @@ def _serialize_parameter(index: int, param: Any) -> dict[str, Any]:
         },
     },
 )
-def get_devices(ctx, track_index: int, device_index: int | None = None) -> dict[str, Any]:
-    track = get_track(ctx.song, track_index)
+def get_devices(
+    ctx,
+    track_index: int | None = None,
+    track_type: str = "track",
+    device_index: int | None = None,
+) -> dict[str, Any]:
+    track = resolve_track(ctx.song, track_type, track_index)
 
     if device_index is None:
         return {
@@ -258,7 +276,8 @@ def get_devices(ctx, track_index: int, device_index: int | None = None) -> dict[
 @REGISTRY.register(
     "set_device_parameters",
     params=[
-        ParamSchema("track_index", ParamType.INT, min_value=0),
+        ParamSchema("track_index", ParamType.INT, required=False, min_value=0),
+        TRACK_TYPE_PARAM,
         ParamSchema("device_index", ParamType.INT, min_value=0),
         ParamSchema(
             "parameters",
@@ -314,22 +333,24 @@ def get_devices(ctx, track_index: int, device_index: int | None = None) -> dict[
     description=(
         "Set device parameters in one batch (values normalized 0-1) and/or "
         "enable/bypass the device: `enabled` drives its 'Device On' parameter "
-        "(is_active is read-only and also reflects any enclosing rack). Known "
-        "native devices also take class_properties names (playback_mode, "
-        "global_mode, voice_mode, ...) with label/bool/int values, and class "
-        "method calls via `invoke` (reverse, crop, warp_as...)."
+        "(is_active is read-only and also reflects any enclosing rack). Works "
+        "on regular, return, and the master track (track_type). Known native "
+        "devices also take class_properties names (playback_mode, global_mode, "
+        "voice_mode, ...) with label/bool/int values, and class method calls "
+        "via `invoke` (reverse, crop, warp_as...)."
     ),
 )
 def set_device_parameters(
     ctx,
-    track_index: int,
-    device_index: int,
+    track_index: int | None = None,
+    track_type: str = "track",
+    device_index: int = 0,
     parameters: list[dict[str, Any]] | None = None,
     invoke: list[dict[str, Any]] | None = None,
     enabled: bool | None = None,
     re_enable_automation: bool | None = None,
 ) -> dict[str, Any]:
-    track = get_track(ctx.song, track_index)
+    track = resolve_track(ctx.song, track_type, track_index)
     device = get_device(track, device_index)
     class_table = _CLASS_PROPS.get(device.class_name)
 
@@ -459,7 +480,8 @@ def set_device_parameters(
 @REGISTRY.register(
     "insert_device",
     params=[
-        ParamSchema("track_index", ParamType.INT, min_value=0),
+        ParamSchema("track_index", ParamType.INT, required=False, min_value=0),
+        TRACK_TYPE_PARAM,
         ParamSchema(
             "device_name",
             ParamType.STRING,
@@ -475,15 +497,21 @@ def set_device_parameters(
     ],
     category="devices",
     description=(
-        "Insert a NATIVE Ableton device by exact name at a chain position, "
-        "without touching the browser or the selected track (Live 12.3+). "
+        "Insert a NATIVE Ableton device by exact name at a chain position — on "
+        "a regular, return, or the master track (track_type; e.g. a Limiter on "
+        "master) — without touching the browser or the selected track "
+        "(Live 12.3+). One instrument per chain (Live refuses a second). "
         "Plug-ins, Max devices, and presets still need browse + load_item."
     ),
 )
 def insert_device(
-    ctx, track_index: int, device_name: str, device_index: int | None = None
+    ctx,
+    track_index: int | None = None,
+    track_type: str = "track",
+    device_name: str = "",
+    device_index: int | None = None,
 ) -> dict[str, Any]:
-    track = get_track(ctx.song, track_index)
+    track = resolve_track(ctx.song, track_type, track_index)
     before = len(list(track.devices))
     target = before if device_index is None else max(0, min(device_index, before))
     try:
@@ -514,15 +542,24 @@ def insert_device(
 @REGISTRY.register(
     "delete_device",
     params=[
-        ParamSchema("track_index", ParamType.INT, min_value=0),
+        ParamSchema("track_index", ParamType.INT, required=False, min_value=0),
+        TRACK_TYPE_PARAM,
         ParamSchema("device_index", ParamType.INT, min_value=0),
     ],
     category="devices",
     destructive=True,
-    description="Remove a device from a track's chain. Destructive.",
+    description=(
+        "Remove a device from a regular, return, or the master track's chain "
+        "(track_type). Destructive."
+    ),
 )
-def delete_device(ctx, track_index: int, device_index: int) -> dict[str, Any]:
-    track = get_track(ctx.song, track_index)
+def delete_device(
+    ctx,
+    track_index: int | None = None,
+    track_type: str = "track",
+    device_index: int = 0,
+) -> dict[str, Any]:
+    track = resolve_track(ctx.song, track_type, track_index)
     device = get_device(track, device_index)
     name = device.name
     track.delete_device(device_index)

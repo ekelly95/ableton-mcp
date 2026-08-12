@@ -842,6 +842,47 @@ def check_drift_class_props(client):
     return f"voice_modes={voice_modes} mod_sources={sources[:8]}{'...' if len(sources) > 8 else ''}"
 
 
+@step("master/return devices: Limiter on Main + return Reverb round trip")
+def check_master_return_devices(client):
+    # Return track A ships with a Reverb in the default set — read and tweak it.
+    returns = client.send("get_devices", track_type="return", track_index=0)["devices"]
+    assert returns, "return A reported no devices (expected the default Reverb)"
+    client.send(
+        "set_device_parameters",
+        track_type="return",
+        track_index=0,
+        device_index=0,
+        parameters=[{"parameter": 1, "value": 0.6}],
+    )
+
+    # The Main track: insert a native Limiter, confirm, remove (the workflow
+    # that was impossible before 2.8 — the limiter-on-Main gap).
+    inserted = client.send("insert_device", track_type="master", device_name="Limiter")["inserted"]
+    devices = client.send("get_devices", track_type="master")["devices"]
+    assert any(d["name"] == "Limiter" for d in devices), devices
+    client.send(
+        "set_device_parameters",
+        track_type="master",
+        device_index=inserted["index"],
+        # Live 12's Limiter has no bare 'Gain' — the real names (first run's
+        # error listed them): Input Gain, Ceiling, Release, Lookahead, ...
+        parameters=[{"parameter": "Ceiling", "value": 0.5}],
+    )
+    client.send("delete_device", track_type="master", device_index=inserted["index"])
+
+    # load_item route onto Main (what plug-ins like Ozone need): selection of
+    # the master track is the VERIFY here. Native Limiter keeps it fast.
+    loaded = client.send("load_item", path=["audio_effects", "Limiter"], track_type="master")
+    assert loaded["onto_track"] in ("Main", "Master"), loaded
+    devices = client.send("get_devices", track_type="master")["devices"]
+    limiter_index = next(d["index"] for d in devices if d["name"] == "Limiter")
+    client.send("delete_device", track_type="master", device_index=limiter_index)
+    return (
+        "return-A Reverb tweaked; Limiter inserted+set+removed on Main via "
+        "insert_device AND load_item (master selection VERIFY discharged)"
+    )
+
+
 @step("validation error taxonomy over the wire")
 def check_validation(client):
     try:
@@ -911,6 +952,7 @@ def main():
         check_simpler_class_props,
         check_eq8_class_props,
         check_drift_class_props,
+        check_master_return_devices,
         check_finale,
         check_validation,
         check_live_error,

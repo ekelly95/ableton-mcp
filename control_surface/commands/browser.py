@@ -8,7 +8,8 @@ from typing import Any
 
 from ..config import MAX_BROWSER_ITEMS
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
-from ..utils.live_helpers import get_track
+from ..utils.live_helpers import resolve_track
+from .devices import TRACK_TYPE_PARAM
 
 # How many child names a not-found/not-loadable error lists as suggestions.
 _SUGGESTION_CAP = 20
@@ -135,15 +136,20 @@ def browse(ctx, path: list[str] | None = None) -> dict[str, Any]:
             min_value=0,
             description="Track to load onto; omit to use the currently selected track",
         ),
+        TRACK_TYPE_PARAM,
     ],
     category="browser",
     description=(
-        "Load an instrument/effect/sample/plug-in onto a track. Loading targets "
-        "the SELECTED track, so track_index selects it first. Slow on first use "
-        "(Live may index packs) — allow up to 2 minutes."
+        "Load an instrument/effect/sample/plug-in onto a track — regular, "
+        "return, or master via track_type (e.g. a mastering plug-in onto the "
+        "Main track). Loading targets the SELECTED track, so track_index/"
+        "track_type select it first. Slow on first use (Live may index packs) "
+        "— allow up to 2 minutes."
     ),
 )
-def load_item(ctx, path: list[str], track_index: int | None = None) -> dict[str, Any]:
+def load_item(
+    ctx, path: list[str], track_index: int | None = None, track_type: str = "track"
+) -> dict[str, Any]:
     song = ctx.song
     browser = _browser(ctx)
     node = _navigate(browser, path)
@@ -152,9 +158,10 @@ def load_item(ctx, path: list[str], track_index: int | None = None) -> dict[str,
         children = [c.name for c in list(node.children)[:_SUGGESTION_CAP]]
         raise LiveAPIError(f"'{node.name}' is a folder, not loadable. Its entries: {children}")
 
-    if track_index is not None:
-        track = get_track(song, track_index)
-        song.view.selected_track = track
+    if track_index is not None or track_type != "track":
+        # Selecting the master/return track is how a load reaches it —
+        # VERIFY at checkpoint (selection of non-regular tracks).
+        song.view.selected_track = resolve_track(song, track_type, track_index)
 
     browser.load_item(node)
 

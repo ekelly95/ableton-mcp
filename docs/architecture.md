@@ -232,6 +232,18 @@ Two tiers, deliberately separate:
   notation 52 chars vs 4,850 JSON; read back compact 185 chars vs 19,076
   old emission.
 
+## Master/return device addressing (2.8)
+
+The long-standing gap (device tools resolved regular tracks only) closed:
+`track_type` ("track" default | "return" | "master") on get_devices,
+set_device_parameters, insert_device, delete_device, and load_item, resolved
+through the existing `resolve_track` ("master" ignores track_index). All
+CONFIRMED on real Live 12.4.3 (2.8 checkpoint, 42/42): return-chain devices
+read and written; native insert onto Main; `load_item` reaches Main by
+selecting the master track first (`song.view.selected_track = master_track`
+works) — the route plug-ins like Ozone need. Return-track DELETION remains
+deliberately absent; only their devices are addressable.
+
 ## Take lanes + deep native-device control (2.7)
 
 The one Live-side batch of the 2026-08 roadmap (registry hash moved once).

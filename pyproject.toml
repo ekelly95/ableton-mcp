@@ -1,6 +1,6 @@
 [project]
 name = "ableton-mcp"
-version = "2.7.0"
+version = "2.8.0"
 description = "MCP server bridging Claude to Ableton Live via a control-surface socket"
 readme = "README.md"
 license = { text = "MIT" }

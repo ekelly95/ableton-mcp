@@ -80,3 +80,31 @@ def test_load_item_plugin_preset(registry, ctx, song):
         track_index=1,
     )
     assert result["loaded"] == "Factory Preset A"
+
+
+def test_load_item_onto_master(registry, ctx, song):
+    # track_type='master' selects the Main track before loading (2.8) — the
+    # route for putting mastering effects/plug-ins on the master chain.
+    result = run_command(
+        registry,
+        ctx,
+        "load_item",
+        path=["audio_effects", "Reverb"],
+        track_type="master",
+    )
+    assert result["onto_track"] == "Main"
+    assert "Reverb" in result["devices_now"]
+    assert song.master_track.devices[-1].name == "Reverb"
+
+
+def test_load_item_onto_return(registry, ctx, song):
+    result = run_command(
+        registry,
+        ctx,
+        "load_item",
+        path=["audio_effects", "Reverb"],
+        track_type="return",
+        track_index=1,
+    )
+    assert result["onto_track"] == "B Return"
+    assert song.return_tracks[1].devices[-1].name == "Reverb"

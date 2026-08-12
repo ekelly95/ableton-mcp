@@ -425,3 +425,65 @@ def test_inserted_native_devices_get_class_mocks(registry, ctx, song):
     result = run_command(registry, ctx, "get_devices", track_index=0, device_index=0)
     assert result["device"]["class_name"] == "OriginalSimpler"
     assert "class_properties" in result["device"]
+
+
+# --- Master/return device addressing (2.8) -----------------------------------
+
+
+@pytest.fixture()
+def with_chain_devices(song):
+    song.return_tracks[0].devices.append(MockDevice(name="Reverb", class_name="Reverb"))
+    song.master_track.devices.append(MockDevice(name="Saturator", class_name="Saturator"))
+    return song
+
+
+def test_get_devices_on_return_and_master(registry, ctx, with_chain_devices):
+    result = run_command(registry, ctx, "get_devices", track_type="return", track_index=0)
+    assert result["devices"][0]["name"] == "Reverb"
+    result = run_command(registry, ctx, "get_devices", track_type="master")
+    assert result["devices"][0]["name"] == "Saturator"
+
+
+def test_set_device_parameters_on_master(registry, ctx, with_chain_devices):
+    result = run_command(
+        registry,
+        ctx,
+        "set_device_parameters",
+        track_type="master",
+        device_index=0,
+        parameters=[{"parameter": "Macro 1", "value": 0.9}],
+    )
+    device = with_chain_devices.master_track.devices[0]
+    assert abs(device.parameters[1].value - 0.9) < 1e-9
+    assert result["changed"][0]["name"] == "Macro 1"
+
+
+def test_insert_and_delete_device_on_master(registry, ctx, song):
+    result = run_command(
+        registry, ctx, "insert_device", track_type="master", device_name="EQ Eight"
+    )
+    assert result["inserted"]["class_name"] == "Eq8"
+    assert [d.name for d in song.master_track.devices] == ["EQ Eight"]
+    result = run_command(registry, ctx, "delete_device", track_type="master", device_index=0)
+    assert result == {"deleted": "EQ Eight", "device_count": 0}
+    assert song.master_track.devices == []
+
+
+def test_insert_device_on_return(registry, ctx, song):
+    run_command(
+        registry, ctx, "insert_device", track_type="return", track_index=0, device_name="Delay"
+    )
+    assert [d.name for d in song.return_tracks[0].devices] == ["Delay"]
+    run_command(registry, ctx, "delete_device", track_type="return", track_index=0, device_index=0)
+
+
+def test_track_type_track_still_requires_index(registry, ctx):
+    with pytest.raises(LiveAPIError, match="track_index is required"):
+        run_command(registry, ctx, "get_devices", track_type="track")
+    with pytest.raises(LiveAPIError, match="track_index is required"):
+        run_command(registry, ctx, "get_devices")
+
+
+def test_return_index_out_of_range(registry, ctx):
+    with pytest.raises(LiveAPIError, match="out of range"):
+        run_command(registry, ctx, "get_devices", track_type="return", track_index=9)
