@@ -122,6 +122,43 @@ Start with the devices ekelly95 actually uses: **Simpler, EQ Eight, Drift**
 (sample ops; global_mode/oversample; mod-matrix `_index` properties + voice
 mode/count). Add others only on demand. Registry changes → batch.
 
+## Round M — macOS compatibility (ekelly95-approved 2026-08-12)
+
+**Why:** the producer audience skews heavily Mac; Windows-only is the
+bridge's single biggest reach limit, and both name-sharing competitors ship
+macOS. Not a producer-pal adoption — our own gap.
+
+**Already in place:** the control_surface script supports Unix sockets
+(config.py: `SOCKET_PATH`, `USE_TCP = os.name == "nt"`); Python inside Live
+is the same on both platforms. The gaps are client + installer + paths + CI.
+
+Work items:
+1. **Client:** teach `mcp_server/client.py` to connect over the Unix socket
+   when not on Windows (mirror the control_surface's existing branch). This
+   path has NEVER been exercised — treat it as new code, not dormant code.
+2. **Installer:** `scripts/install_control_surface.py` learns the macOS
+   Remote Scripts location (`~/Music/Ableton/User Library/Remote Scripts`,
+   plus Live-version app-support fallbacks) alongside the existing Windows/
+   OneDrive probing. Same copy-over-never-rmtree rule.
+3. **Path assumptions sweep:** LOG_DIR (config.py branches on os.name —
+   verify the non-Windows branch), samples dir, anything using %TEMP%/
+   backslashes. Round A note: Live's database on macOS lives at
+   `~/Library/Application Support/Ableton/Live Database` — build the library
+   module with both paths from day one.
+4. **CI:** add a macos-latest job to .github/workflows/tests.yml. The mock
+   suite exercises the whole command surface without Live, so a green Mac
+   run validates everything except the final real-Live handshake.
+5. **README:** platform section updated to say exactly what macOS status is.
+
+**Verification constraint (be honest about it):** ekelly95 has no Mac, so the
+final real-Live handshake cannot be verified in-house. Ship as "implemented,
+tests green on macOS CI, awaiting real-hardware confirmation" and say so in
+the README — the first Mac user is the verifier, and their confirmation (or
+bug report) gets folded back in. Do NOT claim macOS "support" as verified
+fact anywhere (memory, README, AGENTS.md) until a real Mac + Live has run
+the checkpoint. If a Mac becomes borrowable, scripts/smoke_test.py +
+live_checkpoint.py are the 30-minute confirmation path.
+
 ## Round D — Only when the surface stabilizes
 
 - **Tool consolidation (42+ → ~20).** The largest fixed cost (schemas ≈8-9k
@@ -154,6 +191,9 @@ mode/count). Add others only on demand. Registry changes → batch.
 
 ## Suggested order
 
-A (library, server-only, no restart) → C (device tables) + B (take lanes)
-batched as one Live-side release → D items on demand. Confirm scope with
-ekelly95 at the start of each round; he decides what a round is worth.
+A (library, server-only, no restart) → M (macOS: code + CI now, real-Mac
+verification when hardware appears — worth doing before any public flip,
+since Mac users are most of the audience) → C (device tables) + B (take
+lanes) batched as one Live-side release → D items on demand. A and M don't
+conflict and could be one round. Confirm scope with ekelly95 at the start of
+each round; he decides what a round is worth.
