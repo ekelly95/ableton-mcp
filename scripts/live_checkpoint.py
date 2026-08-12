@@ -21,7 +21,7 @@ from control_surface.config import SAMPLES_DIR, VERSION  # noqa: E402
 from mcp_server.client import AbletonClient, CommandError  # noqa: E402
 
 PASS, FAIL = "PASS", "FAIL"
-WHOLE_RUN_BUDGET_SECONDS = 240
+WHOLE_RUN_BUDGET_SECONDS = 300  # raised for the 2.7 take-lane + device steps
 results = []
 
 
@@ -669,6 +669,172 @@ def check_arrangement_cleanup(client):
     return "timeline cleared with expected_start_time guards; audio track removed ('Chorus' locator left as a souvenir)"
 
 
+@step("take lanes: create, write notes in lane clip, main-lane exclusion")
+def check_take_lanes(client):
+    before = client.send("get_arrangement", track_index=state["track"])["tracks"][0]
+    assert "take_lanes" not in before, "fresh track already reports take_lanes"
+    main_clip_count = len(before["arrangement_clips"])
+
+    lane = client.send("create_take_lane", track_index=state["track"], name="MCP Take A")
+    assert lane["take_lane_index"] == 0 and lane["name"] == "MCP Take A", lane
+
+    created = client.send(
+        "create_arrangement_clip",
+        track_index=state["track"],
+        start_time=24.0,
+        length_beats=4.0,
+        take_lane_index=0,
+    )["created"]
+    assert created["take_lane_index"] == 0, created
+
+    client.send(
+        "add_notes",
+        track_index=state["track"],
+        arrangement_clip_index=created["arrangement_clip_index"],
+        take_lane_index=0,
+        notes=[{"pitch": "C3", "start_time": 0.0, "duration": 1.0, "velocity": 90}],
+    )
+    read = client.send(
+        "get_notes",
+        track_index=state["track"],
+        arrangement_clip_index=created["arrangement_clip_index"],
+        take_lane_index=0,
+    )
+    assert read["note_count"] == 1 and read["notes"][0]["pitch"] == 60, read
+
+    after = client.send("get_arrangement", track_index=state["track"])["tracks"][0]
+    lanes = after.get("take_lanes")
+    assert lanes and lanes[0]["name"] == "MCP Take A" and len(lanes[0]["clips"]) == 1, lanes
+    # THE key VERIFY: the lane clip must not leak into the main-lane list.
+    assert len(after["arrangement_clips"]) == main_clip_count, (
+        "take-lane clip appeared in Track.arrangement_clips — main-lane "
+        "exclusion assumption is WRONG, fix mock + docs"
+    )
+    return (
+        "lane created+named, clip+note written via lane addressing, "
+        "Track.arrangement_clips excludes lane clips (VERIFY discharged). "
+        "Lane stays in the set — no delete API exists."
+    )
+
+
+@step("Simpler class properties + sample ops (class_name, modes, invoke)")
+def check_simpler_class_props(client):
+    # A .wav loaded onto the MIDI track lands as a Simpler WITH a sample —
+    # class properties and sample ops need one to mean anything.
+    client.send(
+        "load_item",
+        path=[
+            "user_library",
+            "Drum Kits",
+            "CLOUD PluggNB Drum Kit (Producergrind)",
+            "PG CLOUD 808 - Tremble - C.wav",
+        ],
+        track_index=state["track"],
+    )
+    device = client.send("get_devices", track_index=state["track"], device_index=0)["device"]
+    assert device["class_name"] == "OriginalSimpler", (
+        f"Simpler class_name is {device['class_name']!r} — fix _CLASS_PROPS key + mock"
+    )
+    props = device.get("class_properties")
+    assert props, "no class_properties block for a real Simpler"
+    assert props["playback_mode"]["items"] == ["Classic", "One-Shot", "Slicing"], props
+
+    client.send(
+        "set_device_parameters",
+        track_index=state["track"],
+        device_index=0,
+        parameters=[
+            {"parameter": "playback_mode", "value": "One-Shot"},
+            {"parameter": "voices", "value": 4},
+        ],
+    )
+    props = client.send("get_devices", track_index=state["track"], device_index=0)["device"][
+        "class_properties"
+    ]
+    assert props["playback_mode"]["value"] == "One-Shot", props
+    assert props["voices"] == 4, props
+
+    # reverse twice = net no change to the loaded sample; length estimate real.
+    invoked = client.send(
+        "set_device_parameters",
+        track_index=state["track"],
+        device_index=0,
+        invoke=[{"method": "reverse"}, {"method": "reverse"}, {"method": "guess_playback_length"}],
+    )["invoked"]
+    length = next(i.get("result") for i in invoked if i["method"] == "guess_playback_length")
+    assert isinstance(length, (int, float)) and length > 0, invoked
+    gates = {k: props.get(k) for k in ("can_warp_as", "can_warp_double", "can_warp_half")}
+    return f"modes+voices round-trip, reverse x2 + length={length}; warp gates {gates}"
+
+
+@step("EQ Eight class properties: global_mode Stereo->M/S->Stereo")
+def check_eq8_class_props(client):
+    inserted = client.send("insert_device", track_index=state["track"], device_name="EQ Eight")[
+        "inserted"
+    ]
+    assert inserted["class_name"] == "Eq8", (
+        f"EQ Eight class_name is {inserted['class_name']!r} — fix _CLASS_PROPS key + mock"
+    )
+    idx = inserted["index"]
+    props = client.send("get_devices", track_index=state["track"], device_index=idx)["device"][
+        "class_properties"
+    ]
+    assert props["global_mode"]["value"] == "Stereo", props
+    client.send(
+        "set_device_parameters",
+        track_index=state["track"],
+        device_index=idx,
+        parameters=[
+            {"parameter": "global_mode", "value": "M/S"},
+            {"parameter": "oversample", "value": True},
+        ],
+    )
+    props = client.send("get_devices", track_index=state["track"], device_index=idx)["device"][
+        "class_properties"
+    ]
+    assert props["global_mode"]["value"] == "M/S" and props["oversample"] is True, props
+    client.send("delete_device", track_index=state["track"], device_index=idx)
+    return "global_mode + oversample round-trip; device removed"
+
+
+@step("Drift indexed properties: runtime lists + label writes")
+def check_drift_class_props(client):
+    inserted = client.send("insert_device", track_index=state["track"], device_name="Drift")[
+        "inserted"
+    ]
+    idx = inserted["index"]
+    props = client.send("get_devices", track_index=state["track"], device_index=idx)["device"][
+        "class_properties"
+    ]
+    voice_modes = props["voice_mode"]["items"]
+    sources = props["mod_matrix_lfo_source"]["items"]
+    assert len(voice_modes) >= 2 and len(sources) >= 2, props
+    assert isinstance(props["pitch_bend_range"], int), props
+
+    # Write by label taken from Live's OWN list, then restore.
+    original = props["voice_mode"]["value"]
+    target = next(m for m in voice_modes if m != original)
+    client.send(
+        "set_device_parameters",
+        track_index=state["track"],
+        device_index=idx,
+        parameters=[{"parameter": "voice_mode", "value": target}],
+    )
+    readback = client.send("get_devices", track_index=state["track"], device_index=idx)["device"][
+        "class_properties"
+    ]["voice_mode"]["value"]
+    assert readback == target, (readback, target)
+    client.send(
+        "set_device_parameters",
+        track_index=state["track"],
+        device_index=idx,
+        parameters=[{"parameter": "voice_mode", "value": original}],
+    )
+    client.send("delete_device", track_index=state["track"], device_index=idx)
+    # Echo the REAL vocabularies into the record for docs + mock backport.
+    return f"voice_modes={voice_modes} mod_sources={sources[:8]}{'...' if len(sources) > 8 else ''}"
+
+
 @step("validation error taxonomy over the wire")
 def check_validation(client):
     try:
@@ -734,6 +900,10 @@ def main():
         check_invalid_scale,
         check_meters,
         check_play_from_position,
+        check_take_lanes,
+        check_simpler_class_props,
+        check_eq8_class_props,
+        check_drift_class_props,
         check_finale,
         check_validation,
         check_live_error,
