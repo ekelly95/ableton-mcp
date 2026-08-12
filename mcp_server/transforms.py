@@ -65,7 +65,6 @@ _NOTE_VARS = {
     "probability": ("probability", 1.0),
     "deviation": ("velocity_deviation", 0.0),
 }
-_ASSIGN_OPS = ("+=", "-=", "*=", "/=", "=")
 
 # Value clamps applied after every assignment so a wild expression can't
 # produce notes Live would reject.

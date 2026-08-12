@@ -28,7 +28,7 @@ from pathlib import Path
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, errors="replace")
 
 FILES_DB_RE = re.compile(r"^Live-files-(\d+)\.db$")
-PLUGINS_DB_RE = re.compile(r"^Live-plugins-(\d+)\.db$")
+PLUGINS_DB_RE = re.compile(r"^Live-plugins-\d+\.db$")
 
 
 def default_db_dir() -> Path:
@@ -53,18 +53,17 @@ def section(title):
     return decorator
 
 
-def to_uri(path: Path, *, immutable: bool) -> str:
+def to_uri(path: Path) -> str:
     # Forward slashes + percent-quoting; sqlite URIs choke on backslashes and
     # need %-escapes for spaces/%/# in path segments.
     from urllib.parse import quote
 
     quoted = quote(str(path).replace("\\", "/"), safe="/:")
-    suffix = "&immutable=1" if immutable else ""
-    return f"file:{quoted}?mode=ro{suffix}"
+    return f"file:{quoted}?mode=ro&immutable=1"
 
 
-def open_ro(path: Path, *, immutable: bool = True) -> sqlite3.Connection:
-    return sqlite3.connect(to_uri(path, immutable=immutable), uri=True)
+def open_ro(path: Path) -> sqlite3.Connection:
+    return sqlite3.connect(to_uri(path), uri=True)
 
 
 def join_parts(parts: list[str]) -> str:
@@ -97,7 +96,7 @@ def probe_selection(db_dir: Path) -> tuple[Path, Path]:
 
 @section("2. Read-only + immutable open; write must fail; URI shown")
 def probe_ro_open(files_db: Path):
-    uri = to_uri(files_db, immutable=True)
+    uri = to_uri(files_db)
     print(f"URI: {uri}")
     conn = open_ro(files_db)
     (n,) = conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
@@ -134,7 +133,6 @@ def probe_schema(files_db: Path):
         for _cid, name, ctype, _notnull, _default, _pk in cols:
             print(f"    {name:24s} {ctype}")
     conn.close()
-    return tables
 
 
 @section("4. Path reconstruction via recursive CTE, verified on disk")

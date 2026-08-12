@@ -38,13 +38,11 @@ class MainThreadExecutionError(Exception):
         message: str,
         function_name: str | None = None,
         timeout: bool = False,
-        original_error: Exception | None = None,
     ):
         super().__init__(message)
         self.message = message
         self.function_name = function_name
         self.timeout = timeout
-        self.original_error = original_error
 
     def __str__(self) -> str:
         parts = [self.message]
@@ -152,7 +150,6 @@ class ThreadMarshaler:
             raise MainThreadExecutionError(
                 f"Failed to schedule task: {e}",
                 function_name=func_name,
-                original_error=e,
             ) from e
 
         execution_result: ExecutionResult | None

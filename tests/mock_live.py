@@ -81,7 +81,6 @@ class MockParameter:
         value: float = 0.5,
         min: float = 0.0,  # noqa: A002 - mirrors Live's attribute names
         max: float = 1.0,  # noqa: A002
-        default_value: float = 0.5,
         is_quantized: bool = False,
         value_items: list[str] | None = None,
     ):
@@ -89,7 +88,6 @@ class MockParameter:
         self._value = value
         self.min = min
         self.max = max
-        self.default_value = default_value
         self.is_quantized = is_quantized
         self.is_enabled = True
         # LOM: 0 = no automation, 1 = automation active, 2 = overridden.
@@ -172,9 +170,6 @@ class MockClip:
             # (checkpoint toggles it via set_clip warping=false).
             self.warping = True
         self.is_playing = False
-        self.is_recording = False
-        self.signature_numerator = 4
-        self.signature_denominator = 4
         # Arrangement placement (meaningful only for arrangement clips)
         self.start_time = 0.0
         self.end_time = length
@@ -301,7 +296,6 @@ class MockClipSlot:
         self.clip: MockClip | None = None
         self.is_playing = False
         self.is_triggered = False
-        self.is_recording = False
 
     def create_clip(self, length: float) -> None:
         if self.has_clip:
@@ -453,12 +447,8 @@ class MockMixerDevice:
         # CONFIRMED on real Live 12.4 (2.2 checkpoint): the mixer parameters
         # are NAMED "Track Volume"/"Track Panning". Volume normalized 0-1 with
         # 0.85 ~= 0 dB; pan -1..1.
-        self.volume = MockParameter(
-            "Track Volume", value=0.85, min=0.0, max=1.0, default_value=0.85
-        )
-        self.panning = MockParameter(
-            "Track Panning", value=0.0, min=-1.0, max=1.0, default_value=0.0
-        )
+        self.volume = MockParameter("Track Volume", value=0.85, min=0.0, max=1.0)
+        self.panning = MockParameter("Track Panning", value=0.0, min=-1.0, max=1.0)
         self.sends: list[MockParameter] = [
             MockParameter(f"Send {chr(65 + i)}", value=0.0) for i in range(send_count)
         ]
@@ -522,9 +512,6 @@ class MockTrack:
         self.arm = False
         self.mute = False
         self.solo = False
-        self.is_foldable = False
-        self.is_grouped = False
-        self.is_visible = True
         self.mixer_device = MockMixerDevice(send_count=send_count)
         self.clip_slots: list[MockClipSlot] = [MockClipSlot(self) for _ in range(slot_count)]
         self.devices: list[MockDevice] = []
@@ -715,9 +702,6 @@ class MockCuePoint:
     def __init__(self, time: float, name: str = ""):
         self.time = time
         self.name = name
-
-    def jump(self) -> None:
-        pass
 
 
 class MockSongView:
@@ -969,12 +953,6 @@ class MockApplication:
     def __init__(self, song: MockSong | None = None):
         self.browser = MockBrowser(song) if song is not None else None
 
-    def get_major_version(self) -> int:
-        return 12
-
-    def get_minor_version(self) -> int:
-        return 4
-
 
 class MockControlSurface:
     """Immediate scheduler: tasks run synchronously on the calling thread."""
@@ -982,7 +960,6 @@ class MockControlSurface:
     def __init__(self, song: MockSong | None = None):
         self._song = song if song is not None else MockSong()
         self._app = MockApplication(self._song)
-        self.messages: list[str] = []
 
     def schedule_message(self, delay, callback):
         # Pending playhead seeks apply BETWEEN scheduled tasks on real Live
@@ -996,9 +973,6 @@ class MockControlSurface:
 
     def application(self) -> MockApplication:
         return self._app
-
-    def show_message(self, message: str) -> None:
-        self.messages.append(message)
 
 
 def install_mock_live() -> types.ModuleType:

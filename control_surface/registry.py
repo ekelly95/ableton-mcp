@@ -136,7 +136,6 @@ class ParamSchema:
             raise ValidationError(
                 f"Invalid type: expected {self.param_type.value}, got {type(value).__name__}",
                 param=self.name,
-                value=value,
             ) from None
 
         if self.param_type in (ParamType.INT, ParamType.FLOAT):
@@ -144,19 +143,15 @@ class ParamSchema:
                 raise ValidationError(
                     f"Value {validated} is below minimum {self.min_value}",
                     param=self.name,
-                    value=value,
                 )
             if self.max_value is not None and validated > self.max_value:
                 raise ValidationError(
                     f"Value {validated} is above maximum {self.max_value}",
                     param=self.name,
-                    value=value,
                 )
 
         if self.enum_values is not None and validated not in self.enum_values:
-            raise ValidationError(
-                f"Value must be one of: {self.enum_values}", param=self.name, value=value
-            )
+            raise ValidationError(f"Value must be one of: {self.enum_values}", param=self.name)
 
         return validated
 
