@@ -171,14 +171,21 @@ the hard way:
   a fresh default one wherever it's pointed). TODO someday: make the
   checkpoint self-seed a generated sample instead of assuming ekelly95's kits.
 
-**Known macOS residuals (untested, stated for honesty):** the M4L audio tap
-(get_audio_levels) was not built on the Mac — the tool's graceful
-available:false path ran, the tap itself is Windows-verified only; no real
-MCP client (Claude Desktop) session was run on macOS (stdio launch+handshake
-covered by the suite); long-session stability and the privacy prompts a
-personal Mac would show (our rental was auto-logged-in) await the first real
-Mac user. Hardware audio/MIDI is out of scope — the bridge controls Live, it
-never touches the audio stream.
+**M4L tap: ALSO macOS-verified (same session, tap_checkpoint 5/5)** — the
+built .amxd transferred cross-platform as-is and was loaded onto Main
+headless via load_item track_type=master. CRITICAL packaging lesson: the
+.amxd is NOT self-contained — its node.script brain (m4l/tap_server.js) must
+sit in the same folder as the device or Max fails with "can't find file
+tap_server.js" and the device is a silent husk that still reports is_active
+true. Live's log (~/Library/Preferences/Ableton/<ver>/Log.txt) is where Max
+errors surface.
+
+**Known macOS residuals (untested, stated for honesty):** no real MCP client
+(Claude Desktop) session was run on macOS (stdio launch+handshake covered by
+the suite); long-session stability and the privacy prompts a personal Mac
+would show (our rental was auto-logged-in) await the first real Mac user.
+Hardware audio/MIDI is out of scope — the bridge controls Live, it never
+touches the audio stream.
 
 ## Round D — Only when the surface stabilizes
 
