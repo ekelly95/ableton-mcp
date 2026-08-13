@@ -298,7 +298,7 @@ def test_node_tap_server_framing_conformance():
         assert levels["clipping"] is False
 
         # Two concurrent clients must both be served (multi-client by design).
-        second = TapClient(port=19878)
+        second = TapClient(port=client.port)
         assert second.send("ping")["pong"] is True
     finally:
         proc.terminate()
