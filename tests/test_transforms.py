@@ -100,6 +100,21 @@ def test_zero_denominator_duration_expression_warns():
         assert result[0]["duration"] == 1.0  # unchanged
 
 
+def test_zero_denominator_note_op_args_warn():
+    # ratchet/repeat/merge fall back from duration parsing to plain float();
+    # n/0 used to escape that fallback as a raw ValueError tool error.
+    notes = _pattern("C3 1|1")
+    for statement in (
+        "C3: ratchet(n/0)",
+        "C3: repeat(n/0)",
+        "C3: merge(n/0)",
+        "C3: repeat(n/8, n/0)",
+    ):
+        result, _, warnings = apply_transforms([dict(n) for n in notes], statement)
+        assert len(warnings) == 1 and "bad argument" in warnings[0], statement
+        assert len(result) == 1 and result[0]["duration"] == 1.0  # untouched
+
+
 def test_v0_deletes_selection():
     notes = _pattern("C3 1|1 D3 1|2")
     result, _, _ = apply_transforms(notes, "D3: v0")

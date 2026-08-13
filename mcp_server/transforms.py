@@ -553,6 +553,16 @@ def _grid_ratchet(note: dict[str, Any], grid: float) -> list[dict[str, Any]]:
     return pieces
 
 
+def _op_number(name: str, text: str) -> float:
+    # Duration-looking args that fail duration parsing (n/0) land here too —
+    # surface them as the statement warning the dialect promises, not as a
+    # naked ValueError that escapes the statement loop as a tool error.
+    try:
+        return float(text)
+    except ValueError:
+        raise TransformError(f"bad argument '{text}' for {name}(...)") from None
+
+
 def _apply_note_op(
     name: str, arg_text: str, matched: list[dict[str, Any]], env: _Env
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -568,7 +578,7 @@ def _apply_note_op(
             if grid is not None:
                 replaced.extend(_grid_ratchet(note, grid))
             else:
-                pieces = max(int(float(args[0])), 1)
+                pieces = max(int(_op_number("ratchet", args[0])), 1)
                 width = note["duration"] / pieces
                 for i in range(pieces):
                     piece = {k: v for k, v in note.items() if k != "note_id"}
@@ -582,8 +592,8 @@ def _apply_note_op(
             raise TransformError("repeat(step[, count]) needs a step")
         step = _parse_duration_token(args[0], env.beats_per_bar)
         if step is None:
-            step = float(args[0])
-        count = int(float(args[1])) if len(args) > 1 else 1
+            step = _op_number("repeat", args[0])
+        count = int(_op_number("repeat", args[1])) if len(args) > 1 else 1
         added = []
         for note in matched:
             for i in range(1, count + 1):
@@ -595,7 +605,7 @@ def _apply_note_op(
     if name == "merge":
         gap = _parse_duration_token(args[0], env.beats_per_bar) if args else None
         if gap is None and args:
-            gap = float(args[0])
+            gap = _op_number("merge", args[0])
         by_pitch: dict[int, list[dict[str, Any]]] = {}
         for note in sorted(matched, key=lambda n: n["start_time"]):
             by_pitch.setdefault(note["pitch"], []).append(note)
