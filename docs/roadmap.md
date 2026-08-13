@@ -66,15 +66,6 @@ It did not include a full Claude Desktop session, long-running stability, or
 the privacy prompts that may appear on a normally configured personal Mac.
 The stdio launch and handshake paths are covered by the automated suite.
 
-For future rented-Mac checks:
-
-- Remote screen input may require an active console session before a classic
-  VNC client can control the machine.
-- Ableton can be installed over SSH, but its trial dialog and control-surface
-  selection require GUI access.
-- Confirm the active User Library location inside Live before running a
-  checkpoint that depends on library content.
-
 ### 2.7 — Take lanes and native-device controls
 
 - Arrangement MIDI clips can be created and edited in take lanes, and
@@ -111,7 +102,7 @@ a frozen prebuilt device would drop the two-file requirement.
 ### Gather first-user macOS evidence
 
 A normal Mac installation may expose permission prompts or long-session issues
-that were absent from the rented, auto-logged-in test machine. Record these as
+that were absent from the automated test machine. Record these as
 they are reproduced; do not infer them from CI alone.
 
 ### Consider only when a real workflow requires it

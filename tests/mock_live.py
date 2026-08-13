@@ -2,7 +2,7 @@
 
 Encodes our best understanding of Live 12's Python API, including the modern
 note-ID API (Live 11.1+). Facts marked VERIFY are assumptions to confirm at
-the P4 real-Live checkpoint; corrections must be back-ported here with a
+the real-Live checkpoint; corrections must be back-ported here with a
 comment naming the verified behaviour.
 """
 
@@ -218,7 +218,7 @@ class MockClip:
         self, from_pitch: int, pitch_span: int, from_time: float, time_span: float
     ) -> "MockNoteVector":
         """CONFIRMED in real Live 12.4: argument order is pitch-first (the
-        P4 region-removal step deleted exactly the right note)."""
+        checkpoint region-removal step deleted exactly the right note)."""
         return MockNoteVector(
             n
             for n in self._notes
@@ -605,9 +605,9 @@ class MockTrack:
     duplicate_returns_none = False
 
     def duplicate_clip_to_arrangement(self, clip: MockClip, destination_time: float):
-        """The LOM does NOT document a return value (audit-verified — an earlier
-        reviewer overstated this). The mock returns the clone by default and can
-        return None via duplicate_returns_none to exercise the re-scan fallback.
+        """The LOM does NOT document a return value for this call — code must
+        not assume one. The mock returns the clone by default and can return
+        None via duplicate_returns_none to exercise the re-scan fallback.
         Real Live's behaviour: observed at checkpoint, see comment there."""
         clone = MockClip(length=clip.length, name=clip.name, is_midi_clip=clip.is_midi_clip)
         clone.looping = clip.looping

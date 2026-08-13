@@ -87,7 +87,7 @@ class AbletonMCP(ControlSurface):
 
     # Deliberately NOT overriding update_display/refresh_state/build_midi_map:
     # _Framework pumps scheduled messages inside update_display, so an empty
-    # override silently kills thread marshaling (found at the P4 checkpoint —
+    # override silently kills thread marshaling (verified on real Live —
     # every marshaled command timed out while ping still answered).
 
 

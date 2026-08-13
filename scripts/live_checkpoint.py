@@ -239,7 +239,7 @@ def check_load(client):
     if not state.get("instrument"):
         raise AssertionError("no loadable instrument found under instruments root")
     # Same connection on purpose: a second client would queue behind this one
-    # on the serial server and execute AFTER the script exits (audit finding).
+    # on the serial server and execute AFTER the script exits.
     # The client grants heavy commands their full COMMAND_TIMEOUTS budget.
     result = client.send(
         "load_item",
@@ -373,7 +373,7 @@ def check_direct_arrangement(client):
         "notes"
     ]
     assert notes and notes[0]["pitch"] == 72, notes
-    return "empty MIDI clip created at beat 16, note written directly (audit route)"
+    return "empty MIDI clip created at beat 16, note written directly (direct-write route)"
 
 
 @step("arrangement_record: toggle on/off without playing")
@@ -913,7 +913,7 @@ def main():
     # in a detail string crash a print.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
-    print("P4 checkpoint against real Ableton Live\n", flush=True)
+    print("Checkpoint against real Ableton Live\n", flush=True)
     # Fail fast: 8s per command (heavy commands still get their declared
     # COMMAND_TIMEOUTS budget on this same connection).
     client = AbletonClient(timeout=8.0)
@@ -963,7 +963,7 @@ def main():
         check_live_error,
     ]
     # Cleanup runs REGARDLESS of the time budget: an aborted run must not
-    # leave the user's set littered (audit finding).
+    # leave the user's set littered.
     cleanup_steps = [check_arrangement_cleanup]
 
     for check in main_steps:

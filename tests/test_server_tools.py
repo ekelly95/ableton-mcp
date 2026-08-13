@@ -276,7 +276,7 @@ class TestNotationAndTransforms:
             assert result.structuredContent["schema_in_sync"] is True
 
     async def test_pitch_name_survives_real_input_validation(self):
-        """Audit finding: the ADVERTISED schema must accept 'A3' in update_notes
+        """The ADVERTISED schema must accept 'A3' in update_notes
         modifications — direct-handler tests bypass the SDK's input validation,
         which is exactly where this used to break."""
         fake = FakeAbletonClient()
