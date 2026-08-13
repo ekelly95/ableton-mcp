@@ -239,12 +239,18 @@ class TestOverProtocol:
 node_missing = shutil.which("node") is None
 
 
-def _start_node_tap(port: int, extra_env: dict | None = None):
-    """Start the REAL tap_server.js on a test port; returns (proc, client, ping).
+def _free_port() -> int:
+    # OS-assigned ephemeral port: never 9878 (so a real tap inside a running
+    # Live can't collide and answer), never reused across the three node
+    # tests, and immune to leftover listeners on shared CI runners.
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
-    Ports deliberately != 9878: a real tap inside a running Live would collide
-    (and answer!).
-    """
+
+def _start_node_tap(extra_env: dict | None = None):
+    """Start the REAL tap_server.js on a free port; returns (proc, client, ping)."""
+    port = _free_port()
     env = dict(os.environ, ABLETON_TAP_PORT=str(port))
     if extra_env:
         env.update(extra_env)
@@ -256,7 +262,14 @@ def _start_node_tap(port: int, extra_env: dict | None = None):
         env=env,
     )
     client = TapClient(port=port)
-    for _ in range(20):  # allow bind retries/startup
+    # A cold Node on a loaded CI runner can take well over the old 5 s
+    # budget to first answer; a healthy start still returns in under a
+    # second, so the long deadline costs nothing when things work.
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            stderr = proc.stderr.read().decode(errors="replace")
+            raise AssertionError(f"node tap exited {proc.returncode}: {stderr[:500]}")
         time.sleep(0.25)
         try:
             return proc, client, client.send("ping")
@@ -264,13 +277,13 @@ def _start_node_tap(port: int, extra_env: dict | None = None):
             continue
     proc.terminate()
     proc.wait(timeout=10)
-    raise AssertionError("node tap never answered")
+    raise AssertionError("node tap never answered within 30s")
 
 
 @pytest.mark.skipif(node_missing, reason="node not installed")
 def test_node_tap_server_framing_conformance():
     """Drive the REAL Node script with TapClient — cross-language framing."""
-    proc, client, ping = _start_node_tap(19878)
+    proc, client, ping = _start_node_tap()
     try:
         assert ping["pong"] is True
         assert ping["tap_protocol_version"] == 2
@@ -296,7 +309,7 @@ def test_node_tap_server_framing_conformance():
 def test_node_tap_fed_levels_pin_v2_conventions():
     """The env-gated test feed pins the measurement conventions end to end:
     sqrt(power/2), band index mapping, clip latching, window_ms."""
-    proc, client, _ping = _start_node_tap(19879, {"ABLETON_TAP_TEST_FEED": "1"})
+    proc, client, _ping = _start_node_tap({"ABLETON_TAP_TEST_FEED": "1"})
     try:
         time.sleep(1.2)  # let the 100ms feed accumulate history
         levels = client.send("get_levels")
@@ -325,7 +338,7 @@ def test_node_tap_goes_stale_when_feed_stops():
     """DSP stopping must flip stale, floor the values, and clear
     receiving_audio — v1 served frozen numbers forever."""
     proc, client, _ping = _start_node_tap(
-        19880, {"ABLETON_TAP_TEST_FEED": "1", "ABLETON_TAP_TEST_FEED_STOP_MS": "600"}
+        {"ABLETON_TAP_TEST_FEED": "1", "ABLETON_TAP_TEST_FEED_STOP_MS": "600"}
     )
     try:
         deadline = time.time() + 5.0
