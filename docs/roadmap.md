@@ -38,7 +38,7 @@ documented in the README and [architecture.md](architecture.md).
   MCP response size. Measurements and format rules are recorded in
   [architecture.md](architecture.md#token-economy-25).
 
-### 2.6 — Library search and sonic similarity
+### 2.6 — Library search, sonic similarity, and macOS support
 
 - `search_library` reads Live's library databases in read-only mode and
   searches samples, presets, MIDI files, grooves, sets, and plug-ins by name,
@@ -48,9 +48,6 @@ documented in the README and [architecture.md](architecture.md).
 - Browser-path guesses are returned only where the disk-to-browser mapping has
   been verified. Absolute paths remain available for `import_audio`.
 - The implementation is server-only and works while Live is closed.
-
-### 2.6 — macOS support
-
 - The client and control surface use an AF_UNIX socket on macOS and TCP on
   Windows.
 - The installer recognizes the User Library and Ableton application-bundle
