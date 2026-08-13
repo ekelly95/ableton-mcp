@@ -409,3 +409,28 @@ class TestLibraryToolsOverProtocol:
             result = await session.call_tool("search_library", {})
             assert result.isError is True
             assert "at least one filter" in result.content[0].text
+
+
+def test_unix_root_paths_stay_absolute(tmp_path):
+    # macOS root rows are '/' (or ''), which clean to empty — without the
+    # root guard the joined path came out relative ('Users/...' instead of
+    # '/Users/...'). The Windows fixture root 'C:\' takes the other branch
+    # and is covered by the search tests above. Mirrors join_parts in
+    # scripts/probe_library_db.py (deliberately separate implementations).
+    from mcp_server.library import _resolve_path
+
+    for root_name in ("/", ""):
+        db = tmp_path / f"files-root-{len(root_name)}.db"
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "CREATE TABLE files (file_id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT)"
+        )
+        conn.executemany(
+            "INSERT INTO files VALUES (?, ?, ?)",
+            [(1, 0, root_name), (2, 1, "Users"), (3, 2, "producer"), (4, 3, "Sample.wav")],
+        )
+        conn.commit()
+        path, guess = _resolve_path(conn, 4, place_root_id=0, source="core_library")
+        assert path == "/Users/producer/Sample.wav", repr(root_name)
+        assert guess is None
+        conn.close()

@@ -73,7 +73,9 @@ TRANSFORM_CLIP_TOOL = types.Tool(
         "[,strength]), legato([tol]), snap(C,Eb,...), rand(), choose(...), "
         "clamp/round/floor/ceil/abs/min/max/pow. Times/durations in n/X or "
         "Nbar units. Example: 'F#1: timing = swing(0.57); where(note.velocity "
-        "> 100): v-15; C1 1|1-2|*: ratchet(n/16)'"
+        "> 100): v-15; C1 1|1-2|*: ratchet(n/16)'. Refuses clips over the "
+        "2000-note read limit rather than silently editing only the first "
+        "2000."
     ),
     inputSchema={
         "type": "object",
@@ -207,6 +209,16 @@ def _transform_clip(ableton: AbletonClient, arguments: dict[str, Any]) -> dict:
         if key in arguments
     }
     read = ableton.send("get_notes", **clip_ref)
+    if read.get("truncated"):
+        # Refuse BEFORE any write: transforming only the readable prefix would
+        # silently leave the rest of the clip untouched and report the capped
+        # count as if it were the whole clip.
+        raise ValueError(
+            f"Clip exceeds the {len(read['notes'])}-note read limit, so this "
+            "transform would silently edit only the first "
+            f"{len(read['notes'])} notes. Split the clip or transform a "
+            "smaller region instead."
+        )
     transport = ableton.send("get_transport_state")
     transformed, matched, warnings = apply_transforms(
         read["notes"],

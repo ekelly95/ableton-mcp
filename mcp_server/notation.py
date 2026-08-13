@@ -70,7 +70,11 @@ _PITCH_NAME_RE = re.compile(r"^[A-Ga-g][#b]{0,2}-?\d+$")
 _INT_RE = re.compile(r"^\d+$")
 
 
-def _fraction_beats(numerator: str | None, denominator: str, suffix: str | None) -> float:
+def _fraction_beats(numerator: str | None, denominator: str, suffix: str | None) -> float | None:
+    # None, not ZeroDivisionError, on n/0: every caller degrades to its own
+    # warn-and-skip, which is the dialect's documented error contract.
+    if float(denominator) == 0:
+        return None
     beats = 4.0 * float(numerator or 1) / float(denominator)
     if suffix == "d":
         beats *= 1.5
@@ -88,6 +92,8 @@ def _parse_duration_token(token: str, beats_per_bar: float) -> float | None:
         beats = float(match.group(1)) * beats_per_bar
         if match.group(2):
             adjust = _fraction_beats(match.group(3), match.group(4), match.group(5))
+            if adjust is None:
+                return None
             beats += adjust if match.group(2) == "+" else -adjust
         return beats
     return None
@@ -184,6 +190,12 @@ class _Parser:
         start = (bar - 1) * self.beats_per_bar + (beat - 1.0)
         for sign, num, den, suffix in _TIME_OFFSET_RE.findall(match.group(3) or ""):
             offset = _fraction_beats(num or None, den, suffix or None)
+            if offset is None:
+                # A broken offset means the intended position is unknowable —
+                # emitting at the unadjusted time would be silently wrong.
+                self.warnings.append(f"time '{token}' has a zero-denominator offset; skipped")
+                self.pitch_buffer = []
+                return
             start += offset if sign == "+" else -offset
         count = int(match.group(4)) if match.group(4) else 1
         step = self.duration

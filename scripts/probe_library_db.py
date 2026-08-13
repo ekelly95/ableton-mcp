@@ -81,6 +81,8 @@ def open_ro(path: Path) -> sqlite3.Connection:
 def join_parts(parts: list[str]) -> str:
     # Run 1: the Windows drive root row is literally 'C:\' — a naive
     # '/'.join produced 'C:\/Users/...'. Strip trailing separators per part.
+    # Mirrored by _resolve_path in mcp_server/library.py (kept separate on
+    # purpose — this script is the independent oracle); fix both or neither.
     cleaned = [p.rstrip("\\/") for p in parts]
     return "/".join(p for p in cleaned if p) if cleaned[0] else "/" + "/".join(cleaned[1:])
 

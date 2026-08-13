@@ -245,6 +245,30 @@ class TestNotationAndTransforms:
             assert result.structuredContent["removed"] == 1
             assert result.structuredContent["added"] == 2
 
+    async def test_transform_clip_refuses_truncated_read(self):
+        # A clip past the 2000-note read cap must be refused outright —
+        # transforming only the readable prefix would silently leave the rest
+        # of the clip untouched while reporting the capped count as the total.
+        fake = NotesFakeClient()
+        original_send = fake.send
+
+        def send(command, **params):
+            result = original_send(command, **params)
+            if command == "get_notes":
+                result["truncated"] = True
+            return result
+
+        fake.send = send
+        async with await self._session(fake) as session:
+            result = await session.call_tool(
+                "transform_clip",
+                {"track_index": 0, "slot_index": 0, "transforms": "velocity = 80"},
+            )
+            assert result.isError is True
+            assert "read limit" in result.content[0].text
+        writes = [c for c in fake.sent if c[0] in ("remove_notes", "update_notes", "add_notes")]
+        assert writes == []  # the refusal fired before any write
+
     async def test_bridge_status_connected_in_sync(self):
         async with await self._session(FakeAbletonClient()) as session:
             result = await session.call_tool("get_bridge_status", {})

@@ -731,13 +731,17 @@ def _action_to_assignment(action: str) -> tuple[str, str, str]:
         return "velocity", "=", match.group(1)
     match = _SHORTHAND_V_DELTA_RE.match(action)
     if match:
-        return "velocity", "+=", match.group(1)
+        # Sign becomes the operator: the expression grammar has no unary "+",
+        # so "v+10" passed through as the expression "+10" would fail to parse.
+        delta = match.group(1)
+        return "velocity", "+=" if delta[0] == "+" else "-=", delta[1:]
     match = _SHORTHAND_P_RE.match(action)
     if match:
         return "probability", "=", match.group(1)
     match = _SHORTHAND_P_DELTA_RE.match(action)
     if match:
-        return "probability", "+=", match.group(1)
+        delta = match.group(1)
+        return "probability", "+=" if delta[0] == "+" else "-=", delta[1:]
     if _DURATION_SHORTHAND_RE.match(action):
         return "duration", "=", action
     raise TransformError(f"unrecognized action '{action}'")

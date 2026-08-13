@@ -69,6 +69,37 @@ def test_shorthands():
     assert all(n["probability"] == 0.8 for n in result)
 
 
+def test_delta_shorthands_accept_plus_and_minus():
+    # v+10 / p+0.1 are advertised; the '+' forms used to die in the
+    # expression parser (no unary plus) while the '-' forms worked.
+    notes = _pattern("v100 p0.8 C3 1|1")
+    for action, field, expected in [
+        ("v+10", "velocity", 110.0),
+        ("v-10", "velocity", 90.0),
+        ("p+0.1", "probability", 0.9),
+        ("p-0.1", "probability", 0.7),
+    ]:
+        result, matched, warnings = apply_transforms([dict(n) for n in notes], action)
+        assert warnings == [], action
+        assert matched == 1
+        assert abs(result[0][field] - expected) < 1e-9, action
+
+
+def test_delta_shorthand_still_clamps():
+    notes = _pattern("v120 C3 1|1")
+    result, _, warnings = apply_transforms(notes, "v+10")
+    assert warnings == []
+    assert result[0]["velocity"] == 127.0
+
+
+def test_zero_denominator_duration_expression_warns():
+    notes = _pattern("C3 1|1")
+    for statement in ("duration = n/0", "duration = 1bar+n/0"):
+        result, _, warnings = apply_transforms([dict(n) for n in notes], statement)
+        assert len(warnings) == 1 and "bad duration" in warnings[0], statement
+        assert result[0]["duration"] == 1.0  # unchanged
+
+
 def test_v0_deletes_selection():
     notes = _pattern("C3 1|1 D3 1|2")
     result, _, _ = apply_transforms(notes, "D3: v0")

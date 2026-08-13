@@ -175,7 +175,15 @@ def _resolve_path(conn: sqlite3.Connection, file_id: int, place_root_id: int, so
     """
     chain = conn.execute(_CHAIN_SQL, (file_id,)).fetchall()
     parts = [name.rstrip("\\/") for _, name in chain]
-    path = "/".join(p for p in parts if p)
+    # A Unix root row ('/' or '') cleans to empty — dropping it would make an
+    # absolute /Users/... path relative. Windows drive roots ('C:\' -> 'C:')
+    # take the plain-join branch. Mirrors join_parts in
+    # scripts/probe_library_db.py, which stays deliberately separate (the
+    # probe is the independent measurement oracle) — fix both or neither.
+    if parts and not parts[0]:
+        path = "/" + "/".join(p for p in parts[1:] if p)
+    else:
+        path = "/".join(p for p in parts if p)
     guess = None
     if source == "user_library":
         root_pos = next((i for i, (fid, _) in enumerate(chain) if fid == place_root_id), None)

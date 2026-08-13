@@ -94,6 +94,29 @@ def test_warn_and_skip_never_raises():
     assert any("clamped" in w for w in warnings)
 
 
+def test_zero_denominator_duration_warns_not_crashes():
+    # n/0 used to raise ZeroDivisionError out of the tool, breaking the
+    # warn-and-skip contract documented in the module docstring.
+    notes, warnings = parse_notation("n/0 C3 1|1 D3 1|2")
+    assert len(notes) == 2  # both notes land with the default duration
+    assert all(n["duration"] == 1.0 for n in notes)
+    assert any("n/0" in w for w in warnings)
+
+
+def test_zero_denominator_offset_skips_emission():
+    # A broken tuplet offset makes the position unknowable — the whole
+    # placement is skipped rather than emitted at the unadjusted time.
+    notes, warnings = parse_notation("C3 1|1+n/0")
+    assert notes == []
+    assert any("zero-denominator" in w for w in warnings)
+
+
+def test_zero_denominator_bar_adjust_warns():
+    notes, warnings = parse_notation("1bar+n/0 C3 1|1")
+    assert len(notes) == 1 and notes[0]["duration"] == 1.0
+    assert any("1bar+n/0" in w for w in warnings)
+
+
 def test_dangling_pitches_warn():
     notes, warnings = parse_notation("C3 E3")
     assert notes == []
