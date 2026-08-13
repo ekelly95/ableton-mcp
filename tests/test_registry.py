@@ -25,13 +25,22 @@ class TestParamValidation:
     def test_int_coercion(self):
         schema = ParamSchema("x", ParamType.INT)
         assert schema.validate(5) == 5
-        assert schema.validate(5.7) == 5
+        assert schema.validate(5.0) == 5
         assert schema.validate("12") == 12
 
     def test_int_rejects_bool(self):
         schema = ParamSchema("x", ParamType.INT)
         with pytest.raises(ValidationError):
             schema.validate(True)
+
+    def test_int_rejects_fractional(self):
+        # int() would truncate 2.7 to 2 — an addressing param would silently
+        # act on the wrong target, so fractional values must be refused.
+        schema = ParamSchema("x", ParamType.INT)
+        with pytest.raises(ValidationError):
+            schema.validate(2.7)
+        with pytest.raises(ValidationError):
+            ParamSchema("a", ParamType.INT_LIST).validate([1, 2.5])
 
     def test_float_range(self):
         schema = ParamSchema("bpm", ParamType.FLOAT, min_value=20, max_value=999)

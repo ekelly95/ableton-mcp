@@ -3,6 +3,7 @@
 import os
 import shutil
 import socket
+import struct
 import subprocess
 import threading
 import time
@@ -26,10 +27,12 @@ class FakeTapServer:
         protocol_version: int = 2,
         receiving_audio: bool = True,
         legacy_msgs: int = 0,
+        garbage: bool = False,
     ):
         self.protocol_version = protocol_version
         self.receiving_audio = receiving_audio
         self.legacy_msgs = legacy_msgs
+        self.garbage = garbage
         self.requests = []
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -73,6 +76,10 @@ class FakeTapServer:
                     if request is None:
                         break
                     self.requests.append(request)
+                    if self.garbage:
+                        body = b"this is not json"
+                        conn.sendall(struct.pack(">I", len(body)) + body)
+                        break
                     if request["type"] == "ping":
                         result = {
                             "pong": True,
@@ -116,6 +123,25 @@ class TestTapClient:
         client = TapClient(port=1)
         with pytest.raises(TapUnavailable):
             client.send("ping")
+
+    def test_malformed_response_is_tap_unavailable(self):
+        server = FakeTapServer(garbage=True)
+        try:
+            with pytest.raises(TapUnavailable, match="Malformed tap response"):
+                TapClient(port=server.port).send("get_levels")
+        finally:
+            server.close()
+
+    def test_malformed_response_degrades_gracefully_in_tool(self):
+        # Through get_audio_levels the garbage reply must become the normal
+        # {"available": False, hint} shape, not a raw JSONDecodeError.
+        server = FakeTapServer(garbage=True)
+        try:
+            result = get_audio_levels(TapClient(port=server.port))
+            assert result["available"] is False
+            assert result["hint"]
+        finally:
+            server.close()
 
 
 class TestGetAudioLevelsHandler:

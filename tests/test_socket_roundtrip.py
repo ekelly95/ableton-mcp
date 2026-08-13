@@ -160,6 +160,17 @@ def test_duplicate_request_id_executes_once(server):
     assert third["result"]["count"] == 2
 
 
+def test_idless_request_executes_but_is_not_cached(server):
+    # Without an id there is nothing a retry could match, so caching under a
+    # minted id would only evict real entries from the bounded ring.
+    EXECUTION_COUNTS["counter"] = 0
+    first = send_request(server.bound_port, {"type": "count_executions", "params": {}})
+    second = send_request(server.bound_port, {"type": "count_executions", "params": {}})
+    assert first["result"]["count"] == 1
+    assert second["result"]["count"] == 2
+    assert len(server._recent_responses) == 0
+
+
 def test_stop_unblocks_connected_client(server):
     """stop() must close the accepted client socket so the handler thread is
     not left parked in a blocking recv (the old 'did not stop cleanly' 5s

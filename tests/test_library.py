@@ -350,6 +350,11 @@ class TestFindSimilar:
         with pytest.raises(ValueError, match="No analyzed library file"):
             find_similar({"query": "zzz-no-such-file"})
 
+    def test_query_wildcards_are_literal(self, db_dir):
+        # Unescaped, the '_' would LIKE-match the space in "808 Kick.wav".
+        with pytest.raises(ValueError, match="No analyzed library file"):
+            find_similar({"query": "808_Kick"})
+
     def test_unanalyzed_reference_gets_note_not_error(self, db_dir):
         result = find_similar({"path": "C:/Music/User Library/Drum Kits/Kit A/Unanalyzed.wav"})
         assert result["matches"] == []

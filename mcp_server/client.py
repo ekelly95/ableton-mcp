@@ -180,7 +180,17 @@ class AbletonClient:
                     ) from e
                 logger.warning(f"Connection lost during '{command}', reconnecting once...")
                 self._connect()
-                response = self._round_trip(request)
+                try:
+                    response = self._round_trip(request)
+                except OSError as retry_error:
+                    # One resend is policy; a second loss in a row means Live
+                    # is not coming back right now — translate instead of
+                    # leaking the raw socket error to the caller.
+                    self._disconnect()
+                    raise AbletonConnectionError(
+                        f"Connection lost again while retrying '{command}'. "
+                        f"{NOT_RUNNING_HINT} ({retry_error})"
+                    ) from retry_error
 
         if response.get("status") == "success":
             return response.get("result")
@@ -236,7 +246,17 @@ class AbletonClient:
                 f"No response within {waited}s — Live may be busy (modal dialog, "
                 f"loading) or the command is very slow. Connection reset."
             ) from e
-        return json.loads(payload.decode("utf-8"))
+        try:
+            return json.loads(payload.decode("utf-8"))
+        except ValueError as e:
+            # Correctly framed but undecodable payload. Not raised as OSError
+            # on purpose: resending won't fix a peer that speaks garbage, so
+            # this must not enter send()'s reconnect-and-resend branch.
+            self._disconnect()
+            raise AbletonConnectionError(
+                f"Received a malformed response — is something other than the "
+                f"AbletonMCP control surface listening on this port? ({e})"
+            ) from e
 
     def _recv_exact(self, size: int) -> bytes:
         data = bytearray()

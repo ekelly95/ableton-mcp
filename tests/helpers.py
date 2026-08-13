@@ -87,6 +87,8 @@ class ScriptedServer:
       "stall"         — accept, read the request, never answer
       "read_then_die" — read (and record) ONE request, then close without
                         replying: the request WAS delivered, response lost
+      "garbage"       — read ONE request, reply with a correctly framed
+                        non-JSON payload, then close
 
     One implementation for both transports, so the client's reconnect/resend
     matrix can be scripted identically over TCP and Unix sockets. Construct
@@ -136,6 +138,10 @@ class ScriptedServer:
                         break  # delivered but no response — connection dies
                     if behaviour == "stall":
                         continue  # swallow it, never reply
+                    if behaviour == "garbage":
+                        body = b"this is not json"
+                        conn.sendall(struct.pack(">I", len(body)) + body)
+                        break
                     response = {
                         "status": "success",
                         "result": {"echo": request.get("type")},

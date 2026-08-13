@@ -81,7 +81,13 @@ class TapClient:
                 except OSError:
                     pass
 
-        response = json.loads(payload.decode("utf-8"))
+        try:
+            response = json.loads(payload.decode("utf-8"))
+        except ValueError as e:
+            # Same graceful degradation as a dead socket: the caller turns
+            # TapUnavailable into {"available": False, hint} instead of a raw
+            # JSONDecodeError reaching the tool result.
+            raise TapUnavailable(f"Malformed tap response: {e}") from e
         if response.get("status") != "success":
             raise TapUnavailable(response.get("error", "tap error"))
         return response.get("result", {})

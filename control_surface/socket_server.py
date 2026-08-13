@@ -308,7 +308,12 @@ class SocketServer:
         sock.sendall(struct.pack(">I", len(body)) + body)
 
     def _process_message(self, message: dict[str, Any]) -> dict[str, Any]:
-        request_id = message.get("id", str(uuid.uuid4()))
+        request_id = message.get("id")
+        if request_id is None:
+            # No id: mint one for the response, but skip the duplicate cache —
+            # a generated key can never match a retry, so caching under it
+            # would only evict real entries from the bounded ring.
+            return self._execute_message(message, str(uuid.uuid4()))
 
         cached = self._recent_responses.get(request_id)
         if cached is not None:

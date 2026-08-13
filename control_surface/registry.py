@@ -110,6 +110,16 @@ _JSON_TYPE_MAP: dict[ParamType, dict[str, Any]] = {
 }
 
 
+def _strict_int(value: Any) -> int:
+    if isinstance(value, bool):
+        raise TypeError("Boolean not allowed for integer")
+    if isinstance(value, float) and not value.is_integer():
+        # int() would silently truncate 2.7 to 2 — for addressing params that
+        # means acting on the wrong track/clip, so refuse instead.
+        raise TypeError("Fractional value not allowed for integer")
+    return int(value)
+
+
 @dataclass
 class ParamSchema:
     name: str
@@ -158,9 +168,7 @@ class ParamSchema:
     def _validate_type(self, value: Any) -> Any:
         pt = self.param_type
         if pt == ParamType.INT:
-            if isinstance(value, bool):
-                raise TypeError("Boolean not allowed for integer")
-            return int(value)
+            return _strict_int(value)
         if pt == ParamType.FLOAT:
             if isinstance(value, bool):
                 raise TypeError("Boolean not allowed for float")
@@ -184,7 +192,7 @@ class ParamSchema:
         if pt == ParamType.INT_LIST:
             if not isinstance(value, (list, tuple)):
                 raise TypeError("Expected list")
-            return [int(v) for v in value]
+            return [_strict_int(v) for v in value]
         if pt == ParamType.FLOAT_LIST:
             if not isinstance(value, (list, tuple)):
                 raise TypeError("Expected list")

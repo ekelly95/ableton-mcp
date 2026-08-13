@@ -114,3 +114,31 @@ def test_wire_specials_resend():
     finally:
         client.close()
         server.close()
+
+
+def test_second_connection_loss_is_translated():
+    # The connection dies on the first attempt AND on the reconnect retry:
+    # the caller must still get the helpful hint, not a raw OSError.
+    server = ScriptedServer.tcp(["read_then_die", "drop"])
+    client = AbletonClient(use_tcp=True, port=server.port)
+    try:
+        with pytest.raises(AbletonConnectionError, match="Ableton Live running"):
+            client.send("get_tracks")
+    finally:
+        client.close()
+        server.close()
+
+
+def test_malformed_response_is_translated_and_never_resent():
+    # A framed non-JSON reply must surface as AbletonConnectionError — and
+    # must not trigger the read-only resend path (garbage isn't fixed by
+    # asking again).
+    server = ScriptedServer.tcp(["garbage"])
+    client = AbletonClient(use_tcp=True, port=server.port)
+    try:
+        with pytest.raises(AbletonConnectionError, match="malformed response"):
+            client.send("get_tracks")
+        assert len(server.requests_received) == 1
+    finally:
+        client.close()
+        server.close()

@@ -221,6 +221,13 @@ def _wrap_schema_errors(db: Path, err: sqlite3.Error) -> LibraryError:
     )
 
 
+def _like_pattern(query: str) -> str:
+    """Substring pattern with LIKE wildcards in the query treated literally
+    (pair with ESCAPE '\\' in the SQL)."""
+    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 def _search_files(conn, query, tag_list, kind, source, limit):
     types_ = _KIND_TYPES[kind] if kind in _KIND_TYPES else tuple(_TYPE_TO_KIND)
     sql = [
@@ -232,8 +239,7 @@ def _search_files(conn, query, tag_list, kind, source, limit):
     params: list = [*types_, _PLUGINS_FOLDER_KIND]
     if query:
         sql.append("AND f.name LIKE ? ESCAPE '\\'")
-        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        params.append(f"%{escaped}%")
+        params.append(_like_pattern(query))
     if source != "any":
         kind_num = next(k for k, v in _SOURCES.items() if v == source)
         sql.append("AND p.folder_kind = ?")
@@ -384,8 +390,8 @@ def _resolve_reference(conn, path_arg: str | None, query_arg: str | None):
         "SELECT f.file_id, f.name, f.place_id, p.folder_kind, v.data "
         "FROM files f JOIN places p ON p.file_id = f.place_id "
         "JOIN fe_values v ON v.file_id = f.file_id "
-        "WHERE f.name LIKE ? ORDER BY f.use_count DESC, f.name LIMIT 1",
-        (f"%{query_arg}%",),
+        "WHERE f.name LIKE ? ESCAPE '\\' ORDER BY f.use_count DESC, f.name LIMIT 1",
+        (_like_pattern(query_arg),),
     ).fetchone()
     if row is None:
         raise ValueError(f"No analyzed library file matches {query_arg!r}")
