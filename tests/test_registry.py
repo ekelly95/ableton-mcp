@@ -51,6 +51,41 @@ class TestParamValidation:
         with pytest.raises(ValidationError):
             schema.validate(1000)
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), "nan", "inf"])
+    def test_float_rejects_non_finite(self, bad):
+        # NaN defeats bounds checking outright: every comparison against it is
+        # false, so it passes both min and max. It has to fail on type.
+        schema = ParamSchema("bpm", ParamType.FLOAT, min_value=20, max_value=999)
+        with pytest.raises(ValidationError) as exc:
+            schema.validate(bad)
+        assert exc.value.param == "bpm"
+
+    def test_int_rejects_non_finite(self):
+        schema = ParamSchema("track_index", ParamType.INT)
+        with pytest.raises(ValidationError):
+            schema.validate(float("nan"))
+        with pytest.raises(ValidationError):
+            # int(inf) raises OverflowError, not ValueError.
+            schema.validate(float("inf"))
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            {"points": [1.0, float("inf")]},
+            {"nested": {"deep": float("nan")}},
+        ],
+    )
+    def test_object_rejects_non_finite_anywhere_inside(self, value):
+        # Object params reach handlers unvalidated, so the check has to recurse.
+        schema = ParamSchema("data", ParamType.OBJECT)
+        with pytest.raises(ValidationError):
+            schema.validate(value)
+
+    def test_note_rejects_non_finite(self):
+        schema = ParamSchema("notes", ParamType.NOTE_LIST)
+        with pytest.raises(ValidationError):
+            schema.validate([{"pitch": 60, "start_time": float("nan"), "duration": 1.0}])
+
     def test_bool_coercion(self):
         schema = ParamSchema("flag", ParamType.BOOL)
         assert schema.validate(True) is True

@@ -132,13 +132,36 @@ def test_second_connection_loss_is_translated():
 def test_malformed_response_is_translated_and_never_resent():
     # A framed non-JSON reply must surface as AbletonConnectionError — and
     # must not trigger the read-only resend path (garbage isn't fixed by
-    # asking again).
-    server = ScriptedServer.tcp(["garbage"])
+    # asking again). A second connection is scripted on purpose: with only one,
+    # the server is closed by the time a resend could happen, so the
+    # "delivered exactly once" assertion would hold no matter what the client did.
+    server = ScriptedServer.tcp(["garbage", "serve"])
     client = AbletonClient(use_tcp=True, port=server.port)
     try:
         with pytest.raises(AbletonConnectionError, match="malformed response"):
             client.send("get_tracks")
         assert len(server.requests_received) == 1
+    finally:
+        client.close()
+        server.close()
+
+
+@pytest.mark.parametrize("behaviour", ["empty_frame", "wrong_shape"])
+def test_reply_that_is_not_the_protocol_is_never_reported_as_a_refusal(behaviour):
+    """A well-framed reply that isn't ours must not become CommandError.
+
+    CommandError means "the control surface executed this and reported a
+    failure". Raising it for an empty or foreign reply tells the model a
+    destructive write reached Live and was refused — so it treats the session
+    as untouched — when nothing ever arrived. That is the one direction this
+    must never fail in.
+    """
+    server = ScriptedServer.tcp([behaviour, "serve"])
+    client = AbletonClient(use_tcp=True, port=server.port)
+    try:
+        with pytest.raises(AbletonConnectionError, match="not the bridge protocol"):
+            client.send("delete_track", track_index=0)
+        assert len(server.requests_received) == 1  # not resent
     finally:
         client.close()
         server.close()

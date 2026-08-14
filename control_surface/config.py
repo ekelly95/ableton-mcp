@@ -9,9 +9,10 @@ that module.
 """
 
 import os
+import sys
 from pathlib import Path
 
-VERSION: str = "2.8.0"
+VERSION: str = "2.8.1"
 CONTROL_SURFACE_NAME: str = "AbletonMCP"
 
 # IPC: TCP on Windows (no Unix sockets), Unix socket elsewhere
@@ -53,11 +54,17 @@ SOCKET_BACKLOG: int = 5
 SOCKET_ACCEPT_TIMEOUT: float = 1.0
 SOCKET_BUFFER_SIZE: int = 8192
 
-# Logging
+# Logging. Deliberately NOT a shared temp directory: the operations journal
+# records every command's params and results, and /tmp is world-readable and
+# world-writable on macOS — another account could read the journal, or
+# pre-create the directory with symlinks in it and have Live (running as you)
+# append to a file of its choosing. %TEMP% on Windows is already per-user.
 if os.name == "nt":
     LOG_DIR: Path = Path(os.environ.get("TEMP", "C:/Temp")) / "ableton_mcp_logs"
+elif sys.platform == "darwin":
+    LOG_DIR: Path = Path.home() / "Library" / "Logs" / "AbletonMCP"
 else:
-    LOG_DIR: Path = Path("/tmp/ableton_mcp_logs")
+    LOG_DIR: Path = Path.home() / ".local" / "state" / "ableton-mcp"
 LOG_FILE_MAX_SIZE: int = 10 * 1024 * 1024
 LOG_BACKUP_COUNT: int = 5
 

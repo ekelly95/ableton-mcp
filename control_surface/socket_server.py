@@ -171,7 +171,20 @@ class SocketServer:
     def _create_socket(self) -> None:
         if self._use_tcp:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # SO_REUSEADDR means the OPPOSITE thing on Windows: it lets any
+            # other process bind a port already in use and take over new
+            # connections — measured on Windows 11, the second bind succeeds
+            # and steals the port. TCP is the Windows-only transport here, so
+            # the exclusive option is the correct one; do not "restore"
+            # SO_REUSEADDR. Measured too: the exclusive option still rebinds
+            # immediately after a full accept/teardown cycle, so the Live
+            # script-reload path is unaffected. SO_REUSEADDR stays for the
+            # non-Windows TCP path the tests exercise, where its POSIX meaning
+            # (rebind over TIME_WAIT) is the harmless and useful one.
+            exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+            self._socket.setsockopt(
+                socket.SOL_SOCKET, exclusive if exclusive else socket.SO_REUSEADDR, 1
+            )
             self._socket.bind((self._host, self._port))
         else:
             if os.path.exists(self._socket_path):
@@ -181,7 +194,11 @@ class SocketServer:
                     logger.warning(f"Could not remove existing socket: {e}")
             self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self._socket.bind(self._socket_path)
-            os.chmod(self._socket_path, 0o660)
+            # Owner only. 0o660 granted the whole group, and on macOS every
+            # ordinary account is in 'staff' — that handed every local user a
+            # connection to Live. Both halves run as the same user, so no
+            # group access is needed.
+            os.chmod(self._socket_path, 0o600)
 
         self._socket.listen(SOCKET_BACKLOG)
         self._socket.settimeout(SOCKET_ACCEPT_TIMEOUT)
@@ -280,9 +297,18 @@ class SocketServer:
         if body is None:
             return None
         try:
-            return json.loads(body.decode("utf-8"))
+            message = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON: {e}") from e
+        if not isinstance(message, dict):
+            # A scalar, array or `null` is well-formed JSON but not a request.
+            # Without this, _process_message's message.get() raised a bare
+            # AttributeError — and a literal `null` parsed to None, which
+            # _handle_client reads as end-of-stream, so the peer was hung up on
+            # with no answer at all. Same treatment as invalid JSON: a peer
+            # framing this is not speaking the protocol.
+            raise ValueError(f"Request must be a JSON object, got {type(message).__name__}")
+        return message
 
     def _recv_exact(self, sock: socket.socket, size: int) -> bytes | None:
         data = bytearray()
@@ -309,10 +335,14 @@ class SocketServer:
 
     def _process_message(self, message: dict[str, Any]) -> dict[str, Any]:
         request_id = message.get("id")
-        if request_id is None:
-            # No id: mint one for the response, but skip the duplicate cache —
-            # a generated key can never match a retry, so caching under it
-            # would only evict real entries from the bounded ring.
+        if not isinstance(request_id, str):
+            # No id, or an id we cannot use as a cache key: mint one for the
+            # response and skip the duplicate cache — a generated key can never
+            # match a retry, so caching under it would only evict real entries
+            # from the bounded ring. The isinstance check is what keeps an
+            # unhashable id (a list, say) from raising TypeError here, which
+            # escaped into the connection-level handler and hung up on the
+            # client instead of answering.
             return self._execute_message(message, str(uuid.uuid4()))
 
         cached = self._recent_responses.get(request_id)

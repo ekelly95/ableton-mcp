@@ -31,6 +31,17 @@ def build_test_registry() -> CommandRegistry:
     def guarded(ctx, n):
         return {"n": n}
 
+    @registry.register(
+        "floaty",
+        params=[ParamSchema("x", ParamType.FLOAT, min_value=0, max_value=200)],
+    )
+    def floaty(ctx, x):
+        return {"x": x}
+
+    @registry.register("objecty", params=[ParamSchema("data", ParamType.OBJECT)])
+    def objecty(ctx, data):
+        return {"data": data}
+
     @registry.register("live_fail")
     def live_fail(ctx):
         raise LiveAPIError("Track 99 does not exist")
@@ -237,6 +248,81 @@ def test_timed_out_request_not_cached_so_same_id_retries(monkeypatch):
         assert calls["n"] == 1  # ran exactly once — on the retry
     finally:
         srv.stop()
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_number_refused_without_dropping_the_connection(server, value):
+    """Python's JSON parser accepts the non-standard NaN/Infinity literals, and
+    NaN then passes every range check because comparisons against it are all
+    false. It has to be refused by type. The frame itself is well-formed, so
+    the connection must survive the refusal."""
+    sock = socket.create_connection(("127.0.0.1", server.bound_port), timeout=5)
+    try:
+        response = send_request(
+            server.bound_port,
+            {"type": "floaty", "params": {"x": value}, "id": "nf"},
+            sock=sock,
+        )
+        assert response["status"] == "error"
+        assert response["error_type"] == "ValidationError"
+        assert response["param"] == "x"
+
+        still_alive = send_request(server.bound_port, {"type": "ping", "id": "after"}, sock=sock)
+        assert still_alive["status"] == "success"
+    finally:
+        sock.close()
+
+
+def test_non_finite_refused_inside_an_object_param(server):
+    # Object params hand their contents to handlers unvalidated, so the
+    # per-field checks never see this one — clip envelope points arrive this way.
+    response = send_request(
+        server.bound_port,
+        {"type": "objecty", "params": {"data": {"points": [1.0, float("nan")]}}, "id": "o"},
+    )
+    assert response["status"] == "error"
+    assert response["error_type"] == "ValidationError"
+    assert response["param"] == "data"
+
+
+def test_unusable_id_is_answered_not_hung_up_on(server):
+    """An id that can't be a dict key (a list) used to raise TypeError out of
+    the dedupe lookup, which the connection-level handler turned into a
+    hang-up. It must be treated like a missing id instead."""
+    sock = socket.create_connection(("127.0.0.1", server.bound_port), timeout=5)
+    try:
+        response = send_request(
+            server.bound_port, {"type": "ping", "id": ["not", "hashable"]}, sock=sock
+        )
+        assert response["status"] == "success"
+        assert isinstance(response["id"], str)  # minted, since theirs was unusable
+
+        still_alive = send_request(server.bound_port, {"type": "ping", "id": "after"}, sock=sock)
+        assert still_alive["status"] == "success"
+    finally:
+        sock.close()
+
+
+@pytest.mark.parametrize("body", [b"5", b'"ok"', b"[]", b"null"])
+def test_non_object_frame_is_answered_not_silently_dropped(server, body):
+    """Well-formed JSON that isn't a request object.
+
+    `null` is the dangerous one: it parsed to None, which _handle_client reads
+    as end-of-stream, so the peer was hung up on with no answer at all. The
+    others produced a bare "'int' object has no attribute 'get'".
+    """
+    sock = socket.create_connection(("127.0.0.1", server.bound_port), timeout=5)
+    try:
+        sock.sendall(struct.pack(">I", len(body)) + body)
+        response = read_frame(sock)
+        assert response is not None, "server closed without answering"
+        assert response["status"] == "error"
+        assert "must be a JSON object" in response["error"]
+    finally:
+        sock.close()
+
+    # The server itself must survive a peer that speaks nonsense.
+    assert send_request(server.bound_port, {"type": "ping", "id": "after"})["status"] == "success"
 
 
 def test_oversized_message_rejected_then_server_survives(server):

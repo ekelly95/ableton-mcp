@@ -111,6 +111,15 @@ def test_socket_server_serves_and_cleans_up(unix_server):
     assert not Path(path).exists()  # socket file unlinked on stop
 
 
+def test_socket_is_owner_only(unix_server):
+    """0600, not 0660. Group access bought nothing — both halves run as the
+    same user — and every ordinary macOS account is in 'staff', so a
+    group-accessible socket handed every local account a line into Live."""
+    _, path = unix_server
+    mode = Path(path).stat().st_mode & 0o777
+    assert mode == 0o600, f"socket mode is {mode:o}"
+
+
 def test_socket_server_replaces_stale_socket_file(socket_path):
     # A dead server leaves its socket file behind; a new bind must replace it.
     stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

@@ -19,6 +19,40 @@ MCP client ── stdio ── mcp_server ── local socket ── control_sur
   June 2026, Suite-only, and not yet exposing transport control) without
   touching the rest.
 
+## Trust model
+
+One machine, one user, no authentication. Both listeners — the bridge on TCP
+`127.0.0.1:9877` (Windows) or `/tmp/ableton_mcp.sock` (macOS), and the optional
+tap on TCP `127.0.0.1:9878` — accept commands from anything that can open a
+loopback socket. There is no token, no peer check, and no allowlist. Anything
+running on the machine can therefore drive Live through the full command
+surface, including the destructive parts, while Live is open with the control
+surface enabled.
+
+This is a deliberate choice, not an omission. The alternative — a shared secret
+written by the installer — would live in a file readable by anything running as
+the same user, so it would stop other *accounts* on the machine and nothing
+else, at the cost of an install step and a new way for the two halves to
+disagree. The single-user assumption is the honest description of the tool.
+
+What follows from it, and is enforced:
+
+- Loopback only, never `0.0.0.0`. Neither listener is reachable off the machine.
+- On Windows the TCP socket sets `SO_EXCLUSIVEADDRUSE`, **not** `SO_REUSEADDR`.
+  Windows inverts that option's meaning: with `SO_REUSEADDR` any other process
+  can bind the same port and take over new connections (measured — the second
+  bind succeeds). A hijacker would both see every command and choose the
+  replies, and replies land in an AI agent's context. The exclusive option
+  refuses the second bind and still rebinds immediately after a script reload,
+  so it costs nothing.
+- The Unix socket is mode 0600, and logs live under the user's own directory
+  (see Operational notes). Group access bought nothing and, since every macOS
+  account is in `staff`, cost a great deal.
+- The single-user assumption stops at the *machine* boundary — it is not an
+  assumption that the data is trustworthy. Names, paths and tags read out of a
+  Live set or the library are attacker-supplied text as far as an agent is
+  concerned; see `AGENTS.md`.
+
 ## Single source of truth
 
 `control_surface/registry.py` holds every command: typed input schemas,
@@ -129,6 +163,14 @@ target or all).
 - Reconnect-and-resend exactly once, and only on connection errors (OSError).
   Never after a timeout — the command may still be executing inside Live and a
   resend would run it twice.
+- Failure translation, in the order the client meets them: a dead connection
+  becomes `AbletonConnectionError` with the "is Live running" hint; a timeout
+  becomes `AbletonConnectionError` naming the wait, connection reset; an
+  undecodable payload and a decodable-but-wrong-shaped reply both become
+  `AbletonConnectionError` asking whether something else holds the port
+  (2.8.1); only a well-formed `{"status": "error"}` becomes `CommandError`.
+  That last boundary carries weight — `CommandError` is the only one that
+  asserts Live actually ran the command.
 - stdout is reserved for MCP stdio. All logging goes to stderr or files;
   `tests/test_server_tools.py` asserts importing the server writes nothing to
   stdout. Inside Live, stderr still reaches Log.txt.
@@ -397,9 +439,23 @@ No provider dependency ever goes into the bridge.
   verify state, retry deliberately."
 - The control surface dedupes by request id (ring of 64): a resent id replays
   the cached response instead of executing twice. A Live restart clears the
-  ring, which is why the client-side gate also exists. Timeout responses are
-  not cached: deadline refusal makes a same-id retry safe, so it
-  gets a fresh attempt instead of a stale replay.
+  ring, which is why the client-side gate also exists. Two carve-outs: timeout
+  responses are not cached (deadline refusal makes a same-id retry safe, so it
+  gets a fresh attempt instead of a stale replay), and an id that is not a
+  string is treated as no id at all — the request runs and answers under a
+  minted id, but nothing is cached under a key a retry could never match.
+  Using the raw id as a dict key meant an unhashable one (a list) raised
+  TypeError and hung up the connection instead of answering (2.8.1).
+- **Wrong-shaped frames are answered, not crashed on (2.8.1):** a request body
+  that parses to something other than a JSON object is refused by name. `null`
+  in particular used to parse to None, which the connection handler reads as
+  end-of-stream — the peer was hung up on with no answer at all. Symmetrically,
+  a *reply* that is not the bridge protocol (empty frame, bare array, object
+  without `status`) raises `AbletonConnectionError`, never `CommandError`:
+  CommandError means "Live executed this and refused it", and saying that
+  about a destructive write which never arrived tells the model the session is
+  untouched when it has no idea. Both directions now name the likely cause —
+  something other than the control surface on the port.
 - **Marshal deadline refusal (2.3):** the scheduled task refuses to start past
   its deadline, and the waiter holds a grace window beyond it — so a timeout
   error means the request did not modify the Set and will not execute later.
@@ -478,8 +534,10 @@ No provider dependency ever goes into the bridge.
   client to report `ModuleNotFoundError: No module named 'mcp_server'` even
   while repository-local tests still pass.
 - JSONL operation journal: `%TEMP%\ableton_mcp_logs\operations.jsonl` on
-  Windows, `/tmp/ableton_mcp_logs/operations.jsonl` on macOS — every command
-  with params, result, duration; the replay/debug channel.
+  Windows, `~/Library/Logs/AbletonMCP/operations.jsonl` on macOS — every command
+  with params, result, duration; the replay/debug channel. The directory is
+  created 0700 and is deliberately per-user: this journal is a full record of a
+  session, and it used to sit in world-readable, world-writable `/tmp`.
 - `scripts/live_checkpoint.py` is the real-Live regression harness (leaves an
   audible "MCP Test" track). `scripts/smoke_test.py` is the 2-second liveness
   check.

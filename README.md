@@ -64,6 +64,13 @@ AI client ── MCP (stdio) ── mcp_server ── local socket ── contro
 The local socket is TCP `127.0.0.1:9877` on Windows, a Unix socket
 (`/tmp/ableton_mcp.sock`) on macOS.
 
+**Worth knowing before you enable it:** that socket has no password. It is
+loopback-only, so nothing off your machine can reach it — but while Live is
+running with the control surface enabled, any program on the machine can drive
+your session through it, deletes included. This is a single-user tool by
+design; the reasoning, and what is done to keep the boundary tight, is in
+[docs/architecture.md](docs/architecture.md#trust-model).
+
 Two halves, one source of truth: every tool is generated from the command
 registry the Live-side script executes — nothing is defined twice, and a
 schema-hash handshake warns if the halves drift. Design decisions and

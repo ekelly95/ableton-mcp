@@ -247,7 +247,7 @@ class AbletonClient:
                 f"loading) or the command is very slow. Connection reset."
             ) from e
         try:
-            return json.loads(payload.decode("utf-8"))
+            response = json.loads(payload.decode("utf-8"))
         except ValueError as e:
             # Correctly framed but undecodable payload. Not raised as OSError
             # on purpose: resending won't fix a peer that speaks garbage, so
@@ -257,6 +257,22 @@ class AbletonClient:
                 f"Received a malformed response — is something other than the "
                 f"AbletonMCP control surface listening on this port? ({e})"
             ) from e
+        # Decodable but not our protocol: an empty frame, a bare array, or any
+        # object without our status field. This MUST NOT fall through to
+        # send()'s error branch, which raises CommandError — the class that
+        # means "the control surface executed this and reported a failure".
+        # Telling the model a delete was refused, when nothing ever reached
+        # Live, is wrong in the dangerous direction: it treats the session as
+        # untouched. A wrong-shaped reply means a wrong peer, so it belongs
+        # with the malformed case above.
+        if not isinstance(response, dict) or response.get("status") not in ("success", "error"):
+            self._disconnect()
+            raise AbletonConnectionError(
+                f"Received a reply that is not the bridge protocol — is something "
+                f"other than the AbletonMCP control surface listening on this port? "
+                f"({str(response)[:120]})"
+            )
+        return response
 
     def _recv_exact(self, size: int) -> bytes:
         data = bytearray()

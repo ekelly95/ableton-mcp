@@ -115,6 +115,29 @@ def test_zero_denominator_note_op_args_warn():
         assert len(result) == 1 and result[0]["duration"] == 1.0  # untouched
 
 
+def test_absurd_generation_counts_warn_instead_of_exhausting_memory():
+    # repeat/ratchet multiply the matched set by a count taken straight from
+    # the statement. One hallucinated digit used to ask this process for
+    # hundreds of millions of dicts; it must come back as a statement warning.
+    notes = _pattern("C3 1|1")
+    for statement, expected in (
+        ("repeat(n/8, 100000000)", "over the 2000-note limit"),
+        ("ratchet(50000)", "over the 2000-note limit"),
+        ("ratchet(n/1000000)", "over the 2000-note limit"),  # fine grid, long walk
+        ("repeat(n/8, inf)", "bad argument"),  # int(inf) raises OverflowError
+    ):
+        result, _, warnings = apply_transforms([dict(n) for n in notes], statement)
+        assert len(warnings) == 1 and expected in warnings[0], statement
+        assert len(result) == 1, statement  # clip untouched
+
+
+def test_generation_within_the_limit_still_works():
+    notes = _pattern("C3 1|1")
+    result, _, warnings = apply_transforms(notes, "repeat(n/8, 100)")
+    assert warnings == []
+    assert len(result) == 101
+
+
 def test_v0_deletes_selection():
     notes = _pattern("C3 1|1 D3 1|2")
     result, _, _ = apply_transforms(notes, "D3: v0")

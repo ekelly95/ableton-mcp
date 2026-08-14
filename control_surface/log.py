@@ -27,7 +27,9 @@ _logger_cache: dict[str, logging.Logger] = {}
 
 
 def _ensure_log_dir() -> Path:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    # Owner-only: the operations journal below records every command's params
+    # and results. (mode is a no-op on Windows, where %TEMP% is per-user.)
+    LOG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     return LOG_DIR
 
 

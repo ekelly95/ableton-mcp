@@ -95,8 +95,18 @@ class ScriptedServer:
     via ScriptedServer.tcp(...) (sets .port) or ScriptedServer.unix(path, ...).
     """
 
+    # Named so a typo fails loudly: an unknown string used to fall through the
+    # dispatch below and quietly serve a normal success response, which is the
+    # one answer no fault-injection test ever means to ask for.
+    BEHAVIOURS = frozenset(
+        {"serve", "drop", "read_then_die", "stall", "garbage", "empty_frame", "wrong_shape"}
+    )
+
     def __init__(self, sock: socket.socket, behaviours):
         self.behaviours = list(behaviours)
+        unknown = sorted(set(self.behaviours) - self.BEHAVIOURS)
+        if unknown:
+            raise ValueError(f"Unknown ScriptedServer behaviour(s): {unknown}")
         self.requests_received = []
         self._sock = sock
         self._sock.listen(5)
@@ -141,6 +151,14 @@ class ScriptedServer:
                     if behaviour == "garbage":
                         body = b"this is not json"
                         conn.sendall(struct.pack(">I", len(body)) + body)
+                        break
+                    if behaviour == "empty_frame":
+                        conn.sendall(struct.pack(">I", 0))
+                        break
+                    if behaviour == "wrong_shape":
+                        # Valid JSON, valid framing, not our protocol — what a
+                        # squatter on the port or a version mismatch produces.
+                        write_frame(conn, {"hello": "not the bridge"})
                         break
                     response = {
                         "status": "success",

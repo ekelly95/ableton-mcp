@@ -38,6 +38,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from control_surface.config import MAX_NOTES_PER_READ
 from control_surface.registry import NOTE_FIELD_DEFAULTS
 from control_surface.utils.pitch import pitch_to_midi, root_name_to_pitch_class
 
@@ -536,6 +537,11 @@ def _apply_assignment(field: str, op: str, value: float, note: dict[str, Any]) -
 
 def _grid_ratchet(note: dict[str, Any], grid: float) -> list[dict[str, Any]]:
     start, end = note["start_time"], note["start_time"] + note["duration"]
+    if grid <= 0:
+        raise TransformError(f"ratchet grid must be positive, got {grid}")
+    # Bound before walking: the loop below steps by `grid`, so a very fine grid
+    # over a long note is a very long loop.
+    _check_generated("ratchet", (end - start) / grid + 1)
     cuts = []
     first = math.floor(start / grid) * grid + grid
     cut = first
@@ -558,9 +564,35 @@ def _op_number(name: str, text: str) -> float:
     # surface them as the statement warning the dialect promises, not as a
     # naked ValueError that escapes the statement loop as a tool error.
     try:
-        return float(text)
+        value = float(text)
     except ValueError:
         raise TransformError(f"bad argument '{text}' for {name}(...)") from None
+    if not math.isfinite(value):
+        # float('inf') parses fine and then blows up as OverflowError in int(),
+        # which is not a TransformError and so escapes the statement loop.
+        raise TransformError(f"bad argument '{text}' for {name}(...)")
+    return value
+
+
+def _op_int(name: str, text: str) -> int:
+    return int(_op_number(name, text))
+
+
+def _check_generated(name: str, total: float) -> None:
+    """Refuse note ops that would generate more notes than a clip can hold.
+
+    ratchet(N) and repeat(step, count) multiply the matched set by a count
+    taken straight from the transform string, so one absurd number — a
+    hallucinated digit is enough — asks this process for hundreds of millions
+    of dicts and takes the machine down with it. Anything above the read limit
+    is useless anyway: the clip could never be read back afterwards.
+    """
+    if total > MAX_NOTES_PER_READ:
+        raise TransformError(
+            f"{name}(...) would generate about {int(total)} notes, over the "
+            f"{MAX_NOTES_PER_READ}-note limit — a clip that large cannot be read back. "
+            f"Use a smaller count, or a narrower selector."
+        )
 
 
 def _apply_note_op(
@@ -574,11 +606,14 @@ def _apply_note_op(
             raise TransformError("ratchet(N) or ratchet(grid) needs an argument")
         grid = _parse_duration_token(args[0], env.beats_per_bar)
         replaced: list[dict[str, Any]] = []
+        if grid is None:
+            _check_generated("ratchet", len(matched) * max(_op_int("ratchet", args[0]), 1))
         for note in matched:
             if grid is not None:
                 replaced.extend(_grid_ratchet(note, grid))
+                _check_generated("ratchet", len(replaced))
             else:
-                pieces = max(int(_op_number("ratchet", args[0])), 1)
+                pieces = max(_op_int("ratchet", args[0]), 1)
                 width = note["duration"] / pieces
                 for i in range(pieces):
                     piece = {k: v for k, v in note.items() if k != "note_id"}
@@ -593,7 +628,8 @@ def _apply_note_op(
         step = _parse_duration_token(args[0], env.beats_per_bar)
         if step is None:
             step = _op_number("repeat", args[0])
-        count = int(_op_number("repeat", args[1])) if len(args) > 1 else 1
+        count = _op_int("repeat", args[1]) if len(args) > 1 else 1
+        _check_generated("repeat", len(matched) * (max(count, 0) + 1))
         added = []
         for note in matched:
             for i in range(1, count + 1):

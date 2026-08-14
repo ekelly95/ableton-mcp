@@ -9,6 +9,7 @@ that duplication).
 
 import hashlib
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -110,6 +111,28 @@ _JSON_TYPE_MAP: dict[ParamType, dict[str, Any]] = {
 }
 
 
+def _reject_non_finite(value: Any, param: str) -> None:
+    """Refuse NaN and Infinity anywhere in a validated value.
+
+    NaN defeats range checking outright — every comparison against it is
+    false, so it passes both `< min` and `> max` whatever the bounds — and
+    Infinity passes wherever a parameter has no upper bound. Python's JSON
+    parser accepts the non-standard NaN/Infinity literals, so both arrive off
+    the wire intact and would reach Live's API. Recurses because object and
+    'any' params hand their contents straight to handlers unvalidated (clip
+    envelope points, for instance).
+    """
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValidationError(f"Not a finite number: {value}", param=param)
+    elif isinstance(value, dict):
+        for item in value.values():
+            _reject_non_finite(item, param)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _reject_non_finite(item, param)
+
+
 def _strict_int(value: Any) -> int:
     if isinstance(value, bool):
         raise TypeError("Boolean not allowed for integer")
@@ -142,11 +165,16 @@ class ParamSchema:
 
         try:
             validated = self._validate_type(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # OverflowError included for int(inf), which raises it rather than
+            # ValueError and would otherwise escape as a bare tool error.
             raise ValidationError(
                 f"Invalid type: expected {self.param_type.value}, got {type(value).__name__}",
                 param=self.name,
             ) from None
+
+        # Before the range checks below, which NaN would silently pass.
+        _reject_non_finite(validated, self.name)
 
         if self.param_type in (ParamType.INT, ParamType.FLOAT):
             if self.min_value is not None and validated < self.min_value:

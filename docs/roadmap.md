@@ -81,6 +81,49 @@ The stdio launch and handshake paths are covered by the automated suite.
 - The 42-step real-Live checkpoint verified native-device insertion on Main
   and read/write behavior on a return chain.
 
+### 2.8.1 — Local-boundary hardening
+
+A security pass over the shipped surface. No schema change (the tool surface
+and its hash are untouched), but the control surface itself changed, so this
+needs a reinstall and a Live restart like any other round — the version bump is
+what makes `get_bridge_status` say so.
+
+- Windows TCP listener uses `SO_EXCLUSIVEADDRUSE`. Under `SO_REUSEADDR`,
+  Windows lets any other process bind the same port and take over new
+  connections (measured on Windows 11: the second bind succeeds). A hijacker
+  would see every command and choose the replies, and replies land in an AI
+  agent's context. Measured too: the exclusive option rebinds immediately after
+  a full accept/teardown cycle, so script reload is unaffected.
+- Unix socket is 0600, not 0660. Every ordinary macOS account is in `staff`.
+- Logs moved off world-writable `/tmp` to `~/Library/Logs/AbletonMCP` (macOS),
+  created 0700. The operations journal is a full record of a session, and
+  anything on the machine could previously read it — or pre-create the
+  directory with symlinks and have Live append wherever it liked.
+- `NaN`/`Infinity` refused by parameter validation. Python's JSON parser
+  accepts those literals, and NaN then passes every range check, since
+  comparisons against it are all false — a NaN tempo or note position reached
+  Live's API unchallenged. The check recurses into object params, which reach
+  handlers unvalidated.
+- A request `id` that cannot be a dict key no longer hangs up the connection.
+- Frames that are well-formed JSON but not the protocol are answered rather
+  than crashed on, in both directions. A request body of `null` parsed to None,
+  which the connection handler reads as end-of-stream, so the peer was hung up
+  on with no answer; other scalars produced a bare AttributeError. And a
+  *reply* that was empty or foreign became `CommandError` — the class meaning
+  "Live executed this and refused it" — which told the model a destructive
+  write had reached Live and been rejected when nothing ever arrived. Both now
+  point at the likely cause: something else on the port.
+- `repeat()`/`ratchet()` counts are bounded by the read limit. One hallucinated
+  digit used to ask the server process for hundreds of millions of note dicts.
+- The trust model is now stated in the README and architecture document, not
+  only in the Max for Live lab notes. `AGENTS.md` says that names and paths
+  read out of Live are untrusted text, not instructions.
+
+Deliberately not done: a shared secret between the two halves. It would have to
+live in a file readable by anything running as the same user, so it stops other
+*accounts* and nothing else, at the cost of an install step and a new way for
+the halves to disagree.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained
