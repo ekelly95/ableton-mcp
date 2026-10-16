@@ -155,5 +155,6 @@ Work Session view → Arrangement, in this order:
 - Pitch convention: **C3 = 60** (Ableton), everywhere.
 - `get_audio_levels` needs the optional M4L tap on the Main track; max 10 s
   per sample. Without it, `get_track_meters` still answers "is it sounding?".
-- The bridge serves one MCP client at a time, serially
-  (`scripts/toggle_desktop_client.py` flips Claude Desktop's registration).
+- Other MCP clients may be connected too; commands from all of them run in
+  Live one at a time. Another agent can change the set between your calls, so
+  re-read before acting on stale state.

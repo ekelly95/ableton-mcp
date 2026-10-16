@@ -114,6 +114,49 @@ def test_multiple_requests_same_connection(server):
         sock.close()
 
 
+def test_second_client_served_while_first_stays_connected(server):
+    # The MCP client holds its connection open between calls. A second client
+    # (another session, or a stale server process) used to queue in the
+    # listen backlog until the first disconnected, timing out on every call.
+    first = socket.create_connection(("127.0.0.1", server.bound_port), timeout=5)
+    second = socket.create_connection(("127.0.0.1", server.bound_port), timeout=5)
+    try:
+        assert (
+            send_request(server.bound_port, {"type": "ping", "id": "a"}, sock=first)["status"]
+            == "success"
+        )
+        assert (
+            send_request(server.bound_port, {"type": "ping", "id": "b"}, sock=second)["status"]
+            == "success"
+        )
+        assert (
+            send_request(server.bound_port, {"type": "ping", "id": "c"}, sock=first)["status"]
+            == "success"
+        )
+    finally:
+        first.close()
+        second.close()
+
+
+def test_clients_past_the_cap_are_closed(server, monkeypatch):
+    import control_surface.socket_server as socket_server
+
+    monkeypatch.setattr(socket_server, "MAX_CLIENTS", 1)
+    kept = socket.create_connection(("127.0.0.1", server.bound_port), timeout=5)
+    try:
+        assert (
+            send_request(server.bound_port, {"type": "ping", "id": "k"}, sock=kept)["status"]
+            == "success"
+        )
+        extra = socket.create_connection(("127.0.0.1", server.bound_port), timeout=5)
+        try:
+            assert read_frame(extra) is None  # closed without an answer
+        finally:
+            extra.close()
+    finally:
+        kept.close()
+
+
 def test_validation_error_shape(server):
     response = send_request(server.bound_port, {"type": "guarded", "params": {"n": 99}, "id": "v"})
     assert response["status"] == "error"

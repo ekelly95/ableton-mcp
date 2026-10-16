@@ -161,8 +161,10 @@ target or all).
 
 ## Client discipline (`mcp_server/client.py`)
 
-- One persistent connection, `threading.Lock` around send: the control surface
-  serves one client serially, so concurrent tool calls queue client-side.
+- One persistent connection, `threading.Lock` around send: concurrent tool
+  calls from one MCP server queue client-side. The control surface gives each
+  connected client its own thread (up to 8) and runs requests from all of them
+  under one execution lock, so several MCP servers can stay connected.
 - Reconnect-and-resend exactly once, and only on connection errors (OSError).
   Never after a timeout — the command may still be executing inside Live and a
   resend would run it twice.

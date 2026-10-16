@@ -122,9 +122,8 @@ command = 'C:\path\to\ableton-mcp\.venv\Scripts\ableton-mcp.exe'
 startup_timeout_sec = 30
 ```
 
-Run one client at a time — the bridge serves a single serial connection.
-`scripts/toggle_desktop_client.py on|off` flips Claude Desktop's
-registration, so switching with Codex is one command.
+Several clients (Claude Desktop, Claude Code, Codex) can stay connected at
+once; their commands run in Live one at a time.
 
 ## Health check
 

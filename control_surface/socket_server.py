@@ -45,6 +45,8 @@ logger = get_logger("socket_server")
 
 # Ring size for request-id deduplication (idempotent replay protection).
 RECENT_RESPONSES_MAX = 64
+# Concurrent client connections; past this, new ones are closed immediately.
+MAX_CLIENTS = 8
 
 
 class CommandContext:
@@ -98,6 +100,13 @@ class SocketServer:
         # must never need self._lock to make progress.
         self._clients_lock = threading.Lock()
         self._client_sockets: set[socket.socket] = set()
+        self._client_threads: set[threading.Thread] = set()
+        # Each client gets its own thread, so a second MCP client (another
+        # Claude/Codex session, or a stale server process still holding its
+        # connection) no longer queues behind the first one's open socket.
+        # Requests still execute one at a time: this lock serializes them
+        # across clients, and also guards the duplicate-response cache.
+        self._exec_lock = threading.Lock()
         # id -> response: a client that lost the response and resends the SAME
         # request must get the cached answer, not a second execution.
         self._recent_responses: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -153,6 +162,7 @@ class SocketServer:
             with self._clients_lock:
                 clients = list(self._client_sockets)
                 self._client_sockets.clear()
+                client_threads = list(self._client_threads)
             for client in clients:
                 try:
                     client.shutdown(socket.SHUT_RDWR)
@@ -166,6 +176,10 @@ class SocketServer:
                 self._server_thread.join(timeout=5.0)
                 if self._server_thread.is_alive():
                     logger.warning("Server thread did not stop cleanly")
+            for thread in client_threads:
+                thread.join(timeout=2.0)
+                if thread.is_alive():
+                    logger.warning(f"{thread.name} did not stop cleanly")
             logger.info("Socket server stopped")
 
     def _create_socket(self) -> None:
@@ -229,28 +243,42 @@ class SocketServer:
                     break
 
                 with self._clients_lock:
-                    if not self._running:
+                    if not self._running or len(self._client_sockets) >= MAX_CLIENTS:
+                        if self._running:
+                            logger.warning(f"Refusing client: {MAX_CLIENTS} already connected")
                         try:
                             client_socket.close()
                         except OSError:
                             pass
-                        break
+                        if not self._running:
+                            break
+                        continue
                     self._client_sockets.add(client_socket)
-
-                try:
-                    self._handle_client(client_socket)
-                except Exception as e:
-                    logger.error(f"Error handling client: {e}\n{traceback.format_exc()}")
-                finally:
-                    with self._clients_lock:
-                        self._client_sockets.discard(client_socket)
-                    try:
-                        client_socket.close()
-                    except Exception:
-                        pass
+                    thread = threading.Thread(
+                        target=self._serve_client,
+                        args=(client_socket,),
+                        name="AbletonMCP-Client",
+                        daemon=True,
+                    )
+                    self._client_threads.add(thread)
+                thread.start()
             except Exception as e:
                 if self._running:
                     logger.error(f"Server loop error: {e}\n{traceback.format_exc()}")
+
+    def _serve_client(self, client_socket: socket.socket) -> None:
+        try:
+            self._handle_client(client_socket)
+        except Exception as e:
+            logger.error(f"Error handling client: {e}\n{traceback.format_exc()}")
+        finally:
+            with self._clients_lock:
+                self._client_sockets.discard(client_socket)
+                self._client_threads.discard(threading.current_thread())
+            try:
+                client_socket.close()
+            except Exception:
+                pass
 
     def _handle_client(self, client_socket: socket.socket) -> None:
         client_socket.settimeout(None)
@@ -259,7 +287,8 @@ class SocketServer:
                 message = self._read_message(client_socket)
                 if message is None:
                     break
-                response = self._process_message(message)
+                with self._exec_lock:
+                    response = self._process_message(message)
                 self._send_message(client_socket, response)
             except (ConnectionResetError, BrokenPipeError):
                 logger.debug("Client disconnected")
