@@ -30,24 +30,21 @@ _SLOT_XOR = ParamSchema(
     ParamType.INT,
     required=False,
     min_value=0,
-    description="Session clip slot — give exactly one of slot_index / arrangement_clip_index",
+    description="Session clip (or arrangement_clip_index)",
 )
 _ARR_XOR = ParamSchema(
     "arrangement_clip_index",
     ParamType.INT,
     required=False,
     min_value=0,
-    description="Timeline clip (positional, from get_arrangement) — exactly one of the two",
+    description="Arrangement clip, positional from get_arrangement (or slot_index)",
 )
 _TAKE_LANE = ParamSchema(
     "take_lane_index",
     ParamType.INT,
     required=False,
     min_value=0,
-    description=(
-        "Address a take-lane clip: arrangement_clip_index then counts within "
-        "this lane (lanes and their clips come from get_arrangement)"
-    ),
+    description="Take lane; arrangement_clip_index then counts within it",
 )
 
 # Full-range note query bounds: all pitches, generous time span.
@@ -618,15 +615,19 @@ def _apply_note_modifications(clip: Any, note_vector: Any, planned) -> int:
         ParamSchema(
             "modifications",
             ParamType.OBJECT_LIST,
-            description="Per-note edits addressed by note_id from get_notes",
-            # Derived from NOTE_OBJECT_SCHEMA (single source) — defaults are
-            # stripped because an edit leaves unspecified fields untouched.
+            description=(
+                "Per-note edits addressed by note_id from get_notes; fields as in "
+                "add_notes, only the ones to change"
+            ),
+            # Derived from NOTE_OBJECT_SCHEMA (single source). Defaults are
+            # stripped because an edit leaves unspecified fields untouched, and
+            # descriptions because add_notes already carries them.
             item_schema={
                 "type": "object",
                 "properties": {
                     "note_id": {"type": "integer"},
                     **{
-                        name: {k: v for k, v in prop.items() if k != "default"}
+                        name: {k: v for k, v in prop.items() if k not in ("default", "description")}
                         for name, prop in NOTE_OBJECT_SCHEMA["properties"].items()
                     },
                 },

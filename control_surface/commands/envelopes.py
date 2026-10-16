@@ -20,29 +20,19 @@ from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import (
     clip_content_end,
     clip_region_start,
+    get_clip,
     get_device,
     get_track,
-    resolve_clip_ref,
     resolve_device_parameter,
 )
 from ..utils.normalize import denormalize_parameter, normalize_parameter
 
-# Session-slot addressing shared with clips.py; the arrangement counterpart is
-# deliberately NOT shared — envelope tools reject it (see module docstring) but
-# keep the parameter so a caller reaching for it gets a typed explanation
-# instead of an "unexpected property" schema error.
-from .clips import _SLOT_XOR
-
-_ARR_REJECTED = ParamSchema(
-    "arrangement_clip_index",
-    ParamType.INT,
-    required=False,
-    min_value=0,
-    description=(
-        "NOT SUPPORTED: arrangement clips have no clip envelopes (Live's API "
-        "returns None for them) — address a session clip via slot_index"
-    ),
+# Clip envelopes exist on session clips only (Live returns None for
+# arrangement clips), so these tools address a slot and nothing else.
+_ENVELOPE_SLOT = ParamSchema(
+    "slot_index", ParamType.INT, min_value=0, description="Session clip slot"
 )
+
 
 _TARGET_PARAMS = [
     ParamSchema(
@@ -66,16 +56,6 @@ _TARGET_PARAMS = [
         description="Mixer target: the track's volume or pan — exactly one target kind",
     ),
 ]
-
-
-def _reject_arrangement_clip(arrangement_clip_index: int | None) -> None:
-    if arrangement_clip_index is not None:
-        raise ValidationError(
-            "Arrangement clips have no clip envelopes — Live's API returns None for "
-            "them, and their automation lives on track automation lanes (not exposed). "
-            "Address a session clip via slot_index.",
-            param="arrangement_clip_index",
-        )
 
 
 def _reject_unwarped_audio(clip: Any) -> None:
@@ -122,8 +102,7 @@ def _get_or_create_envelope(clip: Any, param: Any) -> Any:
     "set_clip_envelope",
     params=[
         ParamSchema("track_index", ParamType.INT, min_value=0),
-        _SLOT_XOR,
-        _ARR_REJECTED,
+        _ENVELOPE_SLOT,
         *_TARGET_PARAMS,
         ParamSchema(
             "points",
@@ -158,8 +137,7 @@ def _get_or_create_envelope(clip: Any, param: Any) -> Any:
 def set_clip_envelope(
     ctx,
     track_index: int,
-    slot_index: int | None = None,
-    arrangement_clip_index: int | None = None,
+    slot_index: int,
     device_index: int | None = None,
     parameter: Any = None,
     mixer_parameter: str | None = None,
@@ -167,8 +145,7 @@ def set_clip_envelope(
     clear_first: bool = True,
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    _reject_arrangement_clip(arrangement_clip_index)
-    clip = resolve_clip_ref(track, slot_index, None)
+    clip = get_clip(track, slot_index)
     _reject_unwarped_audio(clip)
     param = _resolve_target_parameter(track, device_index, parameter, mixer_parameter)
 
@@ -243,8 +220,7 @@ def set_clip_envelope(
     "get_clip_envelope",
     params=[
         ParamSchema("track_index", ParamType.INT, min_value=0),
-        _SLOT_XOR,
-        _ARR_REJECTED,
+        _ENVELOPE_SLOT,
         *_TARGET_PARAMS,
         ParamSchema(
             "samples",
@@ -275,16 +251,14 @@ def set_clip_envelope(
 def get_clip_envelope(
     ctx,
     track_index: int,
-    slot_index: int | None = None,
-    arrangement_clip_index: int | None = None,
+    slot_index: int,
     device_index: int | None = None,
     parameter: Any = None,
     mixer_parameter: str | None = None,
     samples: int = 17,
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    _reject_arrangement_clip(arrangement_clip_index)
-    clip = resolve_clip_ref(track, slot_index, None)
+    clip = get_clip(track, slot_index)
     # The sampled read divides clip.length, which is undefined for unwarped
     # audio — reject those here too.
     _reject_unwarped_audio(clip)
@@ -321,8 +295,7 @@ def get_clip_envelope(
     "clear_clip_envelopes",
     params=[
         ParamSchema("track_index", ParamType.INT, min_value=0),
-        _SLOT_XOR,
-        _ARR_REJECTED,
+        _ENVELOPE_SLOT,
         *_TARGET_PARAMS[:2],
         ParamSchema(
             "mixer_parameter",
@@ -342,15 +315,13 @@ def get_clip_envelope(
 def clear_clip_envelopes(
     ctx,
     track_index: int,
-    slot_index: int | None = None,
-    arrangement_clip_index: int | None = None,
+    slot_index: int,
     device_index: int | None = None,
     parameter: Any = None,
     mixer_parameter: str | None = None,
 ) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
-    _reject_arrangement_clip(arrangement_clip_index)
-    clip = resolve_clip_ref(track, slot_index, None)
+    clip = get_clip(track, slot_index)
     # No unwarped guard: clearing does no time arithmetic, so cleaning up an
     # unwarped clip's envelopes is deliberately allowed.
 

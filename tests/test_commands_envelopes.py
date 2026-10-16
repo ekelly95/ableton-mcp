@@ -147,51 +147,13 @@ class TestSetAndGet:
         )
         assert read == {"exists": False, "parameter": "Macro 2", "points": []}
 
-    def test_arrangement_clips_rejected_by_all_three_tools(
-        self, registry, ctx, song, with_clip_and_device
-    ):
-        # Live's own API docstring: automation_envelope "Returns None for
-        # Arrangement clips" — the tools must refuse BEFORE any destructive op.
-        run_command(
-            registry,
-            ctx,
-            "place_clip_in_arrangement",
-            track_index=0,
-            slot_index=0,
-            destination_time=0.0,
-        )
-        with pytest.raises(ValidationError, match="[Aa]rrangement clips have no clip envelopes"):
-            run_command(
-                registry,
-                ctx,
-                "set_clip_envelope",
-                track_index=0,
-                arrangement_clip_index=0,
-                device_index=0,
-                parameter=1,
-                points=[{"time": 0.0, "value": 0.9}],
-            )
-        with pytest.raises(ValidationError, match="[Aa]rrangement clips have no clip envelopes"):
-            run_command(
-                registry,
-                ctx,
-                "get_clip_envelope",
-                track_index=0,
-                arrangement_clip_index=0,
-                device_index=0,
-                parameter=1,
-            )
-        with pytest.raises(ValidationError, match="[Aa]rrangement clips have no clip envelopes"):
-            run_command(
-                registry,
-                ctx,
-                "clear_clip_envelopes",
-                track_index=0,
-                arrangement_clip_index=0,
-            )
-        # The mock itself models the docstring: no envelope for arrangement clips.
-        arr_clip = song.tracks[0].arrangement_clips[0]
-        assert arr_clip.automation_envelope(object()) is None
+    def test_envelope_tools_address_session_slots_only(self, registry):
+        # Arrangement clips have no clip envelopes (Live returns None), so the
+        # tools don't offer arrangement addressing at all; slot_index is required.
+        for name in ("set_clip_envelope", "get_clip_envelope", "clear_clip_envelopes"):
+            schema = registry.get(name).to_mcp_tool()["inputSchema"]
+            assert "arrangement_clip_index" not in schema["properties"]
+            assert "slot_index" in schema["required"]
 
     def test_unwarped_audio_rejected_for_set_and_get(
         self, registry, ctx, unwarped_audio_track_index

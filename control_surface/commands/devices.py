@@ -27,7 +27,7 @@ TRACK_TYPE_PARAM = ParamSchema(
     required=False,
     default="track",
     enum_values=["track", "return", "master"],
-    description="Which list track_index addresses; 'master' needs no track_index",
+    description="'master' needs no track_index",
 )
 
 # --- Class-level property tables (2.7) ---------------------------------------
