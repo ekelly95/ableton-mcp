@@ -264,8 +264,11 @@ Two metering tiers are available:
   can't crash a command.
 - **transform_clip is a server-side composite tool** (declared next to
   get_bridge_status, outside the registry): get_notes → apply_transforms →
-  remove/update/add diffed by note_id. Outside-the-registry means no schema
-  hash impact and no Live code.
+  one `apply_note_diff` command (remove/update/add by note_id). That command
+  is registered `internal=True`: part of the wire protocol and the drift
+  hash, never listed as a tool. Live checks the clip's note ids still match
+  the read and validates everything before writing, so a transform either
+  lands whole or not at all.
 - **Compact emission.** A bare dict return makes the MCP SDK serialize the
   payload twice, the text copy at indent=2 (measured 1.5-1.9x). _tool_result
   in mcp_server/server.py emits compact text + the dict for output_schema

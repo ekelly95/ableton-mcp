@@ -357,3 +357,73 @@ class TestUpdateNotesValidation:
             )
         after = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]
         assert after == before
+
+
+class TestApplyNoteDiff:
+    def _clip_ids(self, registry, ctx):
+        run_command(registry, ctx, "create_clip", track_index=0, slot_index=0, length_beats=4.0)
+        run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
+        return self._read(registry, ctx)
+
+    def _read(self, registry, ctx):
+        return run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]
+
+    def test_remove_update_add_in_one_command(self, registry, ctx):
+        notes = self._clip_ids(registry, ctx)
+        ids = [n["note_id"] for n in notes]
+        result = run_command(
+            registry,
+            ctx,
+            "apply_note_diff",
+            track_index=0,
+            slot_index=0,
+            expected_note_ids=ids,
+            remove_ids=[ids[1]],
+            modifications=[{"note_id": ids[0], "velocity": 40}],
+            notes=[{"pitch": 72, "start_time": 3.0, "duration": 0.5}],
+        )
+        assert result == {"updated": 1, "removed": 1, "added": 1, "note_count": 3}
+        after = {n["pitch"]: n for n in self._read(registry, ctx)}
+        assert sorted(after) == [60, 67, 72]
+        assert after[60]["velocity"] == 40
+
+    def test_refuses_when_clip_changed_since_read(self, registry, ctx):
+        notes = self._clip_ids(registry, ctx)
+        ids = [n["note_id"] for n in notes]
+        # Someone adds a note between transform_clip's read and its write.
+        run_command(
+            registry,
+            ctx,
+            "add_notes",
+            track_index=0,
+            slot_index=0,
+            notes=[{"pitch": 48, "start_time": 0.0, "duration": 1.0}],
+        )
+        before = self._read(registry, ctx)
+        with pytest.raises(LiveAPIError, match="changed since"):
+            run_command(
+                registry,
+                ctx,
+                "apply_note_diff",
+                track_index=0,
+                slot_index=0,
+                expected_note_ids=ids,
+                remove_ids=[ids[0]],
+            )
+        assert self._read(registry, ctx) == before
+
+    def test_bad_modification_writes_nothing(self, registry, ctx):
+        notes = self._clip_ids(registry, ctx)
+        ids = [n["note_id"] for n in notes]
+        with pytest.raises(ValidationError):
+            run_command(
+                registry,
+                ctx,
+                "apply_note_diff",
+                track_index=0,
+                slot_index=0,
+                expected_note_ids=ids,
+                remove_ids=[ids[2]],
+                modifications=[{"note_id": ids[0], "velocity": 999}],
+            )
+        assert self._read(registry, ctx) == notes

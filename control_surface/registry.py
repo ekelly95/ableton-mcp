@@ -335,6 +335,9 @@ class CommandSchema:
     read_only: bool = False
     destructive: bool = False
     output_schema: dict[str, Any] | None = None
+    # Internal commands are part of the wire protocol (and the drift hash) but
+    # are never listed as MCP tools — e.g. a composite tool's write-back.
+    internal: bool = False
 
     def validate_params(self, params: dict[str, Any] | None) -> dict[str, Any]:
         if params is None:
@@ -396,6 +399,7 @@ class CommandRegistry:
         read_only: bool = False,
         destructive: bool = False,
         output_schema: dict[str, Any] | None = None,
+        internal: bool = False,
     ) -> Callable[[Callable], Callable]:
         def decorator(handler: Callable) -> Callable:
             if name in self._commands:
@@ -411,6 +415,7 @@ class CommandRegistry:
                 read_only=read_only,
                 destructive=destructive,
                 output_schema=output_schema,
+                internal=internal,
             )
             self._categories.setdefault(category, []).append(name)
             return handler
@@ -430,12 +435,14 @@ class CommandRegistry:
         return list(self._categories.get(category, []))
 
     def generate_mcp_tools(self) -> list[dict[str, Any]]:
-        return [schema.to_mcp_tool() for schema in self._commands.values()]
+        return [schema.to_mcp_tool() for schema in self._commands.values() if not schema.internal]
 
     def schema_hash(self) -> str:
-        """Stable hash of the full tool surface, used to detect drift between
-        the repo the MCP server imports and the copy deployed inside Live."""
-        canonical = json.dumps(self.generate_mcp_tools(), sort_keys=True, separators=(",", ":"))
+        """Stable hash of the full command surface (internal commands too), used
+        to detect drift between the repo the MCP server imports and the copy
+        deployed inside Live."""
+        everything = [schema.to_mcp_tool() for schema in self._commands.values()]
+        canonical = json.dumps(everything, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def __len__(self) -> int:

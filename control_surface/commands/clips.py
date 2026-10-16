@@ -452,6 +452,24 @@ def get_notes(
     }
 
 
+def _note_specs(notes: list[dict[str, Any]]) -> tuple:
+    import Live  # inside Live's runtime only; tests install a mock module
+
+    return tuple(
+        Live.Clip.MidiNoteSpecification(
+            pitch=n["pitch"],
+            start_time=n["start_time"],
+            duration=n["duration"],
+            velocity=n["velocity"],
+            mute=n["mute"],
+            probability=n["probability"],
+            velocity_deviation=n["velocity_deviation"],
+            release_velocity=n["release_velocity"],
+        )
+        for n in notes
+    )
+
+
 @REGISTRY.register(
     "add_notes",
     params=[
@@ -511,8 +529,6 @@ def add_notes(
     transforms: str | None = None,  # applied by the MCP server; both accepted
     # here only so a drifted server forwarding them doesn't crash the command.
 ) -> dict[str, Any]:
-    import Live  # inside Live's runtime only; tests install a mock module
-
     if not notes:
         raise ValidationError(
             "add_notes needs 'notes' (or 'notation', which the MCP server expands "
@@ -528,23 +544,68 @@ def add_notes(
         take_lane_index=take_lane_index,
     )
 
-    specs = tuple(
-        Live.Clip.MidiNoteSpecification(
-            pitch=n["pitch"],
-            start_time=n["start_time"],
-            duration=n["duration"],
-            velocity=n["velocity"],
-            mute=n["mute"],
-            probability=n["probability"],
-            velocity_deviation=n["velocity_deviation"],
-            release_velocity=n["release_velocity"],
-        )
-        for n in notes
-    )
-    clip.add_new_notes(specs)
+    clip.add_new_notes(_note_specs(notes))
 
     total = len(_fetch_all_notes(clip))
     return {"added": len(notes), "note_count": total}
+
+
+def _plan_note_modifications(
+    note_vector: Any, modifications: list[dict[str, Any]]
+) -> list[tuple[Any, dict[str, Any]]]:
+    """Validate every modification against the clip's notes and return
+    (note, changes) pairs without touching anything, so a bad value can't
+    leave the clip half-edited."""
+    all_notes = {n.note_id: n for n in note_vector}
+    editable = {
+        # Names like "C3" are converted before the cast (Ableton convention C3=60)
+        "pitch": lambda v: pitch_to_midi(v, param="modifications"),
+        "start_time": float,
+        "duration": float,
+        "velocity": float,
+        "mute": bool,
+        "probability": float,
+        "velocity_deviation": float,
+        "release_velocity": float,
+    }
+
+    # Validate every modification before touching any note, so a bad value
+    # can't leave the clip half-edited.
+    planned = []
+    missing = []
+    for i, mod in enumerate(modifications):
+        if "note_id" not in mod:
+            raise LiveAPIError("Each modification needs a note_id (from get_notes)")
+        note = all_notes.get(int(mod["note_id"]))
+        if note is None:
+            missing.append(int(mod["note_id"]))
+            continue
+        changes = {}
+        for field, cast in editable.items():
+            if field in mod and mod[field] is not None:
+                try:
+                    changes[field] = cast(mod[field])
+                except (TypeError, ValueError):
+                    raise ValidationError(
+                        f"Modification {i}: {field} must be a number, got {mod[field]!r}",
+                        param="modifications",
+                    ) from None
+        check_note_ranges(changes, param="modifications")
+        planned.append((note, changes))
+
+    if missing:
+        raise LiveAPIError(f"Unknown note_ids: {missing}. Fetch current ids with get_notes first.")
+
+    return planned
+
+
+def _apply_note_modifications(clip: Any, note_vector: Any, planned) -> int:
+    for note, changes in planned:
+        for field, value in changes.items():
+            setattr(note, field, value)
+    if planned:
+        clip.apply_note_modifications(note_vector)
+    return len(planned)
 
 
 @REGISTRY.register(
@@ -599,57 +660,76 @@ def update_notes(
     # the native vector get_notes_extended returned, so we mutate notes inside
     # that vector and pass the vector itself back.
     note_vector = _fetch_all_notes(clip)
-    all_notes = {n.note_id: n for n in note_vector}
+    planned = _plan_note_modifications(note_vector, modifications or [])
+    return {"updated": _apply_note_modifications(clip, note_vector, planned)}
 
-    editable = {
-        # Names like "C3" are converted before the cast (Ableton convention C3=60)
-        "pitch": lambda v: pitch_to_midi(v, param="modifications"),
-        "start_time": float,
-        "duration": float,
-        "velocity": float,
-        "mute": bool,
-        "probability": float,
-        "velocity_deviation": float,
-        "release_velocity": float,
+
+@REGISTRY.register(
+    "apply_note_diff",
+    params=[
+        ParamSchema("track_index", ParamType.INT, min_value=0),
+        _SLOT_XOR,
+        _ARR_XOR,
+        _TAKE_LANE,
+        ParamSchema("expected_note_ids", ParamType.INT_LIST),
+        ParamSchema("remove_ids", ParamType.INT_LIST, required=False),
+        ParamSchema("modifications", ParamType.OBJECT_LIST, required=False),
+        ParamSchema("notes", ParamType.NOTE_LIST, required=False),
+    ],
+    category="notes",
+    destructive=True,
+    internal=True,
+    description="transform_clip's write-back: one all-or-nothing edit of a clip's notes.",
+)
+def apply_note_diff(
+    ctx,
+    track_index: int,
+    expected_note_ids: list[int],
+    slot_index: int | None = None,
+    arrangement_clip_index: int | None = None,
+    take_lane_index: int | None = None,
+    remove_ids: list[int] | None = None,
+    modifications: list[dict[str, Any]] | None = None,
+    notes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Remove, update and add notes in one main-thread task.
+
+    transform_clip used to send these as three commands: a failure in the
+    second left the first applied, and the user could edit the clip in
+    between. Everything is checked before anything is written, and the edit is
+    refused if the clip's notes changed since transform_clip read them.
+    """
+    track = get_track(ctx.song, track_index)
+    clip = resolve_clip_ref(
+        track,
+        slot_index,
+        arrangement_clip_index,
+        require_midi=True,
+        take_lane_index=take_lane_index,
+    )
+    note_vector = _fetch_all_notes(clip)
+    current_ids = {n.note_id for n in note_vector}
+    if current_ids != set(expected_note_ids):
+        raise LiveAPIError(
+            "The clip's notes changed since they were read (edited in Live or by "
+            "another client); nothing was written. Run the transform again."
+        )
+    unknown = sorted(set(remove_ids or []) - current_ids)
+    if unknown:
+        raise LiveAPIError(f"Unknown note_ids to remove: {unknown}")
+    planned = _plan_note_modifications(note_vector, modifications or [])
+
+    updated = _apply_note_modifications(clip, note_vector, planned)
+    if remove_ids:
+        clip.remove_notes_by_id(tuple(remove_ids))
+    if notes:
+        clip.add_new_notes(_note_specs(notes))
+    return {
+        "updated": updated,
+        "removed": len(remove_ids or []),
+        "added": len(notes or []),
+        "note_count": len(_fetch_all_notes(clip)),
     }
-
-    # Validate every modification before touching any note, so a bad value
-    # can't leave the clip half-edited.
-    planned = []
-    missing = []
-    for i, mod in enumerate(modifications):
-        if "note_id" not in mod:
-            raise LiveAPIError("Each modification needs a note_id (from get_notes)")
-        note = all_notes.get(int(mod["note_id"]))
-        if note is None:
-            missing.append(int(mod["note_id"]))
-            continue
-        changes = {}
-        for field, cast in editable.items():
-            if field in mod and mod[field] is not None:
-                try:
-                    changes[field] = cast(mod[field])
-                except (TypeError, ValueError):
-                    raise ValidationError(
-                        f"Modification {i}: {field} must be a number, got {mod[field]!r}",
-                        param="modifications",
-                    ) from None
-        check_note_ranges(changes, param="modifications")
-        planned.append((note, changes))
-
-    if missing:
-        raise LiveAPIError(f"Unknown note_ids: {missing}. Fetch current ids with get_notes first.")
-
-    touched = []
-    for note, changes in planned:
-        for field, value in changes.items():
-            setattr(note, field, value)
-        touched.append(note)
-
-    if touched:
-        clip.apply_note_modifications(note_vector)
-
-    return {"updated": len(touched)}
 
 
 @REGISTRY.register(

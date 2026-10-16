@@ -16,16 +16,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class TestToolGeneration:
-    def test_every_registry_command_is_a_tool(self):
+    def test_every_public_registry_command_is_a_tool(self):
         tool_names = {t.name for t in registry_tools()}
         for command in REGISTRY.list_commands():
-            assert command in tool_names
+            assert (command in tool_names) != REGISTRY.get(command).internal
 
     def test_bridge_status_included(self):
         tool_names = [t.name for t in registry_tools()]
         assert "get_bridge_status" in tool_names
         # bridge_status, audio_levels, transform_clip, search_library, find_similar
-        assert len(tool_names) == len(REGISTRY) + 5
+        assert len(tool_names) == len(REGISTRY.generate_mcp_tools()) + 5
 
     def test_library_tools_are_read_only(self):
         tools = {t.name: t for t in registry_tools()}
@@ -217,6 +217,15 @@ class TestNotationAndTransforms:
         _, params = next(c for c in fake.sent if c[0] == "get_notes")
         assert "format" not in params  # stripped before Live
 
+    async def test_internal_command_is_not_callable_as_a_tool(self):
+        fake = NotesFakeClient()
+        async with await self._session(fake) as session:
+            result = await session.call_tool(
+                "apply_note_diff", {"track_index": 0, "slot_index": 0, "expected_note_ids": []}
+            )
+            assert result.isError is True
+        assert not any(c[0] == "apply_note_diff" for c in fake.sent)
+
     async def test_transform_clip_diffs_by_note_id(self):
         fake = NotesFakeClient()
         async with await self._session(fake) as session:
@@ -228,10 +237,18 @@ class TestNotationAndTransforms:
             assert result.structuredContent["removed"] == 1
             assert result.structuredContent["updated"] == 1
             assert result.structuredContent["added"] == 0
-        removed = next(c for c in fake.sent if c[0] == "remove_notes")
-        assert removed[1]["note_ids"] == [2]
-        updated = next(c for c in fake.sent if c[0] == "update_notes")
-        assert updated[1]["modifications"] == [{"note_id": 1, "velocity": 40.0}]
+        # One all-or-nothing write, guarded by the ids that were read.
+        writes = [
+            c
+            for c in fake.sent
+            if c[0] in ("apply_note_diff", "remove_notes", "update_notes", "add_notes")
+        ]
+        assert [c[0] for c in writes] == ["apply_note_diff"]
+        diff = writes[0][1]
+        assert diff["expected_note_ids"] == [1, 2]
+        assert diff["remove_ids"] == [2]
+        assert diff["modifications"] == [{"note_id": 1, "velocity": 40.0}]
+        assert diff["notes"] == []
 
     async def test_transform_clip_note_ops_add_notes(self):
         fake = NotesFakeClient()

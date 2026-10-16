@@ -252,12 +252,17 @@ def _transform_clip(ableton: AbletonClient, arguments: dict[str, Any]) -> dict:
         if changed:
             modifications.append({"note_id": note["note_id"], **changed})
 
-    if removed_ids:
-        ableton.send("remove_notes", **clip_ref, note_ids=removed_ids)
-    if modifications:
-        ableton.send("update_notes", **clip_ref, modifications=modifications)
-    if added:
-        ableton.send("add_notes", **clip_ref, notes=added)
+    if removed_ids or modifications or added:
+        # One all-or-nothing command: Live refuses it if the clip changed
+        # since the read above, and validates everything before writing.
+        ableton.send(
+            "apply_note_diff",
+            **clip_ref,
+            expected_note_ids=list(original_by_id),
+            remove_ids=removed_ids,
+            modifications=modifications,
+            notes=added,
+        )
 
     result = {
         "matched": matched,
@@ -390,7 +395,8 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
         if name == "find_similar":
             return _tool_result(await anyio.to_thread.run_sync(_find_similar, arguments))
 
-        if name not in REGISTRY:
+        schema = REGISTRY.get(name)
+        if schema is None or schema.internal:
             raise ValueError(f"Unknown tool: {name}")
 
         def _signature() -> tuple[int, int]:
