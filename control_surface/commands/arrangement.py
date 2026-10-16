@@ -546,6 +546,9 @@ def create_locator(ctx, time: float, name: str | None = None) -> dict[str, Any]:
     # set_or_delete_cue TOGGLES at the playhead — creating where one exists
     # would silently DELETE it, so refuse instead.
     before = list(song.cue_points)
+    # Plain values, read now: a deleted cue's wrapper raises on any attribute
+    # access afterwards (Live 12.4.6, "did not match C++ signature").
+    before_info = [(c, c.name, c.time) for c in before]
     for cue in before:
         if abs(cue.time - time) < _TIME_EPSILON:
             raise LiveAPIError(
@@ -560,14 +563,15 @@ def create_locator(ctx, time: float, name: str | None = None) -> dict[str, Any]:
     # toggle it OFF — confirmed on Live 12.4.6: asking for 12.01 deleted the
     # locator at 12.0. Detect that and toggle again to put it back.
     after = list(song.cue_points)
-    deleted = [c for c in before if c not in after]
+    deleted = [(name, cue_time) for c, name, cue_time in before_info if c not in after]
     if deleted:
+        deleted_name, deleted_time = deleted[0]
         song.set_or_delete_cue()
         restored = next((c for c in song.cue_points if c not in after), None)
         if restored is not None:
-            restored.name = deleted[0].name
+            restored.name = deleted_name
         raise LiveAPIError(
-            f"Locator '{deleted[0].name}' at {deleted[0].time} is where Live snaps {time} "
+            f"Locator '{deleted_name}' at {deleted_time} is where Live snaps {time} "
             f"on its grid, so a new one can't go there — "
             + ("it was left in place." if restored is not None else "and it could not be restored.")
             + " Pick a time further away, or reuse that locator."

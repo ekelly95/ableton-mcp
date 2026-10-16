@@ -713,8 +713,30 @@ class MockCuePoint:
     (see MockSong.current_song_time)."""
 
     def __init__(self, time: float, name: str = ""):
-        self.time = time
-        self.name = name
+        self._time = time
+        self._name = name
+        self._deleted = False
+
+    # CONFIRMED (Live 12.4.6): once a cue is deleted, touching its wrapper
+    # raises ("Python argument types ... did not match C++ signature").
+    def _check(self) -> None:
+        if self._deleted:
+            raise RuntimeError("Python argument types did not match C++ signature (deleted cue)")
+
+    @property
+    def time(self) -> float:
+        self._check()
+        return self._time
+
+    @property
+    def name(self) -> str:
+        self._check()
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._check()
+        self._name = value
 
 
 class MockSongView:
@@ -840,6 +862,7 @@ class MockSong:
         for cue in list(self.cue_points):
             if abs(cue.time - snapped) < 1e-6:
                 self.cue_points.remove(cue)
+                cue._deleted = True
                 return
         self.cue_points.append(MockCuePoint(time=snapped))
 
