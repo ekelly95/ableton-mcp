@@ -1,8 +1,13 @@
 name: tests
 
+# Pushes to main and pull requests only: tags and feature-branch pushes used
+# to start a second, identical run of the same commit. Run by hand from the
+# Actions tab (workflow_dispatch) when a branch needs CI before its PR.
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
