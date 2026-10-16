@@ -50,3 +50,82 @@ def test_macos_app_bundles_globbed_not_hardcoded(tmp_path):
 
 def test_macos_app_bundles_missing_applications_dir(tmp_path):
     assert candidate_macos_app_script_dirs(tmp_path / "nope") == []
+
+
+# --- install() end to end, against a fake User Library (2.20) ---------------
+
+import pytest  # noqa: E402
+
+from mcp_server import install as installer  # noqa: E402
+
+
+class FakeLive:
+    def __init__(self, reachable=True):
+        self.reachable = reachable
+        self.sent = []
+
+    def send(self, command, **params):
+        from mcp_server.client import AbletonConnectionError
+
+        if not self.reachable:
+            raise AbletonConnectionError("Live is not running")
+        self.sent.append(command)
+        return {"command_count": 51}
+
+
+@pytest.fixture()
+def user_library(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    library = home / ("Music" if sys.platform == "darwin" else "Documents") / "Ableton"
+    (library / "User Library").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", lambda: home)
+    return library / "User Library" / "Remote Scripts" / "AbletonMCP"
+
+
+def test_first_install_copies_and_explains_the_preferences_step(user_library):
+    result = installer.install(client=FakeLive())
+    assert result["installed_to"] == str(user_library)
+    assert (user_library / "__init__.py").exists()
+    assert (user_library / "commands" / "clips.py").exists()
+    assert not list(user_library.rglob("__pycache__"))
+    assert "Control Surface" in result["next_steps"]
+
+
+def test_reinstall_with_nothing_changed(user_library):
+    installer.install(client=FakeLive())
+    assert installer.install(client=FakeLive())["status"] == "Already up to date."
+
+
+def test_handler_change_hot_reloads(user_library):
+    installer.install(client=FakeLive())
+    (user_library / "commands" / "clips.py").write_text("# stale copy\n")
+    live = FakeLive()
+    result = installer.install(client=live)
+    assert live.sent == ["reload_commands"]
+    assert result["status"].startswith("Reloaded into the running Live")
+    assert (user_library / "commands" / "clips.py").read_text() != "# stale copy\n"
+
+
+def test_core_change_asks_for_a_restart(user_library):
+    installer.install(client=FakeLive())
+    (user_library / "socket_server.py").write_text("# stale copy\n")
+    live = FakeLive()
+    result = installer.install(client=live)
+    assert live.sent == []
+    assert "Restart Ableton Live" in result["status"]
+    assert "socket_server.py" in result["status"]
+
+
+def test_live_not_running_is_fine(user_library):
+    installer.install(client=FakeLive())
+    (user_library / "commands" / "clips.py").write_text("# stale copy\n")
+    result = installer.install(client=FakeLive(reachable=False))
+    assert "loads the new version when it starts" in result["status"]
+
+
+def test_no_live_installed_is_a_clear_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "nobody")
+    monkeypatch.setattr(installer, "PROGRAMDATA_ABLETON", tmp_path / "none")
+    monkeypatch.setattr(installer, "MACOS_APPLICATIONS", tmp_path / "none")
+    with pytest.raises(installer.InstallError, match="Has Live been installed"):
+        installer.install(client=FakeLive())

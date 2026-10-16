@@ -21,7 +21,7 @@ Tahoe 26.6.1, 2026-08-12) over its Unix-socket transport — both on Live
 
 ## What the AI can do
 
-49 tools:
+50 tools:
 
 - Read the whole session at a glance.
 - Create/rename/mix tracks; create, duplicate, launch, and edit clips.
@@ -80,47 +80,33 @@ playbook an AI agent should read before driving a session:
 
 ## Setup
 
-Windows or macOS (both hardware-verified — see Status), Python 3.11+,
-[uv](https://docs.astral.sh/uv/), Ableton Live 12 (verified on 12.4.3; core
-tools read scale properties Live 12 added, so Live 11 won't work;
-`insert_device` needs 12.3+).
+Windows or macOS, Ableton Live 12 (verified on 12.4.3 and 12.4.6; core tools
+read scale properties Live 12 added, so Live 11 won't work; `insert_device`
+needs 12.3+).
 
-```bash
-git clone https://github.com/ekelly95/ableton-mcp.git && cd ableton-mcp
-uv venv
-uv pip install -e .
-.venv/Scripts/python.exe scripts/install_control_surface.py
-```
+**1. Install the MCP server** — pick one:
 
-On macOS, read `.venv/Scripts/...exe` as `.venv/bin/...` throughout.
+- **Claude Desktop, one click:** download `ableton-mcp-<version>.mcpb` from
+  the latest release and open it (or drag it into Settings → Extensions).
+  Claude Desktop installs the dependencies itself; no Python needed.
+- **Any MCP client, via [uv](https://docs.astral.sh/uv/):** register the
+  command `uvx --from git+https://github.com/ekelly95/ableton-mcp ableton-mcp`
+  (Codex: `command = 'uvx'`, `args = ['--from', 'git+https://github.com/ekelly95/ableton-mcp', 'ableton-mcp']`).
+- **From a checkout (development):**
+  ```bash
+  git clone https://github.com/ekelly95/ableton-mcp.git && cd ableton-mcp
+  uv sync
+  ```
+  and register `.venv/Scripts/ableton-mcp.exe` (macOS: `.venv/bin/ableton-mcp`).
 
-One-time, in Live: **Options → Preferences → Link, Tempo & MIDI**, set a
-free Control Surface dropdown to **AbletonMCP** (Input/Output: None), restart
-Live. After any update: re-run the install script, restart Live.
+**2. Put the Live side in place:** ask the model to run
+`install_control_surface` (or run `ableton-mcp-install`). It copies the
+control surface into Live's User Library and, on later updates, reloads it in
+a running Live when it can.
 
-Register with your MCP client — e.g. Claude Desktop
-(`%APPDATA%\Claude\claude_desktop_config.json` on Windows,
-`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
-
-```json
-{
-  "mcpServers": {
-    "ableton": {
-      "command": "C:\\path\\to\\ableton-mcp\\.venv\\Scripts\\ableton-mcp.exe",
-      "args": []
-    }
-  }
-}
-```
-
-Or Codex (`~/.codex/config.toml`) — single quotes keep Windows backslashes
-literal, and Codex's Windows launcher wants the real `.exe`, not a shim:
-
-```toml
-[mcp_servers.ableton]
-command = 'C:\path\to\ableton-mcp\.venv\Scripts\ableton-mcp.exe'
-startup_timeout_sec = 30
-```
+**3. One time, in Live:** restart Live, then **Options → Preferences → Link,
+Tempo & MIDI**, set a free Control Surface dropdown to **AbletonMCP**
+(Input/Output: None).
 
 Several clients (Claude Desktop, Claude Code, Codex) can stay connected at
 once; their commands run in Live one at a time.
@@ -141,11 +127,13 @@ surface isn't enabled in Preferences.
 ```bash
 uv pip install -e ".[dev]"
 .venv/Scripts/python.exe -m pytest
-.venv/Scripts/python.exe scripts/install_control_surface.py --reload
+.venv/Scripts/ableton-mcp-install
+uv run python packaging/build_mcpb.py   # dist/ableton-mcp-<version>.mcpb
 ```
 
-`--reload` pushes handler changes (`control_surface/commands`, `utils`) into a
-running Live without a restart; it tells you when a change needs one.
+`ableton-mcp-install` pushes handler changes (`control_surface/commands`,
+`utils`) into a running Live without a restart; it tells you when a change
+needs one.
 
 Tests run without Live — `tests/mock_live.py` encodes real-Live behaviour
 (verified on 12.4.3) with provenance comments. `scripts/live_checkpoint.py`

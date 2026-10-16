@@ -291,6 +291,21 @@ Live 12.4.6.
   parameters, master, scenes, clip slots, and a Core Library kit down to a
   pad's nested Simpler and its sample file path. 49 tools.
 
+### 2.20.0 — One-click install
+
+- MCP Bundle: `packaging/build_mcpb.py` builds `ableton-mcp-<version>.mcpb`
+  (manifest 0.4, `uv` server type: the host installs the locked dependencies
+  — numpy included — so no Python install is needed). The manifest is
+  validated against the official schema and its tool list is generated from
+  the server. Verified by launching the unzipped bundle exactly as a host
+  does (`uv run --directory <bundle> server.py`).
+- The installer moved into the package (`mcp_server/install.py`): new
+  `install_control_surface` tool and `ableton-mcp-install` command copy the
+  control surface that ships inside the package, so neither needs a repo
+  checkout; on updates they hot-reload a running Live when they can.
+  `get_bridge_status` points at the tool. 50 tools.
+- Not yet verified: installing the bundle in Claude Desktop itself.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained

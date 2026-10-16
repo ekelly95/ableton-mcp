@@ -4,7 +4,7 @@ Runs inside Ableton Live as a MIDI Remote Script. Exposes Live's API over a
 localhost socket (TCP 127.0.0.1:9877 on Windows) using length-prefixed JSON.
 
 Install: copy this folder as "AbletonMCP" into Live's Remote Scripts location
-(scripts/install_control_surface.py does this), restart Live, then pick
+(the install_control_surface tool or `ableton-mcp-install` does this), restart Live, then pick
 "AbletonMCP" under Preferences → Link/Tempo/MIDI → Control Surface.
 """
 

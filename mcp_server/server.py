@@ -37,6 +37,7 @@ from .client import (  # noqa: E402
     AbletonConnectionError,
     CommandError,
 )
+from .install import install as _install_control_surface  # noqa: E402
 from .library import search_library as _search_library  # noqa: E402
 from .m4l import AUDIO_LEVELS_TOOL, TapClient, get_audio_levels  # noqa: E402
 from .notation import parse_notation, serialize_notation  # noqa: E402
@@ -234,6 +235,19 @@ CAPTURE_AUDIO_TOOL = types.Tool(
     annotations=types.ToolAnnotations(read_only_hint=False, destructive_hint=False),
 )
 
+INSTALL_TOOL = types.Tool(
+    name="install_control_surface",
+    description=(
+        "Install or update the AbletonMCP control surface inside Ableton Live: "
+        "copies the bundled script into Live's User Library, and reloads it in a "
+        "running Live when the change allows. Run once after setup, and whenever "
+        "get_bridge_status reports a version mismatch. The result says if Live "
+        "needs a restart or the one-time Preferences step."
+    ),
+    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    annotations=types.ToolAnnotations(read_only_hint=False, destructive_hint=False),
+)
+
 # Fields transform statements may change; the write-back diff compares these.
 _TRANSFORM_FIELDS = (
     "pitch",
@@ -411,6 +425,7 @@ def registry_tools() -> list[types.Tool]:
     tools.append(SEARCH_LIBRARY_TOOL)
     tools.append(ANALYZE_AUDIO_TOOL)  # reads files, never Live
     tools.append(CAPTURE_AUDIO_TOOL)  # server-side composite over capture_* commands
+    tools.append(INSTALL_TOOL)  # copies files into Live's folder; never needs Live running
     return tools
 
 
@@ -429,7 +444,7 @@ class _DriftCheck:
         if not in_sync and not self.done:
             logger.warning(
                 "Control surface inside Live (v%s) does not match this package (v%s). "
-                "Re-run scripts/install_control_surface.py and restart Live.",
+                "Run the install_control_surface tool (or ableton-mcp-install).",
                 script_version,
                 VERSION,
             )
@@ -444,17 +459,20 @@ def _bridge_status(client: AbletonClient, drift: _DriftCheck) -> dict:
             "connected": False,
             "package_version": VERSION,
             "hint": (
-                f"{NOT_RUNNING_HINT} If it is enabled, re-run "
-                f"scripts/install_control_surface.py and restart Live."
+                f"{NOT_RUNNING_HINT} Not installed yet, or just updated? Run the "
+                f"install_control_surface tool, then restart Live."
             ),
         }
     in_sync = drift.check(ping_result)
-    return {
+    status = {
         "connected": True,
         "package_version": VERSION,
         "script_version": ping_result.get("version", "unknown"),
         "schema_in_sync": bool(in_sync),
     }
+    if not in_sync:
+        status["hint"] = "Live runs a different version: run the install_control_surface tool."
+    return status
 
 
 def _tool_result(result: Any) -> types.CallToolResult:
@@ -532,6 +550,8 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
             return _analyze_audio(arguments)
         if name == "capture_audio":
             return _capture_audio(ableton, arguments)
+        if name == "install_control_surface":
+            return _install_control_surface(reload=True, client=ableton)
 
         if not drift.done:
             drift.check(ableton.ping())

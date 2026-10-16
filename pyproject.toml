@@ -1,6 +1,6 @@
 [project]
 name = "ableton-mcp"
-version = "2.19.0"
+version = "2.20.0"
 description = "MCP server bridging Claude to Ableton Live via a control-surface socket"
 readme = "README.md"
 license = { text = "MIT" }
@@ -28,6 +28,7 @@ dev = [
 
 [project.scripts]
 ableton-mcp = "mcp_server:run"
+ableton-mcp-install = "mcp_server.install:main"
 
 [build-system]
 requires = ["setuptools>=68"]

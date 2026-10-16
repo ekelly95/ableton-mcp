@@ -569,7 +569,8 @@ No provider dependency ever goes into the bridge.
   Documents) before per-install ProgramData locations. It copies over existing
   files rather than deleting the target because OneDrive and Ableton's indexer
   may hold locks after Live closes.
-- After a `control_surface` change, rerun the install script with `--reload`:
+- After a `control_surface` change, run `ableton-mcp-install` (or the
+  install_control_surface tool; `--no-reload` to skip reloading):
   changes under `commands/` and `utils/` hot-reload into the running Live
   (2.16, `control_surface/reloader.py`; verified on Live 12.4.6 — a broken
   file is refused and Live keeps the previous handlers). Anything else — the
