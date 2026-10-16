@@ -119,7 +119,7 @@ class AbletonClient:
         self._lock = threading.Lock()
 
     @classmethod
-    def from_env(cls) -> "AbletonClient":
+    def from_env(cls, **kwargs: Any) -> "AbletonClient":
         """Default client, or one aimed at another host when ABLETON_MCP_HOST is
         set (e.g. Live in a VM, reached through an SSH tunnel). Setting the host
         forces TCP, since a Unix socket can't cross machines. Only this end is
@@ -128,8 +128,8 @@ class AbletonClient:
         host = os.environ.get("ABLETON_MCP_HOST")
         port = env_port("ABLETON_MCP_PORT", TCP_PORT)
         if host:
-            return cls(host=host, port=port, use_tcp=True)
-        return cls(port=port)
+            return cls(host=host, port=port, use_tcp=True, **kwargs)
+        return cls(port=port, **kwargs)
 
     # -- connection management -------------------------------------------------
 

@@ -75,7 +75,7 @@ def main() -> None:
     # the run (same guard as live_checkpoint.py).
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
-    tap = TapClient()
+    tap = TapClient.from_env()
     failures: list[str] = []
 
     phase("Tap ping + protocol gate...")
@@ -113,7 +113,7 @@ def main() -> None:
         print("   NOTE: something is already playing/feeding audio — silence check skipped")
 
     phase("Launching a clip and sampling 3s through the tap...")
-    bridge = AbletonClient(timeout=30)
+    bridge = AbletonClient.from_env(timeout=30)
     try:
         overview = bridge.send("get_session_overview")
         target = next(

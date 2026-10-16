@@ -916,7 +916,7 @@ def main():
     print("Checkpoint against real Ableton Live\n", flush=True)
     # Fail fast: 8s per command (heavy commands still get their declared
     # COMMAND_TIMEOUTS budget on this same connection).
-    client = AbletonClient(timeout=8.0)
+    client = AbletonClient.from_env(timeout=8.0)
     started = time.time()
 
     main_steps = [

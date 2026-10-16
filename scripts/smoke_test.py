@@ -13,7 +13,7 @@ from mcp_server.client import AbletonClient, AbletonConnectionError, CommandErro
 
 
 def main() -> None:
-    client = AbletonClient(timeout=10.0)
+    client = AbletonClient.from_env(timeout=10.0)
     try:
         result = client.send("ping")
     except (AbletonConnectionError, CommandError) as e:
