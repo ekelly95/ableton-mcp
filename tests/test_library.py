@@ -381,11 +381,11 @@ class TestFeatureDecoding:
 @pytest.mark.anyio
 class TestLibraryToolsOverProtocol:
     async def _session(self, client):
-        from mcp.shared.memory import create_connected_server_and_client_session
+        from mcp import Client
 
         from mcp_server.server import build_server
 
-        return create_connected_server_and_client_session(build_server(client))
+        return Client(build_server(client))
 
     async def test_search_never_touches_live(self, db_dir):
         from tests.helpers import FakeAbletonClient
@@ -393,7 +393,7 @@ class TestLibraryToolsOverProtocol:
         fake = FakeAbletonClient(connected=False)  # Live is unreachable...
         async with await self._session(fake) as session:
             result = await session.call_tool("search_library", {"query": "808 Kick"})
-            assert result.isError is False  # ...and search works anyway
+            assert result.is_error is False  # ...and search works anyway
             payload = json.loads(result.content[0].text)
             assert payload["matches"][0]["name"] == "808 Kick.wav"
             assert "\n" not in result.content[0].text  # compact emission
@@ -404,15 +404,15 @@ class TestLibraryToolsOverProtocol:
 
         async with await self._session(FakeAbletonClient()) as session:
             result = await session.call_tool("find_similar", {"query": "808 Kick"})
-            assert result.isError is False
-            assert result.structuredContent["reference"]["name"] == "808 Kick.wav"
+            assert result.is_error is False
+            assert result.structured_content["reference"]["name"] == "808 Kick.wav"
 
     async def test_errors_surface_as_tool_errors(self, db_dir):
         from tests.helpers import FakeAbletonClient
 
         async with await self._session(FakeAbletonClient()) as session:
             result = await session.call_tool("search_library", {})
-            assert result.isError is True
+            assert result.is_error is True
             assert "at least one filter" in result.content[0].text
 
 

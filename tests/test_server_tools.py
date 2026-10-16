@@ -30,8 +30,8 @@ class TestToolGeneration:
     def test_library_tools_are_read_only(self):
         tools = {t.name: t for t in registry_tools()}
         for name in ("search_library", "find_similar"):
-            assert tools[name].annotations.readOnlyHint is True
-            assert tools[name].annotations.destructiveHint is False
+            assert tools[name].annotations.read_only_hint is True
+            assert tools[name].annotations.destructive_hint is False
 
     def test_wire_specials_are_not_tools(self):
         tool_names = {t.name for t in registry_tools()}
@@ -41,33 +41,33 @@ class TestToolGeneration:
     def test_schemas_are_real(self):
         tools = {t.name: t for t in registry_tools()}
         create_clip = tools["create_clip"]
-        props = create_clip.inputSchema["properties"]
-        assert set(create_clip.inputSchema["required"]) == {
+        props = create_clip.input_schema["properties"]
+        assert set(create_clip.input_schema["required"]) == {
             "track_index",
             "slot_index",
             "length_beats",
         }
         assert props["length_beats"]["minimum"] == 0.25
-        assert create_clip.inputSchema["additionalProperties"] is False
+        assert create_clip.input_schema["additionalProperties"] is False
 
     def test_annotations_mapped(self):
         tools = {t.name: t for t in registry_tools()}
-        assert tools["get_notes"].annotations.readOnlyHint is True
-        assert tools["get_notes"].annotations.destructiveHint is False
-        assert tools["delete_track"].annotations.destructiveHint is True
+        assert tools["get_notes"].annotations.read_only_hint is True
+        assert tools["get_notes"].annotations.destructive_hint is False
+        assert tools["delete_track"].annotations.destructive_hint is True
 
     def test_output_schema_on_reads(self):
         tools = {t.name: t for t in registry_tools()}
-        assert tools["get_transport_state"].outputSchema is not None
-        assert "tempo" in tools["get_transport_state"].outputSchema["properties"]
+        assert tools["get_transport_state"].output_schema is not None
+        assert "tempo" in tools["get_transport_state"].output_schema["properties"]
 
 
 @pytest.mark.anyio
 class TestEndToEnd:
     async def _session(self, client):
-        from mcp.shared.memory import create_connected_server_and_client_session
+        from mcp import Client
 
-        return create_connected_server_and_client_session(build_server(client))
+        return Client(build_server(client))
 
     async def test_list_tools_over_protocol(self):
         async with await self._session(FakeAbletonClient()) as session:
@@ -90,15 +90,15 @@ class TestEndToEnd:
         these three must answer even though the server has none of them."""
         async with await self._session(FakeAbletonClient()) as session:
             assert (await session.list_resources()).resources == []
-            assert (await session.list_resource_templates()).resourceTemplates == []
+            assert (await session.list_resource_templates()).resource_templates == []
             assert (await session.list_prompts()).prompts == []
 
     async def test_call_tool_structured_and_text(self):
         fake = FakeAbletonClient()
         async with await self._session(fake) as session:
             result = await session.call_tool("get_transport_state", {})
-            assert result.isError is False
-            assert result.structuredContent["tempo"] == 120.0
+            assert result.is_error is False
+            assert result.structured_content["tempo"] == 120.0
             text = json.loads(result.content[0].text)
             assert text["tempo"] == 120.0
             assert ("get_transport_state", {}) in fake.sent
@@ -106,21 +106,21 @@ class TestEndToEnd:
     async def test_command_error_becomes_tool_error(self):
         async with await self._session(FakeAbletonClient()) as session:
             result = await session.call_tool("delete_track", {"track_index": 99})
-            assert result.isError is True
+            assert result.is_error is True
             assert "LiveAPIError" in result.content[0].text
 
     async def test_connection_error_becomes_tool_error_with_hint(self):
         async with await self._session(FakeAbletonClient(connected=False)) as session:
             result = await session.call_tool("get_transport_state", {})
-            assert result.isError is True
+            assert result.is_error is True
             assert "not reachable" in result.content[0].text
 
     async def test_bridge_status_disconnected(self):
         async with await self._session(FakeAbletonClient(connected=False)) as session:
             result = await session.call_tool("get_bridge_status", {})
-            assert result.isError is False
-            assert result.structuredContent["connected"] is False
-            assert "Preferences" in result.structuredContent["hint"]
+            assert result.is_error is False
+            assert result.structured_content["connected"] is False
+            assert "Preferences" in result.structured_content["hint"]
 
     async def test_compact_text_emission(self):
         # The text copy the model reads must be compact JSON, never indent=2.
@@ -172,9 +172,9 @@ class NotesFakeClient(FakeAbletonClient):
 @pytest.mark.anyio
 class TestNotationAndTransforms:
     async def _session(self, client):
-        from mcp.shared.memory import create_connected_server_and_client_session
+        from mcp import Client
 
-        return create_connected_server_and_client_session(build_server(client))
+        return Client(build_server(client))
 
     async def test_add_notes_notation_expanded_server_side(self):
         fake = FakeAbletonClient()
@@ -183,7 +183,7 @@ class TestNotationAndTransforms:
                 "add_notes",
                 {"track_index": 0, "slot_index": 0, "notation": "v90 n/8 C3 E3 1|1"},
             )
-            assert result.isError is False
+            assert result.is_error is False
         command, params = next(c for c in fake.sent if c[0] == "add_notes")
         assert "notation" not in params  # Live never sees the dialect
         assert [n["pitch"] for n in params["notes"]] == [60, 64]
@@ -210,8 +210,8 @@ class TestNotationAndTransforms:
             result = await session.call_tool(
                 "get_notes", {"track_index": 0, "slot_index": 0, "format": "compact"}
             )
-            assert result.isError is False
-            payload = result.structuredContent
+            assert result.is_error is False
+            payload = result.structured_content
             assert "notes" not in payload
             assert "C3" in payload["notation"] and "D3" in payload["notation"]
         _, params = next(c for c in fake.sent if c[0] == "get_notes")
@@ -223,8 +223,25 @@ class TestNotationAndTransforms:
             result = await session.call_tool(
                 "apply_note_diff", {"track_index": 0, "slot_index": 0, "expected_note_ids": []}
             )
-            assert result.isError is True
+            assert result.is_error is True
         assert not any(c[0] == "apply_note_diff" for c in fake.sent)
+
+    async def test_arguments_validated_before_dispatch(self):
+        # mcp 2 no longer checks arguments against input_schema; the server
+        # does, so server-only tools never see malformed input.
+        fake = NotesFakeClient()
+        async with await self._session(fake) as session:
+            missing = await session.call_tool("transform_clip", {"track_index": 0})
+            assert missing.is_error is True
+            assert "'transforms' is a required property" in missing.content[0].text
+            wrong_type = await session.call_tool(
+                "transform_clip", {"track_index": "zero", "transforms": "v100"}
+            )
+            assert wrong_type.is_error is True
+            assert "track_index" in wrong_type.content[0].text
+            extra = await session.call_tool("get_transport_state", {"bogus": 1})
+            assert extra.is_error is True
+        assert fake.sent == []  # nothing reached Live
 
     async def test_transform_clip_diffs_by_note_id(self):
         fake = NotesFakeClient()
@@ -233,10 +250,10 @@ class TestNotationAndTransforms:
                 "transform_clip",
                 {"track_index": 0, "slot_index": 0, "transforms": "D3: v0; C3: velocity = 40"},
             )
-            assert result.isError is False
-            assert result.structuredContent["removed"] == 1
-            assert result.structuredContent["updated"] == 1
-            assert result.structuredContent["added"] == 0
+            assert result.is_error is False
+            assert result.structured_content["removed"] == 1
+            assert result.structured_content["updated"] == 1
+            assert result.structured_content["added"] == 0
         # One all-or-nothing write, guarded by the ids that were read.
         writes = [
             c
@@ -257,10 +274,10 @@ class TestNotationAndTransforms:
                 "transform_clip",
                 {"track_index": 0, "slot_index": 0, "transforms": "C3: ratchet(2)"},
             )
-            assert result.isError is False
+            assert result.is_error is False
             # ratchet replaces the original (1 removed) with 2 new pieces
-            assert result.structuredContent["removed"] == 1
-            assert result.structuredContent["added"] == 2
+            assert result.structured_content["removed"] == 1
+            assert result.structured_content["added"] == 2
 
     async def test_transform_clip_refuses_truncated_read(self):
         # A clip past the 2000-note read cap must be refused outright —
@@ -281,7 +298,7 @@ class TestNotationAndTransforms:
                 "transform_clip",
                 {"track_index": 0, "slot_index": 0, "transforms": "velocity = 80"},
             )
-            assert result.isError is True
+            assert result.is_error is True
             assert "read limit" in result.content[0].text
         writes = [c for c in fake.sent if c[0] in ("remove_notes", "update_notes", "add_notes")]
         assert writes == []  # the refusal fired before any write
@@ -289,8 +306,8 @@ class TestNotationAndTransforms:
     async def test_bridge_status_connected_in_sync(self):
         async with await self._session(FakeAbletonClient()) as session:
             result = await session.call_tool("get_bridge_status", {})
-            assert result.structuredContent["connected"] is True
-            assert result.structuredContent["schema_in_sync"] is True
+            assert result.structured_content["connected"] is True
+            assert result.structured_content["schema_in_sync"] is True
 
     async def test_pitch_name_survives_real_input_validation(self):
         """The ADVERTISED schema must accept 'A3' in update_notes
@@ -306,7 +323,7 @@ class TestNotationAndTransforms:
                     "modifications": [{"note_id": 1, "pitch": "A3", "velocity": 90}],
                 },
             )
-            assert result.isError is False, result.content[0].text
+            assert result.is_error is False, result.content[0].text
             sent_command, sent_params = fake.sent[-1]
             assert sent_command == "update_notes"
             assert sent_params["modifications"][0]["pitch"] == "A3"
@@ -314,7 +331,7 @@ class TestNotationAndTransforms:
     async def test_delete_arrangement_clip_requires_guard_in_schema(self):
         async with await self._session(FakeAbletonClient()) as session:
             tools = {t.name: t for t in (await session.list_tools()).tools}
-            required = tools["delete_arrangement_clip"].inputSchema["required"]
+            required = tools["delete_arrangement_clip"].input_schema["required"]
             assert "expected_start_time" in required
 
 

@@ -17,13 +17,15 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
-      - run: ruff check .
-      - run: ruff format --check .
+      # --locked: install exactly uv.lock, and fail if it is out of date with
+      # pyproject.toml, so CI runs the versions that were tested locally.
+      - run: uv sync --locked --extra dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
 
   pytest:
     runs-on: ${{ matrix.os }}
@@ -31,14 +33,14 @@ jobs:
       matrix:
         # The macOS job exercises the AF_UNIX client and control-surface paths;
         # the separate real-Live checkpoint covers Apple Silicon hardware.
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
         # 3.11 included because it is the interpreter Live embeds for the
         # control surface — the one version the shipped code must run on.
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install -e ".[dev]"
-      - run: pytest
+      - run: uv sync --locked --extra dev
+      - run: uv run pytest

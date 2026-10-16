@@ -7,10 +7,12 @@ license = { text = "MIT" }
 authors = [{ name = "ekelly95" }]
 requires-python = ">=3.11"
 dependencies = [
-    "mcp>=1.29,<2",
-    # Imported directly by mcp_server (anyio.to_thread) and the anyio pytest
-    # plugin — declared, not inherited transitively through mcp.
+    "mcp>=2.3,<3",
+    # Imported directly by mcp_server (anyio.to_thread, and jsonschema for
+    # tool-argument validation, which mcp 2 no longer does) and the anyio
+    # pytest plugin — declared, not inherited transitively through mcp.
     "anyio>=4",
+    "jsonschema>=4.20",
 ]
 
 [project.urls]

@@ -40,5 +40,5 @@ async def test_stdio_startup_probes_do_not_error():
             assert init.capabilities.resources is not None
             assert init.capabilities.prompts is not None
             assert (await session.list_resources()).resources == []
-            assert (await session.list_resource_templates()).resourceTemplates == []
+            assert (await session.list_resource_templates()).resource_templates == []
             assert (await session.list_prompts()).prompts == []

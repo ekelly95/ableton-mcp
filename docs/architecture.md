@@ -183,12 +183,23 @@ target or all).
 
 ## MCP surface
 
-SDK pinned `mcp>=1.29,<2` (v2.0.0 shipped 2026-07-28 for the stateless spec;
-adoption requires a planned compatibility upgrade). The low-level `Server` API
-keeps the shared registry authoritative rather than inferring schemas from
-function signatures. Tools carry outputSchema and readOnly/destructive
-annotations. Handlers return dicts → SDK emits
-structuredContent + JSON text. Errors raise → proper isError tool results.
+SDK `mcp>=2.3,<3` (2.9.0 and earlier used 1.x). The low-level `Server`,
+with handlers passed to its constructor, keeps the shared registry
+authoritative rather than inferring schemas from function signatures. Tools
+carry an output schema and read-only/destructive annotations. One server
+answers both protocol eras: 2026-07-28 clients (no handshake, list results
+carry cache hints) and 2025-era clients that still initialize, such as Codex
+and Claude Desktop — `tests/test_stdio_launch.py` covers the latter.
+
+What mcp 2 stopped doing, and the server now does itself:
+
+- **Argument validation.** Arguments are checked against each tool's input
+  schema with `jsonschema` before dispatch. Registry commands are validated
+  again inside Live; the server-only tools have nothing else behind them.
+- **Errors the model can read.** An exception raised from a handler reaches
+  the client as a bare "Internal server error", so `call_tool` catches
+  everything and returns `is_error` results with the message ("Ableton is
+  not reachable: …", "Ableton rejected the command: …").
 
 Five tools live outside the registry because they cannot (or need not) run
 inside Live: `get_bridge_status` (server.py), `get_audio_levels`
@@ -269,10 +280,10 @@ Two metering tiers are available:
   hash, never listed as a tool. Live checks the clip's note ids still match
   the read and validates everything before writing, so a transform either
   lands whole or not at all.
-- **Compact emission.** A bare dict return makes the MCP SDK serialize the
-  payload twice, the text copy at indent=2 (measured 1.5-1.9x). _tool_result
-  in mcp_server/server.py emits compact text + the dict for output_schema
-  validation. Never return a bare dict from call_tool.
+- **Compact emission.** `_tool_result` in mcp_server/server.py sends the
+  result as compact JSON text plus the same dict as structured content. The
+  text copy is what the model reads; an indent=2 copy measured 1.5-1.9x the
+  tokens.
 - **Absent = default.** Note fields (mute/probability/velocity_deviation/
   release_velocity) and device-parameter fields (is_quantized/is_enabled/
   automation_state) at Live defaults are omitted from reads; derivable

@@ -16,7 +16,9 @@ import sys
 from typing import Any
 
 import anyio.to_thread
+import jsonschema
 import mcp.types as types
+from mcp.server.caching import CacheHint
 from mcp.server.lowlevel import Server
 
 # stderr-only logging BEFORE the control_surface import chain runs.
@@ -44,9 +46,9 @@ BRIDGE_STATUS_TOOL = types.Tool(
         "Health check for the Ableton bridge: is Live reachable, do versions and "
         "schemas match. Call when other tools fail with connection errors."
     ),
-    inputSchema={"type": "object", "properties": {}, "additionalProperties": False},
-    annotations=types.ToolAnnotations(readOnlyHint=True, destructiveHint=False),
-    outputSchema={
+    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+    annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False),
+    output_schema={
         "type": "object",
         "properties": {
             "connected": {"type": "boolean"},
@@ -77,7 +79,7 @@ TRANSFORM_CLIP_TOOL = types.Tool(
         "2000-note read limit rather than silently editing only the first "
         "2000."
     ),
-    inputSchema={
+    input_schema={
         "type": "object",
         "properties": {
             "track_index": {"type": "integer", "minimum": 0},
@@ -97,7 +99,7 @@ TRANSFORM_CLIP_TOOL = types.Tool(
         "required": ["track_index", "transforms"],
         "additionalProperties": False,
     },
-    annotations=types.ToolAnnotations(readOnlyHint=False, destructiveHint=True),
+    annotations=types.ToolAnnotations(read_only_hint=False, destructive_hint=True),
 )
 
 SEARCH_LIBRARY_TOOL = types.Tool(
@@ -111,7 +113,7 @@ SEARCH_LIBRARY_TOOL = types.Tool(
         "import_audio with its absolute path always works. Results reflect "
         "Live's last database snapshot (a staleness field says when that lags)."
     ),
-    inputSchema={
+    input_schema={
         "type": "object",
         "properties": {
             "query": {
@@ -146,8 +148,8 @@ SEARCH_LIBRARY_TOOL = types.Tool(
         },
         "additionalProperties": False,
     },
-    annotations=types.ToolAnnotations(readOnlyHint=True, destructiveHint=False),
-    outputSchema={
+    annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False),
+    output_schema={
         "type": "object",
         "properties": {
             "matches": {"type": "array", "items": {"type": "object"}},
@@ -167,7 +169,7 @@ FIND_SIMILAR_TOOL = types.Tool(
         "(name substring; best-used match wins). Only files Live has analyzed "
         "appear. Load hits like search_library hits."
     ),
-    inputSchema={
+    input_schema={
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "Absolute path of the reference file"},
@@ -176,8 +178,8 @@ FIND_SIMILAR_TOOL = types.Tool(
         },
         "additionalProperties": False,
     },
-    annotations=types.ToolAnnotations(readOnlyHint=True, destructiveHint=False),
-    outputSchema={
+    annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False),
+    output_schema={
         "type": "object",
         "properties": {
             "reference": {"type": "object"},
@@ -283,9 +285,12 @@ def registry_tools() -> list[types.Tool]:
             types.Tool(
                 name=spec["name"],
                 description=spec["description"],
-                inputSchema=spec["inputSchema"],
-                annotations=types.ToolAnnotations(**spec["annotations"]),
-                outputSchema=spec.get("outputSchema"),
+                input_schema=spec["inputSchema"],
+                annotations=types.ToolAnnotations(
+                    read_only_hint=spec["annotations"]["readOnlyHint"],
+                    destructive_hint=spec["annotations"]["destructiveHint"],
+                ),
+                output_schema=spec.get("outputSchema"),
             )
         )
     tools.append(BRIDGE_STATUS_TOOL)
@@ -341,138 +346,173 @@ def _bridge_status(client: AbletonClient, drift: _DriftCheck) -> dict:
     }
 
 
-def _tool_result(result: Any) -> tuple[list[types.TextContent], dict]:
-    """Compact text + structured dict, replacing the SDK's default emission.
+def _tool_result(result: Any) -> types.CallToolResult:
+    """Compact text + the same payload as structured content.
 
-    A bare dict return makes the SDK serialize the SAME payload twice, the text
-    copy with indent=2 — a measured 1.5-1.9x token multiplier on every result.
-    The text copy is what the model actually reads, so it must be compact; the
-    structured copy stays for output_schema validation and typed clients.
+    The text copy is what the model actually reads, so it is compact JSON (an
+    indent=2 copy measured 1.5-1.9x the tokens); the structured copy is for
+    output_schema and typed clients.
     """
     payload = result if isinstance(result, dict) else {"result": result}
     text = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
-    return [types.TextContent(type="text", text=text)], payload
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=text)], structured_content=payload
+    )
+
+
+def _tool_error(message: str) -> types.CallToolResult:
+    """An error the model gets to read. mcp 2 turns an exception raised from a
+    handler into a bare "Internal server error", so every failure the model
+    should see — Live unreachable, a refused command, bad arguments — is
+    returned this way instead."""
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=message)], is_error=True
+    )
+
+
+def _argument_validators(tools: list[types.Tool]) -> dict[str, Any]:
+    """jsonschema validators per tool. mcp 2 no longer checks arguments against
+    input_schema, and the server-only tools (transform_clip, the library
+    tools, get_audio_levels) have no Live-side validation behind them."""
+    validators = {}
+    for tool in tools:
+        cls = jsonschema.validators.validator_for(tool.input_schema)
+        validators[tool.name] = cls(tool.input_schema)
+    return validators
+
+
+def _argument_error(name: str, validator: Any, arguments: dict[str, Any]) -> str | None:
+    error = jsonschema.exceptions.best_match(validator.iter_errors(arguments))
+    if error is None:
+        return None
+    where = "/".join(str(p) for p in error.absolute_path)
+    return f"Invalid arguments for {name}{f' ({where})' if where else ''}: {error.message}"
 
 
 def build_server(client: AbletonClient | None = None, tap: TapClient | None = None) -> Server:
     ableton = client if client is not None else AbletonClient.from_env()
     tap_client = tap if tap is not None else TapClient.from_env()
     drift = _DriftCheck()
-    server = Server("ableton-mcp", version=VERSION)
+    tools = registry_tools()
+    validators = _argument_validators(tools)
 
-    @server.list_tools()
-    async def list_tools() -> list[types.Tool]:
-        return registry_tools()
+    async def list_tools(ctx, params) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=tools)
 
-    @server.call_tool()
-    async def call_tool(
-        name: str, arguments: dict[str, Any]
-    ) -> tuple[list[types.TextContent], dict]:
+    def _signature() -> tuple[int, int]:
+        transport = ableton.send("get_transport_state")
+        return (
+            int(transport.get("signature_numerator", 4)),
+            int(transport.get("signature_denominator", 4)),
+        )
+
+    def _dispatch(name: str, arguments: dict[str, Any]) -> Any:
+        """Runs in a worker thread: every path below may block on Live or disk."""
         if name == "get_bridge_status":
-            return _tool_result(await anyio.to_thread.run_sync(_bridge_status, ableton, drift))
-
+            return _bridge_status(ableton, drift)
         if name == "get_audio_levels":
-            duration = float(arguments.get("duration_seconds", 0) or 0)
-            return _tool_result(
-                await anyio.to_thread.run_sync(get_audio_levels, tap_client, duration)
-            )
-
+            return get_audio_levels(tap_client, float(arguments.get("duration_seconds", 0) or 0))
         if name == "transform_clip":
-            try:
-                return _tool_result(
-                    await anyio.to_thread.run_sync(_transform_clip, ableton, arguments)
-                )
-            except AbletonConnectionError as e:
-                raise RuntimeError(f"Ableton is not reachable: {e}") from e
-            except CommandError as e:
-                raise RuntimeError(f"Ableton rejected the command: {e}") from e
-
-        # Library tools read the database files directly — no Live, no
-        # connection errors to translate; sqlite is blocking I/O, so thread it.
+            return _transform_clip(ableton, arguments)
+        # Library tools read Live's database files directly, never Live.
         if name == "search_library":
-            return _tool_result(await anyio.to_thread.run_sync(_search_library, arguments))
-
+            return _search_library(arguments)
         if name == "find_similar":
-            return _tool_result(await anyio.to_thread.run_sync(_find_similar, arguments))
+            return _find_similar(arguments)
 
-        schema = REGISTRY.get(name)
-        if schema is None or schema.internal:
-            raise ValueError(f"Unknown tool: {name}")
+        if not drift.done:
+            drift.check(ableton.ping())
+        args = dict(arguments)
 
-        def _signature() -> tuple[int, int]:
-            transport = ableton.send("get_transport_state")
-            return (
-                int(transport.get("signature_numerator", 4)),
-                int(transport.get("signature_denominator", 4)),
-            )
+        # Notation and transforms are server-side dialects: Live only ever
+        # sees note dicts.
+        if name == "add_notes" and (args.get("notation") or args.get("transforms")):
+            warnings: list[str] = []
+            num, den = _signature()
+            if args.get("notation"):
+                if args.get("notes"):
+                    raise ValueError("Pass either 'notes' or 'notation', not both")
+                notes, warnings = parse_notation(args.pop("notation"), num, den)
+            else:
+                notes = args.get("notes") or []
+            if args.get("transforms"):
+                notes, _, transform_warnings = apply_transforms(
+                    notes, args.pop("transforms"), num, den
+                )
+                warnings = warnings + transform_warnings
+            if not notes:
+                raise ValueError(
+                    "No notes left to add after notation/transforms: "
+                    + ("; ".join(warnings) or "empty input")
+                )
+            args["notes"] = notes
+            args.pop("transforms", None)
+            result = ableton.send_resolving_seek(name, **args)
+            if warnings and isinstance(result, dict):
+                result["notation_warnings"] = warnings
+            return result
 
-        def _dispatch() -> Any:
-            if not drift.done:
-                drift.check(ableton.ping())
-            args = dict(arguments)
-
-            # Notation and transforms are server-side dialects: Live only ever
-            # sees note dicts.
-            if name == "add_notes" and (args.get("notation") or args.get("transforms")):
-                warnings: list[str] = []
+        if name == "get_notes" and args.pop("format", "json") == "compact":
+            result = ableton.send_resolving_seek(name, **args)
+            if isinstance(result, dict) and "notes" in result:
                 num, den = _signature()
-                if args.get("notation"):
-                    if args.get("notes"):
-                        raise ValueError("Pass either 'notes' or 'notation', not both")
-                    notes, warnings = parse_notation(args.pop("notation"), num, den)
-                else:
-                    notes = args.get("notes") or []
-                if args.get("transforms"):
-                    notes, _, transform_warnings = apply_transforms(
-                        notes, args.pop("transforms"), num, den
-                    )
-                    warnings = warnings + transform_warnings
-                if not notes:
-                    raise ValueError(
-                        "No notes left to add after notation/transforms: "
-                        + ("; ".join(warnings) or "empty input")
-                    )
-                args["notes"] = notes
-                args.pop("transforms", None)
-                result = ableton.send_resolving_seek(name, **args)
-                if warnings and isinstance(result, dict):
-                    result["notation_warnings"] = warnings
-                return result
+                result["notation"] = serialize_notation(result.pop("notes"), num, den)
+            return result
 
-            if name == "get_notes" and args.pop("format", "json") == "compact":
-                result = ableton.send_resolving_seek(name, **args)
-                if isinstance(result, dict) and "notes" in result:
-                    num, den = _signature()
-                    result["notation"] = serialize_notation(result.pop("notes"), num, den)
-                return result
+        # Resolves two-phase seeks so the model sees a single tool call.
+        return ableton.send_resolving_seek(name, **args)
 
-            # Resolves two-phase seeks so the model sees a single tool call.
-            return ableton.send_resolving_seek(name, **args)
-
+    async def call_tool(ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
+        name = params.name
+        arguments = params.arguments or {}
+        validator = validators.get(name)
+        if validator is None:
+            # Unlisted names, including internal registry commands, stop here.
+            return _tool_error(f"Unknown tool: {name}")
+        problem = _argument_error(name, validator, arguments)
+        if problem:
+            return _tool_error(problem)
         try:
-            result = await anyio.to_thread.run_sync(_dispatch)
+            result = await anyio.to_thread.run_sync(_dispatch, name, arguments)
         except AbletonConnectionError as e:
-            raise RuntimeError(f"Ableton is not reachable: {e}") from e
+            return _tool_error(f"Ableton is not reachable: {e}")
         except CommandError as e:
-            raise RuntimeError(f"Ableton rejected the command: {e}") from e
-
+            return _tool_error(f"Ableton rejected the command: {e}")
+        except Exception as e:
+            # ValueError/TransformError from the server-side dialects, and
+            # anything unexpected: the model still gets the message.
+            logger.exception("Tool %s failed", name)
+            return _tool_error(f"{name} failed: {e}")
         return _tool_result(result)
 
-    # This server has no resources or prompts, and initialize says so. Codex
-    # probes for them anyway and treats the correct -32601 "no such method"
-    # reply as the server failing to start (openai/codex#37468, still open in
-    # 0.147.0). Empty handlers cost nothing and keep it quiet. Do not delete
-    # these as dead code.
-    @server.list_resources()
-    async def list_resources() -> list[types.Resource]:
-        return []
+    # This server has no resources or prompts. Codex probes for them anyway
+    # and treats the correct -32601 "no such method" reply as the server
+    # failing to start (openai/codex#37468). Empty handlers cost nothing and
+    # keep it quiet. Do not delete these as dead code.
+    async def list_resources(ctx, params) -> types.ListResourcesResult:
+        return types.ListResourcesResult(resources=[])
 
-    @server.list_resource_templates()
-    async def list_resource_templates() -> list[types.ResourceTemplate]:
-        return []
+    async def list_resource_templates(ctx, params) -> types.ListResourceTemplatesResult:
+        return types.ListResourceTemplatesResult(resource_templates=[])
 
-    @server.list_prompts()
-    async def list_prompts() -> list[types.Prompt]:
-        return []
+    async def list_prompts(ctx, params) -> types.ListPromptsResult:
+        return types.ListPromptsResult(prompts=[])
 
-    return server
+    # The tool list is fixed for the life of this process (a new version means
+    # a restart), so clients on the 2026-07-28 protocol may cache the lists.
+    static = CacheHint(ttl_ms=60 * 60 * 1000)
+    return Server(
+        "ableton-mcp",
+        version=VERSION,
+        cache_hints={
+            "tools/list": static,
+            "resources/list": static,
+            "resources/templates/list": static,
+            "prompts/list": static,
+        },
+        on_list_tools=list_tools,
+        on_call_tool=call_tool,
+        on_list_resources=list_resources,
+        on_list_resource_templates=list_resource_templates,
+        on_list_prompts=list_prompts,
+    )

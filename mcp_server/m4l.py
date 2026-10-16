@@ -141,7 +141,7 @@ AUDIO_LEVELS_TOOL = types.Tool(
         "installed this returns available:false with setup instructions — a "
         "Suite/M4L-only optional extra."
     ),
-    inputSchema={
+    input_schema={
         "type": "object",
         "properties": {
             "duration_seconds": {
@@ -154,8 +154,8 @@ AUDIO_LEVELS_TOOL = types.Tool(
         },
         "additionalProperties": False,
     },
-    annotations=types.ToolAnnotations(readOnlyHint=True, destructiveHint=False),
-    outputSchema={
+    annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False),
+    output_schema={
         "type": "object",
         "properties": {
             "available": {"type": "boolean"},

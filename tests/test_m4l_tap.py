@@ -230,21 +230,21 @@ class TestGetAudioLevelsHandler:
 @pytest.mark.anyio
 class TestOverProtocol:
     async def test_tool_listed_and_graceful_absence(self):
-        from mcp.shared.memory import create_connected_server_and_client_session
+        from mcp import Client
 
         from mcp_server.server import build_server
         from tests.helpers import FakeAbletonClient
 
         server = build_server(FakeAbletonClient(), tap=TapClient(port=1))
-        async with create_connected_server_and_client_session(server) as session:
+        async with Client(server) as session:
             tools = {t.name for t in (await session.list_tools()).tools}
             assert "get_audio_levels" in tools
             result = await session.call_tool("get_audio_levels", {})
-            assert result.isError is False
-            assert result.structuredContent["available"] is False
+            assert result.is_error is False
+            assert result.structured_content["available"] is False
 
     async def test_tool_with_fake_tap(self):
-        from mcp.shared.memory import create_connected_server_and_client_session
+        from mcp import Client
 
         from mcp_server.server import build_server
         from tests.helpers import FakeAbletonClient
@@ -252,10 +252,10 @@ class TestOverProtocol:
         fake_tap = FakeTapServer()
         try:
             server = build_server(FakeAbletonClient(), tap=TapClient(port=fake_tap.port))
-            async with create_connected_server_and_client_session(server) as session:
+            async with Client(server) as session:
                 result = await session.call_tool("get_audio_levels", {})
-                assert result.structuredContent["available"] is True
-                assert result.structuredContent["rms_db"] == -18.5
+                assert result.structured_content["available"] is True
+                assert result.structured_content["rms_db"] == -18.5
         finally:
             fake_tap.close()
 
