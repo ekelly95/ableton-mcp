@@ -13,6 +13,8 @@ dependencies = [
     # pytest plugin — declared, not inherited transitively through mcp.
     "anyio>=4",
     "jsonschema>=4.20",
+    # analyze_audio: FFT spectrum, true-peak oversampling (server side only).
+    "numpy>=1.26",
 ]
 
 [project.urls]

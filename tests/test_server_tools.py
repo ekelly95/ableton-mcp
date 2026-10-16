@@ -24,8 +24,8 @@ class TestToolGeneration:
     def test_bridge_status_included(self):
         tool_names = [t.name for t in registry_tools()]
         assert "get_bridge_status" in tool_names
-        # bridge_status, audio_levels, transform_clip, search_library
-        assert len(tool_names) == len(REGISTRY.generate_mcp_tools()) + 4
+        # bridge_status, audio_levels, transform_clip, search_library, analyze_audio
+        assert len(tool_names) == len(REGISTRY.generate_mcp_tools()) + 5
 
     def test_library_tools_are_read_only(self):
         tools = {t.name: t for t in registry_tools()}
@@ -82,7 +82,7 @@ class TestEndToEnd:
         async with await self._session(FakeAbletonClient()) as session:
             result = await session.list_tools()
             names = [t.name for t in result.tools]
-            assert len(names) == len(set(names)) == 46
+            assert len(names) == len(set(names)) == 47
 
     async def test_optional_capability_probes_answer_instead_of_erroring(self):
         """Codex asks every server for resources, resource templates and prompts

@@ -28,6 +28,7 @@ logger = logging.getLogger("ableton-mcp")
 from control_surface.commands import REGISTRY  # noqa: E402 - after logging setup
 from control_surface.config import VERSION  # noqa: E402
 
+from .audio_analysis import analyze_file as _analyze_audio  # noqa: E402
 from .client import (  # noqa: E402
     NOT_RUNNING_HINT,
     AbletonClient,
@@ -170,6 +171,40 @@ SEARCH_LIBRARY_TOOL = types.Tool(
     },
 )
 
+ANALYZE_AUDIO_TOOL = types.Tool(
+    name="analyze_audio",
+    description=(
+        "Measure an audio file like a mastering engineer's meters: integrated "
+        "loudness (LUFS) and loudness range, true peak (dBTP), RMS, crest factor, "
+        "an octave-band spectrum (dB vs the loudest band), and stereo "
+        "correlation/width. WAV or AIFF — a bounce, an export, a sample. "
+        "Streaming targets: about -14 LUFS, true peak under -1 dBTP."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "file_path": {"type": "string", "description": "Absolute path"},
+            "start_seconds": {"type": "number", "minimum": 0},
+            "seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Analyze only this much from start_seconds",
+            },
+        },
+        "required": ["file_path"],
+        "additionalProperties": False,
+    },
+    annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False),
+    output_schema={
+        "type": "object",
+        "properties": {
+            "integrated_lufs": {"type": ["number", "null"]},
+            "true_peak_dbtp": {"type": ["number", "null"]},
+            "spectrum_db": {"type": "object"},
+        },
+    },
+)
+
 # Fields transform statements may change; the write-back diff compares these.
 _TRANSFORM_FIELDS = (
     "pitch",
@@ -277,6 +312,7 @@ def registry_tools() -> list[types.Tool]:
     # Library intelligence reads Live's database files, never Live itself —
     # also outside the registry hash.
     tools.append(SEARCH_LIBRARY_TOOL)
+    tools.append(ANALYZE_AUDIO_TOOL)  # reads files, never Live
     return tools
 
 
@@ -394,6 +430,8 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
         # Library tools read Live's database files directly, never Live.
         if name == "search_library":
             return _search_library(arguments)
+        if name == "analyze_audio":
+            return _analyze_audio(arguments)
 
         if not drift.done:
             drift.check(ableton.ping())
