@@ -12,7 +12,7 @@ from typing import Any
 
 from ..errors import ValidationError, batch_writer
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
-from ..utils.display_values import native_for_choice, native_for_display
+from ..utils.display_values import choices, native_for_choice, native_for_display
 from ..utils.live_helpers import (
     get_device,
     resolve_device_host,
@@ -445,10 +445,10 @@ def set_device_parameters(
             # A choice label ("Lowpass") or display text ("-6 dB", "+5 st").
             native = native_for_choice(param, raw_value)
             if native is None:
-                if getattr(param, "is_quantized", False) and getattr(param, "value_items", None):
+                labels = choices(param)
+                if labels:
                     raise LiveAPIError(
-                        f"'{param.name}' has no choice {raw_value!r}. Choices: "
-                        f"{list(param.value_items)}"
+                        f"'{param.name}' has no choice {raw_value!r}. Choices: {labels}"
                     )
                 native = native_for_display(param, raw_value)
             value = normalize_parameter(param, native)

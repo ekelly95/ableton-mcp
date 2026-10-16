@@ -111,11 +111,26 @@ def native_for_display(param: Any, text: str) -> float:
     return min(candidates, key=lambda v: abs(_shown(param, v)[0] - goal))
 
 
+def _label_key(text: str) -> str:
+    # Live's labels are "Low-pass", "High-pass": match "highpass" / "High pass".
+    return re.sub(r"[^a-z0-9+]", "", text.lower())
+
+
+def choices(param: Any) -> list[str]:
+    """A parameter's value_items, or [] for a continuous one. On Live 12.4.6
+    reading value_items on a non-quantized parameter RAISES ("Only quantized
+    parameters have value items"), so check is_quantized first."""
+    if not getattr(param, "is_quantized", False):
+        return []
+    return list(param.value_items or [])
+
+
 def native_for_choice(param: Any, label: str) -> float | None:
     """A quantized parameter's native value for one of its value_items
-    labels (case-insensitive), or None if it has no such label."""
-    items = list(getattr(param, "value_items", []) or [])
-    lowered = [item.lower() for item in items]
-    if label.strip().lower() in lowered:
-        return param.min + lowered.index(label.strip().lower())
+    labels (case, spaces and hyphens ignored), or None if it has no such
+    label."""
+    keys = [_label_key(item) for item in choices(param)]
+    wanted = _label_key(label)
+    if wanted and wanted in keys:
+        return param.min + keys.index(wanted)
     return None

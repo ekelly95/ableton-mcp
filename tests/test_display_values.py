@@ -45,7 +45,7 @@ def device(song):
             min=0,
             max=2,
             is_quantized=True,
-            value_items=["Lowpass", "Highpass", "Bandpass"],
+            value_items=["Low-pass", "High-pass", "Band-pass"],
         ),
     ]
     song.tracks[0].devices.append(dev)
@@ -111,11 +111,13 @@ def test_pan(registry, ctx, device):
 
 
 def test_choice_label(registry, ctx, device):
-    assert _set(registry, ctx, Filter_Type="highpass") == {"Filter Type": "Highpass"}
+    # Live writes "High-pass"; spelling it without the hyphen still matches.
+    assert _set(registry, ctx, Filter_Type="highpass") == {"Filter Type": "High-pass"}
+    assert _set(registry, ctx, Filter_Type="Band Pass") == {"Filter Type": "Band-pass"}
 
 
 def test_unknown_choice_lists_the_choices(registry, ctx, device):
-    with pytest.raises(LiveAPIError, match="Choices: \\['Lowpass', 'Highpass', 'Bandpass'\\]"):
+    with pytest.raises(LiveAPIError, match="Choices: \\['Low-pass', 'High-pass', 'Band-pass'\\]"):
         _set(registry, ctx, Filter_Type="Notch")
 
 

@@ -99,7 +99,15 @@ class MockParameter:
         if value_items is None and is_quantized:
             value_items = ["Off", "On"]
         # LOM: human-readable choices, quantized parameters only.
-        self.value_items = list(value_items or [])
+        self._value_items = list(value_items or [])
+
+    @property
+    def value_items(self) -> list[str]:
+        # CONFIRMED (Live 12.4.6): reading this on a continuous parameter
+        # raises rather than returning an empty list.
+        if not self.is_quantized:
+            raise RuntimeError("Only quantized parameters have value items")
+        return self._value_items
 
     @property
     def value(self) -> float:
@@ -122,8 +130,8 @@ class MockParameter:
     def str_for_value(self, value: float) -> str:
         if self._display is not None:
             return self._display(value)
-        if self.value_items:
-            return self.value_items[int(round(value - self.min))]
+        if self.is_quantized and self._value_items:
+            return self._value_items[int(round(value - self.min))]
         return f"{value:.2f}"
 
     def __str__(self) -> str:
