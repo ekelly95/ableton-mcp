@@ -118,6 +118,16 @@ def create_clip(ctx, track_index: int, slot_index: int, length_beats: float) -> 
 def duplicate_clip(ctx, track_index: int, slot_index: int) -> dict[str, Any]:
     track = get_track(ctx.song, track_index)
     get_clip(track, slot_index)
+    # Live's duplicate_clip_slot always writes to the NEXT slot and replaces
+    # whatever is there (confirmed on 12.4.6: the clip in slot+1 was gone).
+    slots = list(track.clip_slots)
+    if slot_index + 1 < len(slots) and slots[slot_index + 1].has_clip:
+        raise LiveAPIError(
+            f"Slot {slot_index + 1} already holds "
+            f"{repr(slots[slot_index + 1].clip.name) if slots[slot_index + 1].clip.name else 'a clip'}, and "
+            f"Live would overwrite it. Move or delete that clip first, or duplicate a clip "
+            f"whose next slot is empty."
+        )
     try:
         track.duplicate_clip_slot(slot_index)
     except RuntimeError as e:

@@ -120,7 +120,7 @@ class TestClips:
 
     def test_duplicate_clip_next_occupied(self, registry, ctx, with_clip):
         run_command(registry, ctx, "create_clip", track_index=0, slot_index=1, length_beats=4.0)
-        with pytest.raises(LiveAPIError, match="occupied"):
+        with pytest.raises(LiveAPIError, match="would overwrite"):
             run_command(registry, ctx, "duplicate_clip", track_index=0, slot_index=0)
 
     def test_delete_clip(self, registry, ctx, song, with_clip):
@@ -152,6 +152,22 @@ class TestClips:
     def test_overview_track_index_out_of_range(self, registry, ctx):
         with pytest.raises(LiveAPIError, match="out of range"):
             run_command(registry, ctx, "get_session_overview", track_index=9)
+
+
+class TestDuplicateClip:
+    def test_refuses_to_overwrite_the_next_slot(self, registry, ctx, song):
+        # Live 12.4.6 overwrites slot+1 without a word; the command must not.
+        run_command(registry, ctx, "create_clip", track_index=0, slot_index=0, length_beats=4.0)
+        run_command(registry, ctx, "create_clip", track_index=0, slot_index=1, length_beats=2.0)
+        song.tracks[0].clip_slots[1].clip.name = "Keep me"
+        with pytest.raises(LiveAPIError, match="already holds 'Keep me'"):
+            run_command(registry, ctx, "duplicate_clip", track_index=0, slot_index=0)
+        assert song.tracks[0].clip_slots[1].clip.name == "Keep me"
+
+    def test_duplicates_into_an_empty_next_slot(self, registry, ctx, song):
+        run_command(registry, ctx, "create_clip", track_index=0, slot_index=0, length_beats=4.0)
+        result = run_command(registry, ctx, "duplicate_clip", track_index=0, slot_index=0)
+        assert result["new_slot"] == 1 and song.tracks[0].clip_slots[1].has_clip
 
 
 class TestScenes:

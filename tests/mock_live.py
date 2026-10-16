@@ -793,7 +793,9 @@ class MockTrack(MockDeviceChainHost):
             raise RuntimeError("Clip not on this track's arrangement")
 
     def duplicate_clip_slot(self, slot_index: int) -> None:
-        """VERIFY: assumed to copy the clip into the NEXT slot, failing if occupied."""
+        """Copies the clip into the NEXT slot. CONFIRMED on Live 12.4.6: an
+        occupied next slot is silently OVERWRITTEN (the earlier assumption
+        that it fails was wrong — the command now refuses first)."""
         source = self.clip_slots[slot_index]
         if not source.has_clip:
             raise RuntimeError("No clip to duplicate")
@@ -802,7 +804,7 @@ class MockTrack(MockDeviceChainHost):
             raise RuntimeError("No next slot")
         target = self.clip_slots[target_index]
         if target.has_clip:
-            raise RuntimeError("Next slot is occupied")
+            target.delete_clip()
         source_clip = source.clip
         target.create_clip(source_clip.length)
         clone = target.clip
