@@ -157,6 +157,23 @@ the mock now models the Live behaviour behind each one.
   server at a Live on another machine, e.g. a VM through an SSH tunnel. Live
   itself still listens on loopback only.
 
+### 2.10.0 — mcp 2 SDK
+
+The server moves from mcp 1.x to mcp 2.3. The tools and their schemas are
+unchanged; reinstall the package and the control surface, and restart Live.
+
+- One server answers both protocol eras: 2026-07-28 clients and 2025-era
+  clients that still initialize (Codex, Claude Desktop). Both verified over
+  stdio against Live 12.4.6.
+- Tool arguments are validated against their input schemas before dispatch —
+  mcp 2 no longer does this, and the server-only tools have nothing else
+  behind them.
+- Errors still reach the model as readable `is_error` results ("Ableton
+  rejected the command: …"); mcp 2 would otherwise reduce any raised error to
+  "Internal server error".
+- List results carry cache hints, since the tool list is fixed per process.
+- CI installs from `uv.lock` and adds Linux and Python 3.13.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained
