@@ -38,7 +38,6 @@ def recording(tmp_path, monkeypatch):
 def test_capture_records_analyzes_and_cleans_up(client, song, recording):
     tracks_before = len(song.tracks)
     result = _capture_audio(client, {"length_beats": 8}, sleep=lambda s: None)
-    assert result["file_path"] == recording
     assert result["length_beats"] == 8
     assert result["analysis"]["integrated_lufs"] == pytest.approx(-23.0, abs=0.1)
     assert len(song.tracks) == tracks_before  # the temporary track is gone
@@ -99,3 +98,16 @@ def test_capture_steps_are_not_mcp_tools():
         "capture_finish",
         "capture_cleanup",
     }
+
+
+def test_recording_is_deleted_after_analysis_unless_kept(client, song, recording):
+    import os
+
+    with open(recording + ".asd", "wb") as f:
+        f.write(b"live analysis sidecar")
+    kept = _capture_audio(client, {"length_beats": 4, "keep_recording": True}, sleep=lambda s: None)
+    assert kept["file_path"] == recording and os.path.exists(recording)
+    gone = _capture_audio(client, {"length_beats": 4}, sleep=lambda s: None)
+    assert "file_path" not in gone
+    assert gone["analysis"]["integrated_lufs"] is not None
+    assert not os.path.exists(recording) and not os.path.exists(recording + ".asd")

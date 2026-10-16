@@ -214,8 +214,8 @@ CAPTURE_AUDIO_TOOL = types.Tool(
         "and analyze it like analyze_audio — the way to check a mix's loudness, "
         "peaks and balance by measurement. Plays the set audibly from start_beats "
         "(or the current position); the transport must be stopped. Uses a "
-        "temporary track that is removed afterwards; the recording's file_path "
-        "is returned."
+        "temporary track that is removed afterwards. The recording is deleted "
+        "after analysis unless keep_recording."
     ),
     input_schema={
         "type": "object",
@@ -223,6 +223,11 @@ CAPTURE_AUDIO_TOOL = types.Tool(
             "length_beats": {"type": "number", "minimum": 1, "maximum": 128, "default": 16},
             "start_beats": {"type": "number", "minimum": 0},
             "analyze": {"type": "boolean", "default": True},
+            "keep_recording": {
+                "type": "boolean",
+                "default": False,
+                "description": "Keep the WAV in the set's Samples/Recorded folder",
+            },
         },
         "additionalProperties": False,
     },
@@ -360,15 +365,26 @@ def _capture_audio(ableton: AbletonClient, arguments: dict[str, Any], sleep=time
             logger.warning("capture cleanup failed: %s", e)
 
     path = finished["file_path"]
-    result: dict[str, Any] = {"file_path": path, "length_beats": finished["length_beats"]}
+    result: dict[str, Any] = {"length_beats": finished["length_beats"]}
+    local = bool(path) and _wait_for_file(path)
     if arguments.get("analyze", True):
-        if path and _wait_for_file(path):
+        if local:
             result["analysis"] = _analyze_audio({"file_path": path})
         else:
             result["note"] = (
                 "Recorded, but the file isn't readable from the MCP server's machine — "
                 "run analyze_audio where Live is."
             )
+    if arguments.get("keep_recording") or not local:
+        result["file_path"] = path
+    else:
+        # Measuring a mix shouldn't leave files in the user's project. Live's
+        # .asd analysis sidecar goes too.
+        for leftover in (path, path + ".asd"):
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass
     return result
 
 

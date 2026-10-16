@@ -272,6 +272,13 @@ Live 12.4.6.
   scenes. Nothing is changed; the model re-reads and retries. Its own writes
   never trip it, a tweaked knob doesn't count, and tempo/transport/locator
   writes aren't checked. Automatic and wire-level: no new tool parameters.
+  Verified on Live 12.4.6 with two clients: an insert at the top shifted the
+  model's track 0, the write was refused, and the retry after a re-read hit
+  the right track; an undo that would have reverted the other client's
+  delete was refused.
+- `capture_audio` deletes its recording (and Live's .asd sidecar) after
+  analysis unless `keep_recording` — measuring a mix no longer leaves files
+  in the project.
 
 ## Remaining work
 
