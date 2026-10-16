@@ -1,5 +1,7 @@
 """Set a parameter from the text Live displays for it: '-6 dB', '+5 st',
-'800 Hz', '1.2 kHz', '250 ms', '50 %', '30L' / 'C' for pan, '-inf dB'.
+'800 Hz', '1.2 kHz', '250 ms', '50 %', '30L' / 'C' for pan, '-inf dB',
+'4 : 1'. Formats confirmed against Live 12.4.6's Auto Filter, Utility,
+Compressor and Reverb.
 
 Live has no "set from string" call, but DeviceParameter.str_for_value(v)
 renders any native value as Live would display it. Displays are monotonic in
@@ -30,15 +32,21 @@ _UNITS = {
 }
 _NUMBER = re.compile(r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+|inf))\s*([a-z%°]*)\s*$", re.IGNORECASE)
 _PAN = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([LR])\s*$", re.IGNORECASE)
+# Compressor-style ratios: Live shows "4.00 : 1" and "inf : 1".
+_RATIO = re.compile(r"^\s*(\d+(?:\.\d*)?|inf)\s*:\s*1\s*$", re.IGNORECASE)
 _SEARCH_STEPS = 48
 
 
 def parse_display(text: str) -> tuple[float, str] | None:
     """(number in base units, base unit), or None if the text isn't a number
-    with a known unit. Pan reads '30L' as -30, 'C' as 0."""
+    with a known unit. Pan reads '30L' as -30, 'C' as 0; ratios '4 : 1'."""
     stripped = text.strip()
     if stripped.upper() == "C":
         return 0.0, "pan"
+    ratio = _RATIO.match(stripped)
+    if ratio:
+        amount = ratio.group(1).lower()
+        return (math.inf if amount == "inf" else float(amount)), "ratio"
     pan = _PAN.match(stripped)
     if pan:
         amount = float(pan.group(1))

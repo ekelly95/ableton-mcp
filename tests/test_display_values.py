@@ -26,6 +26,10 @@ def _pan(v):
     return "C" if amount == 0 else f"{amount}{'L' if v < 0 else 'R'}"
 
 
+def _ratio(v):  # Live's Compressor: "1.00 : 1" .. "inf : 1"
+    return "inf : 1" if v >= 1 else f"{1 / (1 - v):.2f} : 1"
+
+
 def _st(v):
     n = int(round(v))
     return "0 st" if n == 0 else f"{n:+d} st"
@@ -39,6 +43,7 @@ def device(song):
         MockParameter("Filter Freq", value=1.0, min=0.0, max=1.0, display=_hz),
         MockParameter("Volume", value=0.5, min=0.0, max=1.0, display=_db),
         MockParameter("Pan", value=0.0, min=-1.0, max=1.0, display=_pan),
+        MockParameter("Ratio", value=0.0, min=0.0, max=1.0, display=_ratio),
         MockParameter(
             "Filter Type",
             value=0,
@@ -77,6 +82,9 @@ def _set(registry, ctx, **values):
         ("C", (0.0, "pan")),
         ("-inf dB", (-math.inf, "db")),
         ("19", (19.0, "")),
+        ("4.00 : 1", (4.0, "ratio")),
+        ("4:1", (4.0, "ratio")),
+        ("inf : 1", (math.inf, "ratio")),
         ("loud", None),
         ("5 parsecs", None),
     ],
@@ -133,3 +141,9 @@ def test_wrong_unit_names_the_shown_units(registry, ctx, device):
 
 def test_numbers_still_mean_normalized(registry, ctx, device):
     assert _set(registry, ctx, Transpose=0.5) == {"Transpose": "0 st"}
+
+
+def test_compressor_ratio(registry, ctx, device):
+    assert _set(registry, ctx, Ratio="4") == {"Ratio": "4.00 : 1"}
+    assert _set(registry, ctx, Ratio="2:1") == {"Ratio": "2.00 : 1"}
+    assert _set(registry, ctx, Ratio="inf : 1") == {"Ratio": "inf : 1"}

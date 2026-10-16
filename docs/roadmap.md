@@ -213,6 +213,19 @@ Live 12.4.6.
   insert/delete inside a pad; Transpose on the kick's Simpler two racks deep.
 - Not yet: loading a sample onto a pad. 45 tools.
 
+### 2.14.0 — Parameters by display value
+
+- `set_device_parameters` accepts the text Live displays ("-6 dB", "+5 st",
+  "800 Hz", "2.5 kHz", "250 ms", "50 %", "30L", "4 : 1", "-inf dB") and choice
+  labels ("High-pass"), alongside 0-1. Live has no set-from-string call, so
+  the bridge bisects the parameter's range with `str_for_value` until the
+  display matches — the same for linear and curved parameters.
+- Verified on Live 12.4.6 across Auto Filter, Utility, Compressor and Reverb.
+  Live quirks the mock now mirrors: `value_items` raises on continuous
+  parameters; labels are hyphenated; ratios read "4.00 : 1".
+- Seeking past the song's end now says so (and gives the song's length)
+  instead of Live's "Cannot set the Songtime behind the Songlength".
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained

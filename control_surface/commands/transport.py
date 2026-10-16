@@ -5,6 +5,7 @@ from typing import Any
 from ..config import SEEK_EPSILON
 from ..errors import batch_writer
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
+from ..utils.live_helpers import seek
 from ..utils.pitch import SHARP_NAMES, root_name_to_pitch_class
 
 
@@ -98,14 +99,14 @@ def transport_control(ctx, action: str, position: float | None = None) -> dict[s
             # write follows, so no second phase. Deliberately no re-call of
             # start_playing (restart semantics on a playing transport are
             # unverified).
-            song.current_song_time = position
+            seek(song, position)
             state = _transport_state(song)
             state["requested_position"] = position
             state["note"] = "Seek issued while playing; it lands on the next timer tick."
             return state
         if action == "stop":
             song.stop_playing()
-        song.current_song_time = position
+        seek(song, position)
         return {
             "phase": "seeking",
             "note": (

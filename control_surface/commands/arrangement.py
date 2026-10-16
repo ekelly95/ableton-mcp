@@ -22,6 +22,7 @@ from ..utils.live_helpers import (
     get_clip_slot,
     get_take_lane,
     get_track,
+    seek,
 )
 
 # Exact-match tolerance for confirming/guarding clip and cue positions.
@@ -537,7 +538,7 @@ def create_locator(ctx, time: float, name: str | None = None) -> dict[str, Any]:
     # call, and phase 2 (playhead now parked at the target) drops the cue.
     # The MCP server and the checkpoint loop on "seeking" transparently.
     if abs(song.current_song_time - time) > SEEK_EPSILON:
-        song.current_song_time = time
+        seek(song, time)
         return {
             "phase": "seeking",
             "note": "Playhead seek issued; call create_locator again to place the cue.",

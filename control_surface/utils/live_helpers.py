@@ -36,6 +36,23 @@ def resolve_track(song: Any, track_type: str, track_index: Any) -> Any:
     return get_track(song, track_index)
 
 
+def seek(song: Any, position: float) -> None:
+    """Move the playhead. Past some point beyond the song's end Live refuses
+    with a bare "Cannot set the Songtime behind the Songlength" (12.4.6: beat
+    12 in an empty set was fine, 300 was not) — the exact limit isn't exposed,
+    so translate Live's refusal rather than guess it up front."""
+    try:
+        song.current_song_time = position
+    except Exception as e:
+        if "Songlength" not in str(e):
+            raise
+        raise LiveAPIError(
+            f"Position {position} is past the end of the song (about "
+            f"{song.song_length:g} beats long). Place a clip further out first, "
+            f"or pick an earlier position."
+        ) from e
+
+
 def get_scene(song: Any, scene_index: int) -> Any:
     scenes = list(song.scenes)
     if not 0 <= scene_index < len(scenes):

@@ -860,6 +860,9 @@ class MockSong:
         self.back_to_arranger = False
         self.arrangement_overdub = False
         self.last_play_call: str | None = None
+        # Live refuses seeks too far past the song's end; its exact limit isn't
+        # exposed (beat 12 OK in an empty set on 12.4.6, 300 refused).
+        self.max_seek = 1_000_000.0
         self.scenes: list[MockScene] = [MockScene(f"Scene {i + 1}") for i in range(scene_count)]
         self.tracks: list[MockTrack] = [
             MockTrack(name=f"{i + 1} Track", slot_count=scene_count, send_count=return_count)
@@ -926,6 +929,8 @@ class MockSong:
         # seek landed at the OLD playhead). The mock defers identically:
         # MockControlSurface.schedule_message applies the pending seek at the
         # next task boundary, so handlers reading it back in-task see stale.
+        if value > self.max_seek:
+            raise RuntimeError("Cannot set the Songtime behind the Songlength")
         self._pending_song_time = float(value)
 
     def _apply_pending_song_time(self) -> None:

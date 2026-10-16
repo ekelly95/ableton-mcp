@@ -115,3 +115,10 @@ def test_invalid_scale_root_rejected_before_any_write(registry, ctx, song):
     with pytest.raises(ValidationError):
         run_command(registry, ctx, "set_transport", tempo=140.0, scale_root="H")
     assert song.tempo == 120.0
+
+
+def test_seek_past_song_end_is_explained(registry, ctx, song):
+    # Live 12.4.6 raises "Cannot set the Songtime behind the Songlength".
+    song.max_seek = 100.0
+    with pytest.raises(LiveAPIError, match="past the end of the song"):
+        run_command(registry, ctx, "transport_control", action="play", position=300.0)

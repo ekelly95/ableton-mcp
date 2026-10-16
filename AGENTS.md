@@ -108,6 +108,19 @@ verified against real Live. Deeper design rationale and Live API facts:
   sends (flags bring them back); device/note fields at their defaults are
   simply absent — absent = default, never "unknown".
 
+## Setting parameters by what Live shows (2.14, verified on real Live 12.4.6)
+
+- `set_device_parameters` values can be the text Live displays instead of
+  0-1: `"-6 dB"`, `"+5 st"`, `"800 Hz"`, `"2.5 kHz"`, `"10 ms"`, `"2.5 s"`,
+  `"50 %"`, `"30L"` / `"C"` (pan), `"4 : 1"` (ratio), `"-inf dB"`. A bare
+  number means "in the unit Live shows". Choice parameters take their label
+  ("High-pass"; case, spaces and hyphens don't matter).
+- Prefer this over 0-1 whenever you know the musical value — 0-1 positions
+  are rarely linear (frequency is log-scaled, gain is a dB curve). The reply's
+  `display_value` is what Live ended up showing.
+- Errors name the parameter's real range or units; read them rather than
+  retrying with guesses.
+
 ## Drum Racks and other racks (2.13, verified on real Live 12.4.6)
 
 - `get_devices` on a track lists what's inside each rack: a Drum Rack's
