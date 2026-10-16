@@ -318,13 +318,22 @@ class MockClip:
         ]
 
 
+class MockRoutingType:
+    def __init__(self, display_name: str):
+        self.display_name = display_name
+
+
 class MockClipSlot:
+    # File a capture "records" into; tests point it at a real WAV.
+    capture_file: str | None = None
+
     def __init__(self, track: "MockTrack"):
         self._track = track
         self.has_clip = False
         self.clip: MockClip | None = None
         self.is_playing = False
         self.is_triggered = False
+        self.is_recording = False
 
     def create_clip(self, length: float) -> None:
         if self.has_clip:
@@ -350,10 +359,21 @@ class MockClipSlot:
         self.clip = None
         self.has_clip = False
 
-    def fire(self) -> None:
+    def fire(self, record_length: float | None = None, launch_quantization: int | None = None):
+        """CONFIRMED signature (Live 12.4.6): fire([record_length
+        [, launch_quantization]]). An empty slot on an armed track records;
+        the mock finishes the recording instantly into capture_file."""
         if self.has_clip:
             self.is_triggered = True
             self.clip.is_playing = True
+            return
+        if getattr(self._track, "arm", False) and record_length is not None:
+            clip = MockClip(length=record_length, is_midi_clip=False)
+            clip.file_path = self.capture_file
+            self.clip, self.has_clip = clip, True
+            song = getattr(self._track, "_song", None)
+            if song is not None:
+                song.is_playing = True
 
     def stop(self) -> None:
         self.is_triggered = False
@@ -1038,13 +1058,27 @@ class MockSong:
         for track in self.tracks:
             track.stop_all_clips()
 
+    def _insert_track(self, index: int, track: "MockTrack") -> None:
+        # LOM: index -1 appends at the end (list.insert(-1) would not).
+        if index == -1 or index >= len(self.tracks):
+            self.tracks.append(track)
+        else:
+            self.tracks.insert(index, track)
+
     def create_midi_track(self, index: int) -> None:
-        self.tracks.insert(index, MockTrack(name="MIDI", slot_count=len(self.scenes)))
+        self._insert_track(index, MockTrack(name="MIDI", slot_count=len(self.scenes)))
 
     def create_audio_track(self, index: int) -> None:
-        self.tracks.insert(
-            index, MockTrack(name="Audio", has_midi_input=False, slot_count=len(self.scenes))
-        )
+        track = MockTrack(name="Audio", has_midi_input=False, slot_count=len(self.scenes))
+        # CONFIRMED (Live 12.4.6): a new audio track's input choices include
+        # "Resampling" (Live's own output); its monitoring reads 2 (Off).
+        track.available_input_routing_types = [
+            MockRoutingType(n) for n in ("Ext. In", "Resampling", "Main", "No Input")
+        ]
+        track.input_routing_type = track.available_input_routing_types[0]
+        track.current_monitoring_state = 2
+        track._song = self
+        self._insert_track(index, track)
 
     def create_return_track(self) -> None:
         """VERIFY #6: takes no index; appends."""

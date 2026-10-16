@@ -12,7 +12,9 @@ All logging goes to stderr: stdout belongs to the MCP stdio transport.
 
 import json
 import logging
+import os
 import sys
+import time
 from typing import Any
 
 import anyio.to_thread
@@ -205,6 +207,28 @@ ANALYZE_AUDIO_TOOL = types.Tool(
     },
 )
 
+CAPTURE_AUDIO_TOOL = types.Tool(
+    name="capture_audio",
+    description=(
+        "Record what Live is playing (its master output) for a number of beats "
+        "and analyze it like analyze_audio — the way to check a mix's loudness, "
+        "peaks and balance by measurement. Plays the set audibly from start_beats "
+        "(or the current position); the transport must be stopped. Uses a "
+        "temporary track that is removed afterwards; the recording's file_path "
+        "is returned."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "length_beats": {"type": "number", "minimum": 1, "maximum": 128, "default": 16},
+            "start_beats": {"type": "number", "minimum": 0},
+            "analyze": {"type": "boolean", "default": True},
+        },
+        "additionalProperties": False,
+    },
+    annotations=types.ToolAnnotations(read_only_hint=False, destructive_hint=False),
+)
+
 # Fields transform statements may change; the write-back diff compares these.
 _TRANSFORM_FIELDS = (
     "pitch",
@@ -291,6 +315,63 @@ def _transform_clip(ableton: AbletonClient, arguments: dict[str, Any]) -> dict:
     return result
 
 
+def _wait_for_file(path: str, timeout: float = 5.0) -> bool:
+    """Live finalizes the recording just after it stops; wait until the file
+    exists and its size has settled."""
+    deadline = time.monotonic() + timeout
+    last = -1
+    while time.monotonic() < deadline:
+        size = os.path.getsize(path) if os.path.isfile(path) else -1
+        if size > 0 and size == last:
+            return True
+        last = size
+        time.sleep(0.25)
+    return os.path.isfile(path)
+
+
+def _capture_audio(ableton: AbletonClient, arguments: dict[str, Any], sleep=time.sleep) -> dict:
+    """capture_prepare -> arm -> (seek) -> record -> wait -> finish -> cleanup,
+    each its own command (see control_surface/commands/capture.py)."""
+    length = float(arguments.get("length_beats", 16))
+    track_index = ableton.send("capture_prepare")["track_index"]
+    try:
+        ableton.send("capture_arm", track_index=track_index)
+        if arguments.get("start_beats") is not None:
+            ableton.send_resolving_seek(
+                "transport_control", action="stop", position=float(arguments["start_beats"])
+            )
+        tempo = ableton.send("capture_record", track_index=track_index, length_beats=length)[
+            "tempo"
+        ]
+        sleep(length * 60.0 / tempo)
+        deadline = time.monotonic() + 15.0
+        while True:  # the transport's start latency is Live's to decide
+            status = ableton.send("capture_status", track_index=track_index)
+            if status["has_clip"] and not status["recording"]:
+                break
+            if time.monotonic() > deadline:
+                raise RuntimeError("The capture didn't finish recording within 15 s of its length")
+            sleep(0.25)
+        finished = ableton.send("capture_finish", track_index=track_index)
+    finally:
+        try:
+            ableton.send("capture_cleanup", track_index=track_index)
+        except Exception as e:  # never hide the original error behind this one
+            logger.warning("capture cleanup failed: %s", e)
+
+    path = finished["file_path"]
+    result: dict[str, Any] = {"file_path": path, "length_beats": finished["length_beats"]}
+    if arguments.get("analyze", True):
+        if path and _wait_for_file(path):
+            result["analysis"] = _analyze_audio({"file_path": path})
+        else:
+            result["note"] = (
+                "Recorded, but the file isn't readable from the MCP server's machine — "
+                "run analyze_audio where Live is."
+            )
+    return result
+
+
 def registry_tools() -> list[types.Tool]:
     tools = []
     for spec in REGISTRY.generate_mcp_tools():
@@ -313,6 +394,7 @@ def registry_tools() -> list[types.Tool]:
     # also outside the registry hash.
     tools.append(SEARCH_LIBRARY_TOOL)
     tools.append(ANALYZE_AUDIO_TOOL)  # reads files, never Live
+    tools.append(CAPTURE_AUDIO_TOOL)  # server-side composite over capture_* commands
     return tools
 
 
@@ -432,6 +514,8 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
             return _search_library(arguments)
         if name == "analyze_audio":
             return _analyze_audio(arguments)
+        if name == "capture_audio":
+            return _capture_audio(ableton, arguments)
 
         if not drift.done:
             drift.check(ableton.ping())
