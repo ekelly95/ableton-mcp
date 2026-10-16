@@ -82,7 +82,7 @@ class TestEndToEnd:
         async with await self._session(FakeAbletonClient()) as session:
             result = await session.list_tools()
             names = [t.name for t in result.tools]
-            assert len(names) == len(set(names)) == 43
+            assert len(names) == len(set(names)) == 44
 
     async def test_optional_capability_probes_answer_instead_of_erroring(self):
         """Codex asks every server for resources, resource templates and prompts

@@ -808,6 +808,40 @@ class MockSong:
             delattr(self.master_track, missing_attr)
         self.view = MockSongView()
         self.cue_points: list[MockCuePoint] = []
+        # Undo history, counted not replayed: tests check grouping and the
+        # undo tool's bookkeeping, not that each write reverses itself.
+        self.undo_step_log: list[str] = []
+        self._undo_depth = 0
+        self._undoable = 0
+        self._redoable = 0
+
+    def begin_undo_step(self) -> None:
+        self._undo_depth += 1
+        self.undo_step_log.append("begin")
+
+    def end_undo_step(self) -> None:
+        assert self._undo_depth > 0, "end_undo_step without begin_undo_step"
+        self._undo_depth -= 1
+        self.undo_step_log.append("end")
+        if self._undo_depth == 0:
+            self._undoable += 1
+            self._redoable = 0
+
+    @property
+    def can_undo(self) -> bool:
+        return self._undoable > 0
+
+    @property
+    def can_redo(self) -> bool:
+        return self._redoable > 0
+
+    def undo(self) -> None:
+        self._undoable -= 1
+        self._redoable += 1
+
+    def redo(self) -> None:
+        self._redoable -= 1
+        self._undoable += 1
 
     @property
     def current_song_time(self) -> float:

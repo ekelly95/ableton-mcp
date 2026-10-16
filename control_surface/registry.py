@@ -338,6 +338,9 @@ class CommandSchema:
     # Internal commands are part of the wire protocol (and the drift hash) but
     # are never listed as MCP tools — e.g. a composite tool's write-back.
     internal: bool = False
+    # Writes run inside one Live undo step, so one call is one Ctrl+Z. Off only
+    # for commands that walk the undo history themselves.
+    undo_step: bool = True
 
     def validate_params(self, params: dict[str, Any] | None) -> dict[str, Any]:
         if params is None:
@@ -400,6 +403,7 @@ class CommandRegistry:
         destructive: bool = False,
         output_schema: dict[str, Any] | None = None,
         internal: bool = False,
+        undo_step: bool = True,
     ) -> Callable[[Callable], Callable]:
         def decorator(handler: Callable) -> Callable:
             if name in self._commands:
@@ -416,6 +420,7 @@ class CommandRegistry:
                 destructive=destructive,
                 output_schema=output_schema,
                 internal=internal,
+                undo_step=undo_step,
             )
             self._categories.setdefault(category, []).append(name)
             return handler

@@ -108,6 +108,16 @@ verified against real Live. Deeper design rationale and Live API facts:
   sends (flags bring them back); device/note fields at their defaults are
   simply absent — absent = default, never "unknown".
 
+## Undo (2.12, verified on real Live 12.4.6)
+
+- Each write call is one step in Live's undo history (a rename inside it
+  counts as one more — Live records renames separately). `undo` steps back,
+  `undo` with `redo: true` steps forward.
+- The history is shared with the user. If they may have touched the set since
+  your change, ask before undoing — otherwise you revert their work.
+- Prefer undo over hand-reverting: re-writing old values by hand loses
+  anything you didn't read first.
+
 ## Verified arrangement workflow
 
 Work Session view → Arrangement, in this order:

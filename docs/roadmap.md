@@ -191,6 +191,16 @@ shared-parameter text; tool count matters much less.
 Writes and destructive tools are unchanged and separately named. Verified on
 Live 12.4.6.
 
+### 2.12.0 — Undo and redo
+
+- Every write tool call runs inside one Live undo step, so a batch of 20
+  parameter changes is one Ctrl+Z instead of 20. Exception, confirmed on Live
+  12.4.6: Live records a rename as its own step even inside the group. A write
+  that changes nothing undoable (a playhead seek) leaves no empty step.
+- New `undo` tool: undo or redo up to 20 steps, reporting `can_undo` /
+  `can_redo`. Live has one history shared with the user, so undo reverts
+  whatever came last — the description tells the model to check first.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained

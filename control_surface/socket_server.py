@@ -49,6 +49,30 @@ RECENT_RESPONSES_MAX = 64
 MAX_CLIENTS = 8
 
 
+def _in_undo_step(handler: Any) -> Any:
+    """Run a write as ONE Live undo step: a batch of 20 parameter changes is
+    one Ctrl+Z, not 20. begin/end_undo_step are what Ableton's own scripts use
+    (Push's undo_step_handler, the v2/v3 transport components).
+
+    Confirmed on Live 12.4.6: volume + pan in one call undo together; a rename
+    in the same call is recorded by Live as a separate step regardless; a
+    write that changes nothing undoable (a playhead seek) leaves no empty
+    step behind."""
+
+    def run(ctx: "CommandContext", **kwargs: Any) -> Any:
+        song = ctx.song
+        if song is None:  # bare test surfaces; Live always has a song
+            return handler(ctx, **kwargs)
+        song.begin_undo_step()
+        try:
+            return handler(ctx, **kwargs)
+        finally:
+            song.end_undo_step()
+
+    run.__name__ = getattr(handler, "__name__", "handler")
+    return run
+
+
 class CommandContext:
     """Access to Live for command handlers.
 
@@ -437,8 +461,11 @@ class SocketServer:
 
             # One marshal per request: the entire handler runs as a single
             # task on Live's main thread, reads included.
+            handler = schema.handler
+            if not schema.read_only and schema.undo_step:
+                handler = _in_undo_step(handler)
             result = self._marshaler.execute(
-                schema.handler,
+                handler,
                 ctx,
                 timeout=schema.timeout,
                 command=command_type,
