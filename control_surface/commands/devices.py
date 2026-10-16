@@ -10,10 +10,15 @@ methods via `invoke`) transparently.
 
 from typing import Any
 
-from ..errors import batch_writer
+from ..errors import ValidationError, batch_writer
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
-from ..utils.live_helpers import get_device, resolve_device_parameter, resolve_track
+from ..utils.live_helpers import (
+    get_device,
+    resolve_device_host,
+    resolve_device_parameter,
+)
 from ..utils.normalize import denormalize_parameter, normalize_parameter
+from ..utils.pitch import midi_to_pitch_name
 
 # LOM DeviceParameter.automation_state values.
 _AUTOMATION_STATES = {0: "none", 1: "active", 2: "overridden"}
@@ -29,6 +34,26 @@ TRACK_TYPE_PARAM = ParamSchema(
     enum_values=["track", "return", "master"],
     description="'master' needs no track_index",
 )
+
+# Inside racks (2.13): rack_index + chain point the device tools at a chain's
+# own device list — a Drum Rack pad by note, or another rack's chain by index.
+RACK_PARAMS = [
+    ParamSchema(
+        "rack_index",
+        ParamType.ANY,
+        required=False,
+        description=(
+            "With chain: work inside the rack at this device index. Nested "
+            "racks: equal-length lists, outermost first"
+        ),
+    ),
+    ParamSchema(
+        "chain",
+        ParamType.ANY,
+        required=False,
+        description="Drum Rack pad note ('C1' or 36), or another rack's chain index",
+    ),
+]
 
 # --- Class-level property tables (2.7) ---------------------------------------
 # Data from the Live 12.3.5 LOM docs (docs.cycling74.com/apiref/lom/);
@@ -173,6 +198,45 @@ def _resolve_class_prop_write(device: Any, table: dict, name: str, value: Any):
     return attribute, match, items[match]
 
 
+def _chain_summary(chain: Any) -> dict[str, Any]:
+    info: dict[str, Any] = {"name": chain.name, "devices": [d.name for d in chain.devices]}
+    # Absent = default: only muted/soloed chains say so.
+    if chain.mute:
+        info["mute"] = True
+    if chain.solo:
+        info["solo"] = True
+    return info
+
+
+def _rack_contents(rack: Any) -> dict[str, Any]:
+    """What's inside a rack. Drum Racks list only their filled pads (of 128);
+    other racks list every chain."""
+    if getattr(rack, "can_have_drum_pads", False):
+        pads = []
+        for pad in rack.drum_pads:
+            chains = list(pad.chains)
+            if chains:
+                pads.append(
+                    {"pad": midi_to_pitch_name(pad.note), "note": pad.note}
+                    | _chain_summary(chains[0])
+                )
+        return {"pads": pads}
+    return {"chains": [{"index": i} | _chain_summary(c) for i, c in enumerate(rack.chains)]}
+
+
+def _device_summary(index: int, device: Any) -> dict[str, Any]:
+    info = {
+        "index": index,
+        "name": device.name,
+        "class_name": device.class_name,
+        "is_active": device.is_active,
+        "parameter_count": len(list(device.parameters)),
+    }
+    if getattr(device, "can_have_chains", False):
+        info |= _rack_contents(device)
+    return info
+
+
 def _serialize_parameter(index: int, param: Any) -> dict[str, Any]:
     # Absent = default: is_quantized false, is_enabled true, automation_state
     # "none". The constant tail was ~40% of an EQ Eight dump.
@@ -207,6 +271,7 @@ def _serialize_parameter(index: int, param: Any) -> dict[str, Any]:
     params=[
         ParamSchema("track_index", ParamType.INT, required=False, min_value=0),
         TRACK_TYPE_PARAM,
+        *RACK_PARAMS,
         ParamSchema(
             "device_index",
             ParamType.INT,
@@ -224,7 +289,9 @@ def _serialize_parameter(index: int, param: Any) -> dict[str, Any]:
         "editability (is_enabled), and automation state. Known native devices "
         "(Simpler, EQ Eight, Drift) also report class_properties — state that "
         "never appears in the parameter list (playback modes, M/S switch, mod "
-        "matrix) — and class_methods, both usable via set_device_parameters."
+        "matrix) — and class_methods, both usable via set_device_parameters. "
+        "Racks list their contents (a Drum Rack its filled pads); rack_index + "
+        "chain reach the devices inside, here and in the other device tools."
     ),
     output_schema={
         "type": "object",
@@ -238,23 +305,14 @@ def get_devices(
     ctx,
     track_index: int | None = None,
     track_type: str = "track",
+    rack_index: Any = None,
+    chain: Any = None,
     device_index: int | None = None,
 ) -> dict[str, Any]:
-    track = resolve_track(ctx.song, track_type, track_index)
+    track = resolve_device_host(ctx.song, track_type, track_index, rack_index, chain)
 
     if device_index is None:
-        return {
-            "devices": [
-                {
-                    "index": i,
-                    "name": device.name,
-                    "class_name": device.class_name,
-                    "is_active": device.is_active,
-                    "parameter_count": len(list(device.parameters)),
-                }
-                for i, device in enumerate(track.devices)
-            ]
-        }
+        return {"devices": [_device_summary(i, device) for i, device in enumerate(track.devices)]}
 
     device = get_device(track, device_index)
     info = {
@@ -278,6 +336,7 @@ def get_devices(
     params=[
         ParamSchema("track_index", ParamType.INT, required=False, min_value=0),
         TRACK_TYPE_PARAM,
+        *RACK_PARAMS,
         ParamSchema("device_index", ParamType.INT, min_value=0),
         ParamSchema(
             "parameters",
@@ -344,13 +403,15 @@ def set_device_parameters(
     ctx,
     track_index: int | None = None,
     track_type: str = "track",
+    rack_index: Any = None,
+    chain: Any = None,
     device_index: int = 0,
     parameters: list[dict[str, Any]] | None = None,
     invoke: list[dict[str, Any]] | None = None,
     enabled: bool | None = None,
     re_enable_automation: bool | None = None,
 ) -> dict[str, Any]:
-    track = resolve_track(ctx.song, track_type, track_index)
+    track = resolve_device_host(ctx.song, track_type, track_index, rack_index, chain)
     device = get_device(track, device_index)
     class_table = _CLASS_PROPS.get(device.class_name)
 
@@ -482,6 +543,7 @@ def set_device_parameters(
     params=[
         ParamSchema("track_index", ParamType.INT, required=False, min_value=0),
         TRACK_TYPE_PARAM,
+        *RACK_PARAMS,
         ParamSchema(
             "device_name",
             ParamType.STRING,
@@ -508,10 +570,12 @@ def insert_device(
     ctx,
     track_index: int | None = None,
     track_type: str = "track",
+    rack_index: Any = None,
+    chain: Any = None,
     device_name: str = "",
     device_index: int | None = None,
 ) -> dict[str, Any]:
-    track = resolve_track(ctx.song, track_type, track_index)
+    track = resolve_device_host(ctx.song, track_type, track_index, rack_index, chain)
     before = len(list(track.devices))
     target = before if device_index is None else max(0, min(device_index, before))
     try:
@@ -520,6 +584,12 @@ def insert_device(
         # (insert_device step): unknown names raise. The return value is not
         # relied on — we re-scan the chain.
         track.insert_device(device_name, target)
+    except AttributeError as e:
+        # Track.insert_device is Live 12.3+; a rack chain may not offer it.
+        raise LiveAPIError(
+            f"Live can't insert devices into this rack chain ({e}). Use browse + "
+            f"load_item with the rack's pad/chain selected instead."
+        ) from e
     except Exception as e:
         raise LiveAPIError(
             f"Live could not insert '{device_name}' ({e}). Only native Live devices "
@@ -544,6 +614,7 @@ def insert_device(
     params=[
         ParamSchema("track_index", ParamType.INT, required=False, min_value=0),
         TRACK_TYPE_PARAM,
+        *RACK_PARAMS,
         ParamSchema("device_index", ParamType.INT, min_value=0),
     ],
     category="devices",
@@ -557,10 +628,95 @@ def delete_device(
     ctx,
     track_index: int | None = None,
     track_type: str = "track",
+    rack_index: Any = None,
+    chain: Any = None,
     device_index: int = 0,
 ) -> dict[str, Any]:
-    track = resolve_track(ctx.song, track_type, track_index)
+    track = resolve_device_host(ctx.song, track_type, track_index, rack_index, chain)
     device = get_device(track, device_index)
     name = device.name
     track.delete_device(device_index)
     return {"deleted": name, "device_count": len(list(track.devices))}
+
+
+@REGISTRY.register(
+    "set_chain",
+    params=[
+        ParamSchema("track_index", ParamType.INT, required=False, min_value=0),
+        TRACK_TYPE_PARAM,
+        ParamSchema(
+            "rack_index",
+            ParamType.ANY,
+            description="Rack's device index (nested racks: list, outermost first)",
+        ),
+        ParamSchema(
+            "chain",
+            ParamType.ANY,
+            description="Drum Rack pad note ('C1' or 36), or another rack's chain index",
+        ),
+        ParamSchema("name", ParamType.STRING, required=False),
+        ParamSchema("mute", ParamType.BOOL, required=False),
+        ParamSchema("solo", ParamType.BOOL, required=False),
+        ParamSchema(
+            "volume",
+            ParamType.FLOAT,
+            required=False,
+            min_value=0,
+            max_value=1,
+            description="Normalized 0-1; 0.85 is 0 dB",
+        ),
+        ParamSchema(
+            "pan",
+            ParamType.FLOAT,
+            required=False,
+            min_value=0,
+            max_value=1,
+            description="Normalized 0-1; 0.5 is center",
+        ),
+    ],
+    category="devices",
+    description=(
+        "Name, mute, solo, and mix one chain of a rack — for a Drum Rack, one "
+        "pad (its kick, snare...). Batch: set several fields in one call."
+    ),
+)
+def set_chain(
+    ctx,
+    rack_index: Any,
+    chain: Any,
+    track_index: int | None = None,
+    track_type: str = "track",
+    name: str | None = None,
+    mute: bool | None = None,
+    solo: bool | None = None,
+    volume: float | None = None,
+    pan: float | None = None,
+) -> dict[str, Any]:
+    target = resolve_device_host(ctx.song, track_type, track_index, rack_index, chain)
+    if all(v is None for v in (name, mute, solo, volume, pan)):
+        raise ValidationError("Nothing to set: give name, mute, solo, volume, or pan")
+    mixer = target.mixer_device
+    applied: list[str] = []
+    _write = batch_writer(applied)
+    if name is not None:
+        _write("name", lambda: setattr(target, "name", name))
+    if mute is not None:
+        _write("mute", lambda: setattr(target, "mute", mute))
+    if solo is not None:
+        _write("solo", lambda: setattr(target, "solo", solo))
+    if volume is not None:
+        _write(
+            "volume",
+            lambda: setattr(mixer.volume, "value", denormalize_parameter(mixer.volume, volume)),
+        )
+    if pan is not None:
+        _write(
+            "pan",
+            lambda: setattr(mixer.panning, "value", denormalize_parameter(mixer.panning, pan)),
+        )
+    return {
+        "chain": _chain_summary(target),
+        "volume": normalize_parameter(mixer.volume),
+        "pan": normalize_parameter(mixer.panning),
+        "applied": applied,
+    }

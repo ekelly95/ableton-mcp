@@ -5,6 +5,7 @@ from typing import Any
 
 from ..errors import ValidationError
 from ..registry import LiveAPIError
+from .pitch import midi_to_pitch_name, pitch_to_midi
 
 
 def get_track(song: Any, track_index: int) -> Any:
@@ -150,6 +151,63 @@ def get_device(track: Any, device_index: int) -> Any:
             f"Device index {device_index} out of range (track has {len(devices)} devices)"
         )
     return devices[device_index]
+
+
+def resolve_chain(rack: Any, chain: Any) -> Any:
+    """A chain inside a rack: a Drum Rack pad by note ('C1' or 36), or another
+    rack's chain by index. Chains carry their own devices, so device tools work
+    on them exactly as on a track."""
+    if not getattr(rack, "can_have_chains", False):
+        raise LiveAPIError(f"'{rack.name}' is not a rack — it has no chains")
+    if getattr(rack, "can_have_drum_pads", False):
+        note = pitch_to_midi(chain, param="chain")
+        if not 0 <= note <= 127:
+            raise ValidationError(f"Pad note must be 0-127, got {note}", param="chain")
+        chains = list(rack.drum_pads[note].chains)
+        if not chains:
+            raise LiveAPIError(f"Pad {midi_to_pitch_name(note)} ({note}) in '{rack.name}' is empty")
+        return chains[0]
+    if isinstance(chain, bool) or not isinstance(chain, int):
+        raise ValidationError(
+            f"'{rack.name}' is not a Drum Rack: give chain as an index", param="chain"
+        )
+    chains = list(rack.chains)
+    if not 0 <= chain < len(chains):
+        raise LiveAPIError(
+            f"Chain index {chain} out of range ('{rack.name}' has {len(chains)} chains)"
+        )
+    return chains[chain]
+
+
+def resolve_device_host(
+    song: Any,
+    track_type: str,
+    track_index: Any,
+    rack_index: int | None = None,
+    chain: Any = None,
+) -> Any:
+    """Where device tools operate: the track itself, or — with rack_index and
+    chain — a chain inside one of its racks. Both may be equal-length lists
+    for racks nested in chains, outermost first: Live's Core Library kits put
+    an Instrument Rack inside every pad, so reaching a kick's Simpler takes
+    rack_index [0, 0], chain ['C1', 0] (confirmed on Live 12.4.6)."""
+    host = resolve_track(song, track_type, track_index)
+    if rack_index is None and chain is None:
+        return host
+    if rack_index is None or chain is None:
+        raise ValidationError("rack_index and chain go together", param="chain")
+    racks = rack_index if isinstance(rack_index, list) else [rack_index]
+    chains = chain if isinstance(chain, list) else [chain]
+    if not racks or len(racks) != len(chains):
+        raise ValidationError(
+            "For nested racks give rack_index and chain as lists of the same length",
+            param="chain",
+        )
+    for index, step in zip(racks, chains, strict=True):
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+            raise ValidationError(f"rack_index entries must be device indices, got {index!r}")
+        host = resolve_chain(get_device(host, index), step)
+    return host
 
 
 # How many parameter names an unknown-name error lists as suggestions.

@@ -347,6 +347,8 @@ class MockDevice:
     def __init__(self, name: str = "Device", class_name: str = "MockDevice"):
         self.name = name
         self.class_name = class_name
+        self.can_have_chains = False
+        self.can_have_drum_pads = False
         self.parameters: list[MockParameter] = [
             MockParameter("Device On", value=1.0, min=0.0, max=1.0, is_quantized=True),
             MockParameter("Macro 1", value=0.5),
@@ -496,54 +498,9 @@ class MockTakeLane:
         self.arrangement_clips.sort(key=lambda c: c.start_time)
 
 
-class MockTrack:
-    def __init__(
-        self,
-        name: str = "Track",
-        has_midi_input: bool = True,
-        slot_count: int = 8,
-        send_count: int = 0,
-        can_be_armed: bool = True,
-    ):
-        self.name = name
-        self.color_index = 0
-        self.has_midi_input = has_midi_input
-        self.has_audio_input = not has_midi_input
-        # Simplification: real Live derives this from routing (a MIDI track
-        # only has audio output once an instrument sits on it); tests that
-        # care set it explicitly.
-        self.has_audio_output = True
-        # LOM meters, 0.0-1.0 on Live's meter scale (NOT dB): level is the
-        # 1-second hold peak (max of L/R, exists for audio and MIDI tracks);
-        # left/right are momentary and exist only with audio output.
-        self.output_meter_level = 0.0
-        self.output_meter_left = 0.0
-        self.output_meter_right = 0.0
-        self.can_be_armed = can_be_armed
-        self.arm = False
-        self.mute = False
-        self.solo = False
-        self.mixer_device = MockMixerDevice(send_count=send_count)
-        self.clip_slots: list[MockClipSlot] = [MockClipSlot(self) for _ in range(slot_count)]
-        self.devices: list[MockDevice] = []
-        self.arrangement_clips: list[MockClip] = []
-        # Non-main take lanes only (CONFIRMED on real Live 12.4.3, 2.7
-        # checkpoint: lane clips never appear in Track.arrangement_clips).
-        self.take_lanes: list[MockTakeLane] = []
-
-    # Believed Live cap on non-main lanes (VERIFY at checkpoint).
-    MAX_TAKE_LANES = 8
-
-    def create_take_lane(self) -> None:
-        """LOM: no parameters, appends a lane; no delete exists. Behaviour at
-        the cap is assumed to raise (VERIFY at checkpoint)."""
-        if len(self.take_lanes) >= self.MAX_TAKE_LANES:
-            raise RuntimeError("Take lane limit reached")
-        self.take_lanes.append(MockTakeLane(self, name=f"Take {len(self.take_lanes) + 1}"))
-
-    def stop_all_clips(self) -> None:
-        for slot in self.clip_slots:
-            slot.stop()
+class MockDeviceChainHost:
+    """Device-list behaviour shared by tracks and rack chains: Live's Track and
+    Chain both expose devices, insert_device and delete_device."""
 
     def delete_device(self, device_index: int) -> None:
         del self.devices[device_index]
@@ -593,6 +550,103 @@ class MockTrack:
             self.devices.append(device)
         else:
             self.devices.insert(target_index, device)
+
+
+class MockChain(MockDeviceChainHost):
+    """A rack chain (or a Drum Rack pad's chain): its own device list and
+    mixer. VERIFY on real Live: mixer parameter names on a chain."""
+
+    def __init__(self, name: str = "Chain", devices: list | None = None):
+        self.name = name
+        self.mute = False
+        self.solo = False
+        self.color_index = 0
+        self.devices: list = list(devices or [])
+        self.mixer_device = MockMixerDevice()
+
+
+class MockDrumPad:
+    """One of a Drum Rack's 128 pads; note == its index. Empty pads have no
+    chains."""
+
+    def __init__(self, note: int):
+        self.note = note
+        self.name = ""
+        self.mute = False
+        self.solo = False
+        self.chains: list[MockChain] = []
+
+
+class MockRackDevice(MockDevice):
+    """Instrument/Audio Effect/Drum Rack. A Drum Rack's chains list holds the
+    chain of every filled pad, as in Live."""
+
+    def __init__(self, name: str = "Instrument Rack", drum: bool = False):
+        super().__init__(
+            name=name, class_name="DrumGroupDevice" if drum else "InstrumentGroupDevice"
+        )
+        self.can_have_chains = True
+        self.can_have_drum_pads = drum
+        self.chains: list[MockChain] = []
+        self.drum_pads: list[MockDrumPad] = [MockDrumPad(n) for n in range(128)] if drum else []
+
+    def fill_pad(self, note: int, name: str, devices: list | None = None) -> MockChain:
+        chain = MockChain(name=name, devices=devices)
+        pad = self.drum_pads[note]
+        pad.name = name
+        pad.chains = [chain]
+        self.chains.append(chain)
+        return chain
+
+
+class MockTrack(MockDeviceChainHost):
+    def __init__(
+        self,
+        name: str = "Track",
+        has_midi_input: bool = True,
+        slot_count: int = 8,
+        send_count: int = 0,
+        can_be_armed: bool = True,
+    ):
+        self.name = name
+        self.color_index = 0
+        self.has_midi_input = has_midi_input
+        self.has_audio_input = not has_midi_input
+        # Simplification: real Live derives this from routing (a MIDI track
+        # only has audio output once an instrument sits on it); tests that
+        # care set it explicitly.
+        self.has_audio_output = True
+        # LOM meters, 0.0-1.0 on Live's meter scale (NOT dB): level is the
+        # 1-second hold peak (max of L/R, exists for audio and MIDI tracks);
+        # left/right are momentary and exist only with audio output.
+        self.output_meter_level = 0.0
+        self.output_meter_left = 0.0
+        self.output_meter_right = 0.0
+        self.can_be_armed = can_be_armed
+        self.arm = False
+        self.mute = False
+        self.solo = False
+        self.mixer_device = MockMixerDevice(send_count=send_count)
+        self.clip_slots: list[MockClipSlot] = [MockClipSlot(self) for _ in range(slot_count)]
+        self.devices: list[MockDevice] = []
+        self.arrangement_clips: list[MockClip] = []
+        # Non-main take lanes only (CONFIRMED on real Live 12.4.3, 2.7
+        # checkpoint: lane clips never appear in Track.arrangement_clips).
+        self.take_lanes: list[MockTakeLane] = []
+
+    # Believed Live cap on non-main lanes (VERIFY at checkpoint).
+    MAX_TAKE_LANES = 8
+
+    def create_take_lane(self) -> None:
+        """LOM: no parameters, appends a lane; no delete exists. Behaviour at
+        the cap is assumed to raise (VERIFY at checkpoint)."""
+        if len(self.take_lanes) >= self.MAX_TAKE_LANES:
+            raise RuntimeError("Take lane limit reached")
+        self.take_lanes.append(MockTakeLane(self, name=f"Take {len(self.take_lanes) + 1}"))
+
+    def stop_all_clips(self) -> None:
+        for slot in self.clip_slots:
+            slot.stop()
 
     def _insert_arrangement_clip(self, clip: MockClip) -> None:
         clip._is_arrangement_clip = True
