@@ -250,6 +250,20 @@ Live 12.4.6.
   syntax error was refused while the old handlers kept serving, and the
   original came back the same way.
 
+### 2.17.0 — Measure the mix: analyze_audio and capture_audio
+
+- `analyze_audio` (server-side, numpy): integrated loudness and loudness range
+  (BS.1770-4 / EBU R128), 4x true peak, sample peak, RMS, crest factor,
+  octave-band spectrum, stereo correlation and side/mid, for WAV and AIFF
+  in every encoding Live writes. The EBU reference tone reads -23.0 LUFS.
+- `capture_audio` records Live's master output through a temporary
+  Resampling track and analyzes it — no Max for Live. Each Live-side step is
+  its own command: creating, re-routing and deleting a track inside one task
+  crashed Live 12.4.6 (access violation); one task apart, it is fine.
+- Verified on Live 12.4.6: a built-in sample captured from the arrangement
+  matched the source file's RMS, true peak and spectrum exactly (loudness +3
+  LU, correctly, for a mono source on both channels). 48 tools.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained

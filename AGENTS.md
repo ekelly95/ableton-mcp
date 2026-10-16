@@ -108,6 +108,23 @@ verified against real Live. Deeper design rationale and Live API facts:
   sends (flags bring them back); device/note fields at their defaults are
   simply absent — absent = default, never "unknown".
 
+## Measuring the mix (2.17, verified on real Live 12.4.6)
+
+- `capture_audio` records Live's master output for `length_beats` from
+  `start_beats` and returns the measurements: integrated loudness (LUFS),
+  loudness range, true peak (dBTP), RMS, crest factor, an octave-band
+  spectrum (dB below the loudest band) and stereo correlation/width. It plays
+  the set audibly — say so before you run it — and needs the transport
+  stopped. It uses a temporary track that is removed afterwards.
+- `analyze_audio` measures any WAV/AIFF by path: a bounce, an export, a
+  sample before you load it.
+- Reading the numbers: streaming platforms normalize to about -14 LUFS; keep
+  true peak under -1 dBTP. A mono source on both channels reads +3 LU over
+  the file itself (the standard sums channels). Correlation near +1 is
+  near-mono, near 0 very wide, negative is a phase problem.
+- This needs no Max for Live — prefer it over `get_audio_levels` for anything
+  you'll act on; use `get_track_meters` for a quick "is it sounding?".
+
 ## Setting parameters by what Live shows (2.14, verified on real Live 12.4.6)
 
 - `set_device_parameters` values can be the text Live displays instead of
