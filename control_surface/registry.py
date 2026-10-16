@@ -427,6 +427,11 @@ class CommandRegistry:
 
         return decorator
 
+    def clear(self) -> None:
+        """Forget every command (the reloader re-registers them from disk)."""
+        self._commands.clear()
+        self._categories.clear()
+
     def get(self, name: str) -> CommandSchema | None:
         return self._commands.get(name)
 

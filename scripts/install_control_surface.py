@@ -9,8 +9,14 @@ Probes, in order of preference:
      on Windows, inside the app bundle on macOS.
 
 Run:  python scripts/install_control_surface.py
+      python scripts/install_control_surface.py --reload   # and hot-reload Live
+
+--reload asks a running Live to reload its command handlers (2.16) instead of
+needing a restart. Only commands/ and utils/ reload; if anything else changed
+(socket server, config, registry...), it says a restart is still needed.
 """
 
+import filecmp
 import importlib.util
 import os
 import shutil
@@ -86,6 +92,53 @@ def pick_target() -> Path:
     sys.exit(1)
 
 
+# Modules the running bridge can swap in place (control_surface/reloader.py).
+RELOADABLE_DIRS = ("commands", "utils")
+
+
+def changed_files(target: Path) -> list[str]:
+    """Source .py files that differ from (or are missing in) the install."""
+    changed = []
+    for src in SOURCE.rglob("*.py"):
+        if "__pycache__" in src.parts:
+            continue
+        rel = src.relative_to(SOURCE)
+        dst = target / rel
+        if not dst.exists() or not filecmp.cmp(src, dst, shallow=False):
+            changed.append(rel.as_posix())
+    return changed
+
+
+def hot_reload(changed: list[str]) -> bool:
+    """Ask the running Live to reload handlers; True if no restart is needed."""
+    needs_restart = [c for c in changed if c.split("/")[0] not in RELOADABLE_DIRS]
+    if needs_restart:
+        print(f"Restart Live: these can't be hot-reloaded: {', '.join(needs_restart)}")
+        return False
+    if not changed:
+        print("Nothing changed — no reload needed.")
+        return True
+    sys.path.insert(0, str(REPO_ROOT))
+    from mcp_server.client import AbletonClient, AbletonConnectionError, CommandError
+
+    client = AbletonClient.from_env(timeout=30.0)
+    try:
+        result = client.send("reload_commands")
+    except AbletonConnectionError:
+        print("Live isn't reachable, so nothing to reload — the next start picks it up.")
+        return True
+    except CommandError as e:
+        print(f"Reload failed; Live kept the previous handlers: {e}")
+        return False
+    finally:
+        client.close()
+    print(
+        f"Reloaded in Live: {len(changed)} changed file(s), "
+        f"{result['command_count']} commands — no restart needed."
+    )
+    return True
+
+
 def load_version() -> str:
     # config.py imports nothing beyond the stdlib (test_import_purity.py keeps
     # it that way), so load it by path — importing the package __init__ from
@@ -103,6 +156,7 @@ def main() -> None:
 
     target_root = pick_target()
     target = target_root / TARGET_NAME
+    changed = changed_files(target)
 
     # Copy-over instead of delete-and-recreate: __pycache__ dirs are often
     # locked by OneDrive sync or Ableton's indexer even after Live quits.
@@ -134,6 +188,10 @@ def main() -> None:
     print(f"Installed {TARGET_NAME} v{version} ({file_count} files) to:")
     print(f"  {target}")
     print()
+    if "--reload" in sys.argv[1:]:
+        if hot_reload(changed):
+            return
+        print()
     print("Next steps:")
     print("  1. Restart Ableton Live (fully quit it first).")
     print("  2. Options > Preferences > Link, Tempo & MIDI.")

@@ -79,3 +79,17 @@ def get_session_overview(
         "master_track": serialize_track(0, song.master_track, "master", include_devices=True),
         "scenes": [{"scene_index": i, "name": scene.name} for i, scene in enumerate(song.scenes)],
     }
+
+
+@REGISTRY.register(
+    "reload_commands",
+    category="meta",
+    internal=True,
+    undo_step=False,
+    description="Developer tool: reload command handlers from disk without restarting Live.",
+)
+def reload_commands(ctx) -> dict[str, Any]:
+    # Registered here, inside the reloaded package, so it re-registers itself.
+    from ..reloader import reload_command_modules
+
+    return reload_command_modules()
