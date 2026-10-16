@@ -324,6 +324,19 @@ class TestArrangement:
         arrangement = run_command(registry, ctx, "get_arrangement")
         assert arrangement["locators"] == [{"name": "Chorus", "time": 32.0}]
 
+    def test_locator_snapping_onto_existing_one_is_refused_and_restored(self, registry, ctx):
+        # Live 12.4.6: 12.01 snaps onto the grid line at 12.0 and the toggle
+        # deleted the existing locator there. It must survive, name intact.
+        self._create_locator(registry, ctx, time=12.0, name="Drop")
+        with pytest.raises(LiveAPIError, match="snaps"):
+            self._create_locator(registry, ctx, time=12.01, name="Other")
+        arrangement = run_command(registry, ctx, "get_arrangement")
+        assert arrangement["locators"] == [{"name": "Drop", "time": 12.0}]
+
+    def test_locator_reports_the_snapped_time(self, registry, ctx):
+        result = self._create_locator(registry, ctx, time=64.2, name="Bridge")
+        assert result["locator"] == {"name": "Bridge", "time": 64.25}
+
 
 class TestImportAudio:
     @pytest.fixture()

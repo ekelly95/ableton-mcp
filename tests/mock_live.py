@@ -828,13 +828,20 @@ class MockSong:
                 last = max(last, clip.end_time)
         return last + 4.0
 
+    # CONFIRMED (Live 12.4.6): a new cue snaps to the arrangement grid
+    # (1/16 = 0.25 beats at the probe's zoom; the real grid follows zoom and
+    # isn't exposed). 64.2 landed at 64.25; 40.1 snapped onto an existing cue
+    # at 40.0 and deleted it.
+    cue_grid = 0.25
+
     def set_or_delete_cue(self) -> None:
-        """TOGGLE at the current playhead: deletes an existing cue there."""
+        """TOGGLE at the grid-snapped playhead: deletes an existing cue there."""
+        snapped = round(self.current_song_time / self.cue_grid) * self.cue_grid
         for cue in list(self.cue_points):
-            if abs(cue.time - self.current_song_time) < 1e-6:
+            if abs(cue.time - snapped) < 1e-6:
                 self.cue_points.remove(cue)
                 return
-        self.cue_points.append(MockCuePoint(time=self.current_song_time))
+        self.cue_points.append(MockCuePoint(time=snapped))
 
     def start_playing(self) -> None:
         # CONFIRMED on real Live 12.4.3 (2.3 checkpoint): starts from the

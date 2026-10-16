@@ -555,8 +555,25 @@ def create_locator(ctx, time: float, name: str | None = None) -> dict[str, Any]:
 
     song.set_or_delete_cue()
 
-    # Confirm by list diff, not exact time: Live may snap the cue slightly.
+    # Live snaps the cue to the arrangement grid (which follows zoom and isn't
+    # exposed), so a request near an existing locator can snap onto it and
+    # toggle it OFF — confirmed on Live 12.4.6: asking for 12.01 deleted the
+    # locator at 12.0. Detect that and toggle again to put it back.
     after = list(song.cue_points)
+    deleted = [c for c in before if c not in after]
+    if deleted:
+        song.set_or_delete_cue()
+        restored = next((c for c in song.cue_points if c not in after), None)
+        if restored is not None:
+            restored.name = deleted[0].name
+        raise LiveAPIError(
+            f"Locator '{deleted[0].name}' at {deleted[0].time} is where Live snaps {time} "
+            f"on its grid, so a new one can't go there — "
+            + ("it was left in place." if restored is not None else "and it could not be restored.")
+            + " Pick a time further away, or reuse that locator."
+        )
+
+    # Confirm by list diff, not exact time: Live may snap the cue slightly.
     created = next((c for c in after if c not in before), None)
     if created is None:
         created = next((c for c in after if abs(c.time - time) < _CUE_SNAP_EPSILON), None)
