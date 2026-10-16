@@ -262,6 +262,7 @@ def create_take_lane(ctx, track_index: int, name: str | None = None) -> dict[str
     "arrangement_record",
     params=[ParamSchema("enabled", ParamType.BOOL)],
     category="arrangement",
+    stale_check=False,
     destructive=True,
     description=(
         "Toggle the Arrangement Record button. DESTRUCTIVE: playing while this "
@@ -514,6 +515,7 @@ def delete_arrangement_clip(
         ParamSchema("name", ParamType.STRING, required=False),
     ],
     category="arrangement",
+    stale_check=False,
     description=(
         "Drop a named marker (locator) on the timeline — e.g. 'Chorus' at bar 9. "
         "Moves the playhead to that time as a side effect."

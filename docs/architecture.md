@@ -160,6 +160,22 @@ device param XOR mixer volume/pan target; Session clip, MIDI or warped audio),
 `get_clip_envelope` (sampled read), `clear_clip_envelopes` (destructive; one
 target or all).
 
+## Stale-set refusal (2.18)
+
+Positional indices are only safe while the set's structure is what the caller
+last saw. Every successful response carries a `set_version` — a fingerprint
+of tracks (order, names), each track's devices, occupied session slots,
+arrangement clip positions, return/master devices and scene count
+(`control_surface/set_version.py`; values and clip contents deliberately
+excluded). The client remembers the latest and sends it as
+`expected_set_version` with every request; for writes with `stale_check`
+(the default — off for tempo/transport, locators, arrangement record,
+capture steps), Live recomputes it first and raises `StaleSetError` on a
+mismatch, before the undo step opens, so nothing changes. Only successful
+responses update the client's copy, so a refused caller must read again
+before a retry can pass. The fingerprint is wire-level: no tool parameter,
+no tokens.
+
 ## Client discipline (`mcp_server/client.py`)
 
 - One persistent connection, `threading.Lock` around send: concurrent tool

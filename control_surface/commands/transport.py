@@ -81,6 +81,7 @@ def get_transport_state(ctx) -> dict[str, Any]:
         ),
     ],
     category="transport",
+    stale_check=False,
     description=(
         "Start, stop, or continue playback, optionally jumping to a position "
         "(in beats). A position jump from a stopped transport takes two "
@@ -180,6 +181,7 @@ def transport_control(ctx, action: str, position: float | None = None) -> dict[s
         ),
     ],
     category="transport",
+    stale_check=False,
     description=(
         "Set any of: tempo (BPM), time signature, loop region (beats), metronome, "
         "song key/scale (the tonal anchor for everything composed), "

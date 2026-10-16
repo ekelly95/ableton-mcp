@@ -217,5 +217,8 @@ Work Session view → Arrangement, in this order:
 - `get_audio_levels` needs the optional M4L tap on the Main track; max 10 s
   per sample. Without it, `get_track_meters` still answers "is it sounding?".
 - Other MCP clients may be connected too; commands from all of them run in
-  Live one at a time. Another agent can change the set between your calls, so
-  re-read before acting on stale state.
+  Live one at a time. If the set's structure (tracks, devices, clips, scenes)
+  changed since your last read — the user or another agent edited it — your
+  next index-addressed write (and `undo`) is refused with StaleSetError and
+  nothing happens. Re-read (`get_session_overview` or the relevant get_*),
+  re-check which index you mean, and retry. Your own writes never trip it.

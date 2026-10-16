@@ -84,6 +84,7 @@ def get_session_overview(
 @REGISTRY.register(
     "reload_commands",
     category="meta",
+    stale_check=False,
     internal=True,
     undo_step=False,
     description="Developer tool: reload command handlers from disk without restarting Live.",

@@ -264,6 +264,15 @@ Live 12.4.6.
   matched the source file's RMS, true peak and spectrum exactly (loudness +3
   LU, correctly, for a mono source on both channels). 48 tools.
 
+### 2.18.0 — Refuse writes against a set that changed
+
+- Index-addressed writes (and `undo`) are refused with `StaleSetError` when
+  the set's structure changed since the caller's last read — the user, or
+  another client, added, removed, renamed or moved tracks, devices, clips or
+  scenes. Nothing is changed; the model re-reads and retries. Its own writes
+  never trip it, a tweaked knob doesn't count, and tempo/transport/locator
+  writes aren't checked. Automatic and wire-level: no new tool parameters.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained

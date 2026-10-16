@@ -37,8 +37,10 @@ from .config import (
     USE_TCP,
     VERSION,
 )
+from .errors import StaleSetError
 from .log import get_logger, get_operation_logger
 from .registry import REGISTRY, LiveAPIError, ValidationError
+from .set_version import set_version
 from .thread_marshal import MainThreadExecutionError, ThreadMarshaler
 
 logger = get_logger("socket_server")
@@ -68,6 +70,29 @@ def _in_undo_step(handler: Any) -> Any:
             return handler(ctx, **kwargs)
         finally:
             song.end_undo_step()
+
+    run.__name__ = getattr(handler, "__name__", "handler")
+    return run
+
+
+def _versioned(handler: Any, expected: str | None) -> Any:
+    """Refuse a write against a set that changed since the caller's last read
+    (before anything runs — outside the undo step, so nothing lands in Live's
+    history), then report the set's version after the command."""
+
+    def run(ctx: "CommandContext", **kwargs: Any) -> tuple[Any, str | None]:
+        song = ctx.song
+        if song is None:  # bare test surfaces
+            return handler(ctx, **kwargs), None
+        if expected is not None and set_version(song) != expected:
+            raise StaleSetError(
+                "The set changed since you last read it (tracks, devices or clips "
+                "were added, removed, renamed or moved — by the user or another "
+                "client), so indices may now point elsewhere. Nothing was done: "
+                "re-read (get_session_overview or the relevant get_* tool) and retry."
+            )
+        result = handler(ctx, **kwargs)
+        return result, set_version(song)
 
     run.__name__ = getattr(handler, "__name__", "handler")
     return run
@@ -464,7 +489,10 @@ class SocketServer:
             handler = schema.handler
             if not schema.read_only and schema.undo_step:
                 handler = _in_undo_step(handler)
-            result = self._marshaler.execute(
+            expected = message.get("expected_set_version")
+            check = isinstance(expected, str) and not schema.read_only and schema.stale_check
+            handler = _versioned(handler, expected if check else None)
+            result, version = self._marshaler.execute(
                 handler,
                 ctx,
                 timeout=schema.timeout,
@@ -475,6 +503,8 @@ class SocketServer:
             duration_ms = (time.time() - start_time) * 1000
             response["status"] = "success"
             response["result"] = result
+            if version is not None:
+                response["set_version"] = version
             self._operation_logger.log(command_type, params, result, duration_ms)
 
         except ValidationError as e:

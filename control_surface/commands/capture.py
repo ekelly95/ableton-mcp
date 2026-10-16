@@ -28,7 +28,7 @@ def _capture_track(song: Any, track_index: int) -> Any:
     return tracks[track_index]
 
 
-@REGISTRY.register("capture_prepare", category="capture", internal=True)
+@REGISTRY.register("capture_prepare", category="capture", internal=True, stale_check=False)
 def capture_prepare(ctx) -> dict[str, Any]:
     song = ctx.song
     if song.is_playing:
@@ -39,7 +39,9 @@ def capture_prepare(ctx) -> dict[str, Any]:
     return {"track_index": len(list(song.tracks)) - 1}
 
 
-@REGISTRY.register("capture_arm", params=[_TRACK], category="capture", internal=True)
+@REGISTRY.register(
+    "capture_arm", params=[_TRACK], category="capture", internal=True, stale_check=False
+)
 def capture_arm(ctx, track_index: int) -> dict[str, Any]:
     track = _capture_track(ctx.song, track_index)
     resampling = next(
@@ -59,6 +61,7 @@ def capture_arm(ctx, track_index: int) -> dict[str, Any]:
     params=[_TRACK, ParamSchema("length_beats", ParamType.FLOAT, min_value=0.25)],
     category="capture",
     internal=True,
+    stale_check=False,
 )
 def capture_record(ctx, track_index: int, length_beats: float) -> dict[str, Any]:
     track = _capture_track(ctx.song, track_index)
@@ -77,7 +80,9 @@ def capture_status(ctx, track_index: int) -> dict[str, Any]:
     return {"has_clip": slot.has_clip, "recording": slot.is_recording}
 
 
-@REGISTRY.register("capture_finish", params=[_TRACK], category="capture", internal=True)
+@REGISTRY.register(
+    "capture_finish", params=[_TRACK], category="capture", internal=True, stale_check=False
+)
 def capture_finish(ctx, track_index: int) -> dict[str, Any]:
     song = ctx.song
     track = _capture_track(song, track_index)
@@ -90,7 +95,9 @@ def capture_finish(ctx, track_index: int) -> dict[str, Any]:
     return {"file_path": clip.file_path, "length_beats": clip.length}
 
 
-@REGISTRY.register("capture_cleanup", params=[_TRACK], category="capture", internal=True)
+@REGISTRY.register(
+    "capture_cleanup", params=[_TRACK], category="capture", internal=True, stale_check=False
+)
 def capture_cleanup(ctx, track_index: int) -> dict[str, Any]:
     song = ctx.song
     _capture_track(song, track_index)

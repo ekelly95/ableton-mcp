@@ -26,6 +26,12 @@ class LiveAPIError(Exception):
     """Live refused or couldn't perform the operation (bad index, occupied slot...)."""
 
 
+class StaleSetError(LiveAPIError):
+    """The set's structure changed since the caller last read it, so its
+    positional indices may now point at different tracks, clips or devices.
+    Raised before the write runs: nothing was changed."""
+
+
 class PartialApplyError(LiveAPIError):
     """A batch write failed mid-apply; `applied` names the fields that already landed.
 

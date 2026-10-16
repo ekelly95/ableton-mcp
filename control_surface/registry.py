@@ -341,6 +341,10 @@ class CommandSchema:
     # Writes run inside one Live undo step, so one call is one Ctrl+Z. Off only
     # for commands that walk the undo history themselves.
     undo_step: bool = True
+    # Writes are refused if the set's structure changed since the caller last
+    # read it (2.18). Off for writes that address nothing by position
+    # (tempo, transport, locators by time).
+    stale_check: bool = True
 
     def validate_params(self, params: dict[str, Any] | None) -> dict[str, Any]:
         if params is None:
@@ -404,6 +408,7 @@ class CommandRegistry:
         output_schema: dict[str, Any] | None = None,
         internal: bool = False,
         undo_step: bool = True,
+        stale_check: bool = True,
     ) -> Callable[[Callable], Callable]:
         def decorator(handler: Callable) -> Callable:
             if name in self._commands:
@@ -421,6 +426,7 @@ class CommandRegistry:
                 output_schema=output_schema,
                 internal=internal,
                 undo_step=undo_step,
+                stale_check=stale_check,
             )
             self._categories.setdefault(category, []).append(name)
             return handler

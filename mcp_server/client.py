@@ -117,6 +117,11 @@ class AbletonClient:
         self.use_tcp = use_tcp
         self._socket: socket.socket | None = None
         self._lock = threading.Lock()
+        # The set's structure as of the last successful response (2.18). Sent
+        # with every request; Live refuses index-addressed writes if the set
+        # changed since. Only successes update it, so after a refusal the
+        # caller has to read again before a retry can pass.
+        self.set_version: str | None = None
 
     @classmethod
     def from_env(cls, **kwargs: Any) -> "AbletonClient":
@@ -180,6 +185,8 @@ class AbletonClient:
     def send(self, command: str, **params: Any) -> Any:
         """Send a command and return its result. Thread-safe; serialized."""
         request = {"type": command, "params": params, "id": str(uuid.uuid4())}
+        if self.set_version is not None:
+            request["expected_set_version"] = self.set_version
         # Heavy commands (load_item etc.) get their declared budget + grace;
         # everything else uses the flat default.
         per_command = COMMAND_TIMEOUTS.get(command)
@@ -220,6 +227,8 @@ class AbletonClient:
                     ) from retry_error
 
         if response.get("status") == "success":
+            if response.get("set_version"):
+                self.set_version = response["set_version"]
             return response.get("result")
         raise CommandError(
             message=response.get("error", "Unknown error"),
