@@ -44,7 +44,7 @@ documented in the README and [architecture.md](architecture.md).
   searches samples, presets, MIDI files, grooves, sets, and plug-ins by name,
   tag, kind, and source.
 - `find_similar` ranks analyzed audio files using Live's stored feature
-  vectors.
+  vectors (since 2.11, `search_library`'s `similar_to` option).
 - Browser-path guesses are returned only where the disk-to-browser mapping has
   been verified. Absolute paths remain available for `import_audio`.
 - The implementation is server-only and works while Live is closed.
@@ -241,7 +241,8 @@ Live 12.4.6.
 ### 2.16.0 — Hot reload
 
 - `install_control_surface.py --reload` reloads command handlers in a running
-  Live — no restart. An internal `reload_commands` command drops
+  Live — no restart. (Since 2.20, `ableton-mcp-install` and the
+  `install_control_surface` tool reload by default; `--no-reload` opts out.) An internal `reload_commands` command drops
   `commands/` and `utils/` from `sys.modules` and imports them fresh (no stale
   cross-module references); a failed import restores the previous modules and
   commands. The socket server, marshal, registry, errors and config are not
@@ -334,7 +335,8 @@ they are reproduced; do not infer them from CI alone.
 - Additional native-device class-property tables.
 - Meter-relative notation features or transform-language extensions.
 - A later MCP SDK major-version upgrade after compatibility testing.
-- Optional offline audio analysis as a separate package.
+- Offline key, tempo, or drum analysis as a separate optional package
+  (loudness and spectrum analysis shipped in 2.17 as `analyze_audio`).
 
 ## Design decisions that are not roadmap items
 

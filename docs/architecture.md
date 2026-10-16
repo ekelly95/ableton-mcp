@@ -125,7 +125,8 @@ Verified on real Live 12.4.3 with no Max for Live dependency:
   `automation_envelope` "Returns None for Arrangement clips" — arrangement
   clips carry only modulation; their absolute automation lives on the track's
   automation lanes, which the Python API does not expose. All three envelope
-  tools reject `arrangement_clip_index` with a typed error. The earlier 2.2
+  tools address a session slot only (`slot_index` required since 2.11; before
+  that they rejected `arrangement_clip_index` with a typed error). The earlier 2.2
   claim of arrangement support was incorrect because the mock used one clip
   class and the checkpoint exercised only a Session slot.
 - **Unwarped audio is rejected** (verified against the LOM): unwarped audio clips
@@ -217,12 +218,16 @@ What mcp 2 stopped doing, and the server now does itself:
   everything and returns `is_error` results with the message ("Ableton is
   not reachable: …", "Ableton rejected the command: …").
 
-Four tools live outside the registry because they cannot (or need not) run
+Seven tools live outside the registry because they cannot (or need not) run
 inside Live: `get_bridge_status` (server.py), `get_audio_levels`
 (mcp_server/m4l.py — the optional Max for Live tap, see below),
-`transform_clip` (mcp_server/transforms.py, 2.5), and `search_library`
+`transform_clip` (mcp_server/transforms.py, 2.5), `search_library`
 (mcp_server/library.py, 2.6; similarity ranking via `similar_to`, the
-`find_similar` tool until 2.11). Everything else is registry-generated.
+`find_similar` tool until 2.11), `analyze_audio`
+(mcp_server/audio_analysis.py, 2.17), `capture_audio` (server.py, 2.17 — a
+composite over internal `capture_*` registry commands), and
+`install_control_surface` (mcp_server/install.py, 2.20). Everything else is
+registry-generated.
 
 ## Audio metering (2.3)
 
@@ -560,8 +565,9 @@ No provider dependency ever goes into the bridge.
   delete-and-replace remains the arrangement workaround. (Warp control left
   this list: `set_clip` toggles `warping`, and Simpler's warp/crop operations
   run through guarded `invoke` actions.)
-- **Multiple simultaneous MCP clients.** One serial client preserves operation
-  ordering.
+- **Parallel execution across MCP clients.** Several clients can stay
+  connected (2.9.0), but their commands run one at a time to preserve
+  operation ordering.
 
 ## Operational notes
 

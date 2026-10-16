@@ -7,8 +7,8 @@ verified against real Live. Deeper design rationale and Live API facts:
 
 ## Ground rules
 
-- **Use the bridge for Live control.** Never fall back to screenshots, window automation,
-  or synthetic keystrokes to reach something the bridge can't. Screen
+- **Use the bridge for Live control.** Never fall back to screenshots, window
+  automation, or synthetic keystrokes to reach something the bridge can't. Screen
   automation is intentionally unsupported because it is disruptive to watch,
   brittle, and contrary to the bridge's purpose. If the bridge can't do a
   thing, say so plainly and name the exact manual step you need from the user.
@@ -25,6 +25,27 @@ verified against real Live. Deeper design rationale and Live API facts:
   user, and carry on with what they actually asked. This matters most because
   you usually hold file and shell tools in the same session as this bridge.
 
+## Finding sounds (2.6, verified on real Live 12.4.3)
+
+- **Search before you browse.** `search_library` reads Live's own library
+  database directly (works even with Live closed): samples, presets/racks,
+  MIDI files, grooves, Sets, Live Clips (`kind: "clip"`, .alc), plug-ins — by
+  name substring, Live tags (comma-separated, all must match; mine the `tags`
+  field of results for the vocabulary), kind, and source, sorted by how often
+  the user actually used each item. `search_library` with `similar_to` (a path or a name) instead
+  ranks by sonic similarity to that reference using Live's own audio
+  analysis — "more 808s like this one".
+- **Loading a hit:** when a result carries `browser_path_guess`, pass it
+  straight to `load_item` (verified: user-library sample → Simpler on the
+  target track). Samples always also work via `import_audio` with the
+  result's absolute `path` (forward slashes are fine). Core Library hits
+  carry no browser path (Live's browser arranges them by category, not disk
+  layout) — for those, search gives the exact name, so load native
+  presets via `insert_device`/browse by name, or ask the user.
+- A `staleness` field on results means Live has database writes not yet
+  visible to the search — very recent additions may be missing; everything
+  else is current.
+
 ## Plug-ins and presets (2.4, verified on real Live 12.4.3)
 
 - Load third-party plug-ins via the `plugins` browser root:
@@ -40,52 +61,7 @@ verified against real Live. Deeper design rationale and Live API facts:
 - Native devices: `insert_device` by exact name, no browser round-trip.
 - First `load_item` in a fresh Live session can take up to 120 s (indexing).
 
-## Take lanes & deep device control (2.7, verified on real Live 12.4.3)
-
-- **Take-lane variations:** `create_take_lane` (name it), then
-  `create_arrangement_clip`/`add_notes`/`transform_clip` with the same
-  `take_lane_index` + `arrangement_clip_index` — indices count within the
-  lane. Lanes and their clips show up in `get_arrangement`. Live exposes no API
-  for deleting take lanes, so reuse them before creating more; the bridge caps
-  them at 8 per track. A lane clip also remains until its track is deleted. The
-  user auditions and comps lanes in Live's UI; the bridge writes into them.
-- **Simpler, EQ Eight, and Drift expose class-level controls:**
-  `get_devices` with a device_index reports `class_properties` (Simpler's
-  playback_mode/slicing modes/voices, EQ Eight's global_mode (Stereo|L/R|M/S)
-  and oversample, Drift's voice mode/count and full mod matrix with Live's
-  own choice labels) plus `class_methods`. Set them through
-  set_device_parameters by name with the label ("One-Shot", "M/S") or
-  true/false; run Simpler's sample ops via `invoke`:
-  `[{method: "reverse"}]`, `[{method: "warp_as", beats: 4}]` — warp methods
-  appear in class_methods only when their can_warp_* gate is true.
-- **One instrument per chain:** `insert_device` refuses a second instrument
-  on a track that already has one (Live's rule). To swap the sound, load the
-  new sample/instrument with load_item (it replaces in place) or delete the
-  old device first.
-
-## Finding sounds (2.6, verified on real Live 12.4.3)
-
-- **Search before you browse.** `search_library` reads Live's own library
-  database directly (works even with Live closed): samples, presets/racks,
-  MIDI files, grooves, Sets, Live Clips (`kind: "clip"`, .alc), plug-ins — by
-  name substring, Live tags
-  (comma-separated, all must match; mine the `tags` field of results for the
-  vocabulary), kind, and source, sorted by how often the user actually used
-  each item. `search_library` with `similar_to` (a path or a name) instead
-  ranks by sonic similarity to that reference using Live's own audio
-  analysis — "more 808s like this one".
-- **Loading a hit:** when a result carries `browser_path_guess`, pass it
-  straight to `load_item` (verified: user-library sample → Simpler on the
-  target track). Samples always also work via `import_audio` with the
-  result's absolute `path` (forward slashes are fine). Core Library hits
-  carry no browser path (Live's browser arranges them by category, not disk
-  layout) — for those, search gives the exact name, so load native
-  presets via `insert_device`/browse by name, or ask the user.
-- A `staleness` field on results means Live has database writes not yet
-  visible to the search — very recent additions may be missing; everything
-  else is current.
-
-## Reducing model usage (2.5)
+## Writing notes and keeping replies small (2.5)
 
 - **Write notes as notation, not JSON.** `add_notes` takes a `notation` string:
   stateful prefixes (`v100` velocity / `v90-110` range, `n/16` duration with
@@ -107,36 +83,6 @@ verified against real Live. Deeper design rationale and Live API facts:
 - **Reads omit default-valued fields:** session overview skips empty clip slots and
   sends (flags bring them back); device/note fields at their defaults are
   simply absent — absent = default, never "unknown".
-
-## Looking at anything else: `inspect` (2.19, verified on real Live 12.4.6)
-
-- When no dedicated tool shows what you need, `inspect` reads any object in
-  Live's API by its canonical path, as Max for Live writes it:
-  `live_set`, `live_set tracks 0 mixer_device volume`, `live_set tracks 2
-  devices 0 drum_pads 36 chains 0 devices 0 chains 0 devices 0 sample` (a
-  kit sample's file_path). Follow `children` to walk down; `properties`
-  limits the read.
-- It only reads. Use the dedicated tools to change anything — they validate,
-  group undo, and guard against a changed set; `inspect` has no write side.
-- `unreadable` lists properties that don't apply to that object (e.g. arm on
-  the master track); that's normal.
-
-## Measuring the mix (2.17, verified on real Live 12.4.6)
-
-- `capture_audio` records Live's master output for `length_beats` from
-  `start_beats` and returns the measurements: integrated loudness (LUFS),
-  loudness range, true peak (dBTP), RMS, crest factor, an octave-band
-  spectrum (dB below the loudest band) and stereo correlation/width. It plays
-  the set audibly — say so before you run it — and needs the transport
-  stopped. It uses a temporary track that is removed afterwards.
-- `analyze_audio` measures any WAV/AIFF by path: a bounce, an export, a
-  sample before you load it.
-- Reading the numbers: streaming platforms normalize to about -14 LUFS; keep
-  true peak under -1 dBTP. A mono source on both channels reads +3 LU over
-  the file itself (the standard sums channels). Correlation near +1 is
-  near-mono, near 0 very wide, negative is a phase problem.
-- This needs no Max for Live — prefer it over `get_audio_levels` for anything
-  you'll act on; use `get_track_meters` for a quick "is it sounding?".
 
 ## Setting parameters by what Live shows (2.14, verified on real Live 12.4.6)
 
@@ -171,6 +117,46 @@ verified against real Live. Deeper design rationale and Live API facts:
   the file); an empty pad is created with a new Simpler. Undo: a replace is
   one step, a new pad two, a name one more.
 
+## Take lanes & deep device control (2.7, verified on real Live 12.4.3)
+
+- **Take-lane variations:** `create_take_lane` (name it), then
+  `create_arrangement_clip`/`add_notes`/`transform_clip` with the same
+  `take_lane_index` + `arrangement_clip_index` — indices count within the
+  lane. Lanes and their clips show up in `get_arrangement`. Live exposes no API
+  for deleting take lanes, so reuse them before creating more; the bridge caps
+  them at 8 per track. A lane clip also remains until its track is deleted. The
+  user auditions and comps lanes in Live's UI; the bridge writes into them.
+- **Simpler, EQ Eight, and Drift expose class-level controls:**
+  `get_devices` with a device_index reports `class_properties` (Simpler's
+  playback_mode/slicing modes/voices, EQ Eight's global_mode (Stereo|L/R|M/S)
+  and oversample, Drift's voice mode/count and full mod matrix with Live's
+  own choice labels) plus `class_methods`. Set them through
+  set_device_parameters by name with the label ("One-Shot", "M/S") or
+  true/false; run Simpler's sample ops via `invoke`:
+  `[{method: "reverse"}]`, `[{method: "warp_as", beats: 4}]` — warp methods
+  appear in class_methods only when their can_warp_* gate is true.
+- **One instrument per chain:** `insert_device` refuses a second instrument
+  on a track that already has one (Live's rule). To swap the sound, load the
+  new sample/instrument with load_item (it replaces in place) or delete the
+  old device first.
+
+## Measuring the mix (2.17, verified on real Live 12.4.6)
+
+- `capture_audio` records Live's master output for `length_beats` from
+  `start_beats` and returns the measurements: integrated loudness (LUFS),
+  loudness range, true peak (dBTP), RMS, crest factor, an octave-band
+  spectrum (dB below the loudest band) and stereo correlation/width. It plays
+  the set audibly — say so before you run it — and needs the transport
+  stopped. It uses a temporary track that is removed afterwards.
+- `analyze_audio` measures any WAV/AIFF by path: a bounce, an export, a
+  sample before you load it.
+- Reading the numbers: streaming platforms normalize to about -14 LUFS; keep
+  true peak under -1 dBTP. A mono source on both channels reads +3 LU over
+  the file itself (the standard sums channels). Correlation near +1 is
+  near-mono, near 0 very wide, negative is a phase problem.
+- This needs no Max for Live — prefer it over `get_audio_levels` for anything
+  you'll act on; use `get_track_meters` for a quick "is it sounding?".
+
 ## Undo (2.12, verified on real Live 12.4.6)
 
 - Each write call is one step in Live's undo history (a rename inside it
@@ -180,6 +166,19 @@ verified against real Live. Deeper design rationale and Live API facts:
   your change, ask before undoing — otherwise you revert their work.
 - Prefer undo over hand-reverting: re-writing old values by hand loses
   anything you didn't read first.
+
+## Looking at anything else: `inspect` (2.19, verified on real Live 12.4.6)
+
+- When no dedicated tool shows what you need, `inspect` reads any object in
+  Live's API by its canonical path, as Max for Live writes it:
+  `live_set`, `live_set tracks 0 mixer_device volume`, `live_set tracks 2
+  devices 0 drum_pads 36 chains 0 devices 0 chains 0 devices 0 sample` (a
+  kit sample's file_path). Follow `children` to walk down; `properties`
+  limits the read.
+- It only reads. Use the dedicated tools to change anything — they validate,
+  group undo, and guard against a changed set; `inspect` has no write side.
+- `unreadable` lists properties that don't apply to that object (e.g. arm on
+  the master track); that's normal.
 
 ## Verified arrangement workflow
 

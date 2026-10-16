@@ -11,8 +11,7 @@ Focus: **stable MIDI readback and precise edits**, **clip automation
 envelopes**, **third-party VST/VST3 loading**, and **audio-level feedback**
 (per-track meters plus an optional calibrated loudness/spectrum meter). Core
 needs no Max for Live. MIT licensed. Every verified fact is from Live 12.4.3
-(Trial); other editions should work but are untested. Limits: one MCP client
-at a time; installing requires a local checkout.
+(Trial); other editions should work but are untested.
 
 **Status: experimental, verified on both platforms.** Windows 11 end-to-end;
 macOS via the full 42-step live checkpoint (Apple Silicon Mac mini, macOS
@@ -23,37 +22,47 @@ Tahoe 26.6.1, 2026-08-12) over its Unix-socket transport — both on Live
 
 50 tools:
 
-- Read the whole session at a glance.
-- Create/rename/mix tracks; create, duplicate, launch, and edit clips.
+- Read the whole session at a glance; look at any other object in Live's API
+  by its path with the read-only `inspect`.
+- Create, rename and mix tracks; create, duplicate, launch, and edit clips
+  and scenes.
 - Write MIDI by note name ("C3", "F#4" — Ableton convention, C3=60) with
-  per-note chance and velocity spread; edit single notes by ID without
-  rewriting the clip.
+  per-note chance and velocity spread, or in a compact bar|beat notation;
+  edit single notes by ID without rewriting the clip; reshape a clip's notes
+  (swing, quantize, ramps, ratchets) without reading them first.
 - Draw automation envelopes on session clips — any device knob or the track
   mixer (arrangement clips can't hold clip automation; a Live API limit).
-- Set the song's key and scale.
-- Build on the Arrangement timeline: create MIDI clips directly on it, stamp
-  session loops onto it, drop named locators, edit timeline clips.
+- Build on the Arrangement timeline: create MIDI clips directly on it or in
+  take lanes, stamp session loops onto it, drop named locators, edit timeline
+  clips.
 - Import audio into the session or timeline — the landing pad for sample
   generation: write a file, call `import_audio`.
 - Browse the library and load instruments/effects — including third-party
   VST/VST3 plug-ins (2.4) — or insert native devices by name.
 - Search Live's own library database offline (samples, presets, MIDI,
   grooves, plug-ins by name/tag/kind, ranked by how often you use them) and
-  rank sounds by **sonic similarity** using Live's own audio analysis (2.6).
-- Turn any device knob with its human-readable choices visible.
-- Read every track's output meters (core API — is it making sound, how
-  loud?); control tempo, loop, metronome, playback, and (guarded)
-  arrangement recording.
-- Inspect calibrated audio levels with the optional device below.
+  rank sounds by **sonic similarity** using Live's own audio analysis.
+- Turn any device knob — on regular, return and Main tracks — by a 0-1 value
+  or by what Live displays ("-6 dB", "800 Hz", "High-pass").
+- Work inside racks, including Drum Racks and the nested racks of Live's Core
+  Library kits: add and remove devices on a pad, name, mute, solo and mix
+  pads (`set_chain`), and put a sample on a pad (`load_sample`).
+- Undo and redo: each write is one step in Live's undo history.
+- Measure the mix without Max for Live: `capture_audio` records Live's output
+  and reports loudness (LUFS), true peak, an octave-band spectrum and stereo
+  width; `analyze_audio` does the same for any WAV or AIFF file.
+- Control tempo, key and scale, loop, metronome, playback, and (guarded)
+  arrangement recording; read every track's output meters (is it making
+  sound, how loud?).
+- Install or update its own Live-side script (`install_control_surface`).
 
 ## Optional audio metering (needs Max for Live)
 
 `get_audio_levels` reads the "AbletonMCP Tap" device on the Main track
-(Suite, or Standard with the M4L add-on): stereo loudness and peaks in dBFS
-(anti-phase safe), a latched clipping flag, and a 10-band octave view
-(31 Hz–16 kHz). Measurements, not streamed audio. Setup:
-[m4l/README-lab.md](m4l/README-lab.md). Without the device it answers
-`available: false`; `get_track_meters` still gives coarse levels.
+(Suite, or Standard with the M4L add-on): stereo loudness and peaks in dBFS,
+a latched clipping flag, and a 10-band octave view — measurements, not
+streamed audio. Setup: [m4l/README-lab.md](m4l/README-lab.md).
+Without the device it answers `available: false`.
 
 ## How it works
 
@@ -71,12 +80,11 @@ your session through it, deletes included. This is a single-user tool by
 design; the reasoning, and what is done to keep the boundary tight, is in
 [docs/architecture.md](docs/architecture.md#trust-model).
 
-Two halves, one source of truth: every tool is generated from the command
-registry the Live-side script executes — nothing is defined twice, and a
-schema-hash handshake warns if the halves drift. Design decisions and
-verified Live API facts: [docs/architecture.md](docs/architecture.md). The
-playbook an AI agent should read before driving a session:
-[AGENTS.md](AGENTS.md).
+Every tool is generated from the command registry the Live-side script
+executes, so nothing is defined twice, and a version and schema handshake
+warns if the two halves drift apart. Design decisions and verified Live API
+facts: [docs/architecture.md](docs/architecture.md). The playbook an AI agent
+should read before driving a session: [AGENTS.md](AGENTS.md).
 
 ## Setup
 
@@ -109,15 +117,14 @@ Tempo & MIDI**, set a free Control Surface dropdown to **AbletonMCP**
 (Input/Output: None).
 
 Several clients (Claude Desktop, Claude Code, Codex) can stay connected at
-once; their commands run in Live one at a time.
+once. Their commands run in Live one at a time, and a write is refused if the
+set's tracks, devices, clips or scenes changed since that client last read
+them.
 
 ## Health check
 
-Ask the AI to run `get_bridge_status`, or:
-
-```bash
-.venv/Scripts/python.exe scripts/smoke_test.py
-```
+Ask the AI to run `get_bridge_status`. From a checkout,
+`uv run python scripts/smoke_test.py` checks the connection from a terminal.
 
 "Cannot connect" almost always means Live isn't running or the control
 surface isn't enabled in Preferences.
@@ -125,29 +132,28 @@ surface isn't enabled in Preferences.
 ## Development
 
 ```bash
-uv pip install -e ".[dev]"
-.venv/Scripts/python.exe -m pytest
-.venv/Scripts/ableton-mcp-install
-uv run python packaging/build_mcpb.py   # dist/ableton-mcp-<version>.mcpb
+uv run --extra dev pytest
+uv run --extra dev ruff check .
+uv run ableton-mcp-install
+uv run python packaging/build_mcpb.py     # dist/ableton-mcp-<version>.mcpb
 ```
 
 `ableton-mcp-install` pushes handler changes (`control_surface/commands`,
-`utils`) into a running Live without a restart; it tells you when a change
-needs one.
+`utils`) into a running Live without a restart (`--no-reload` skips that); it
+tells you when a change needs one.
 
 Tests run without Live — `tests/mock_live.py` encodes real-Live behaviour
 (verified on 12.4.3) with provenance comments. `scripts/live_checkpoint.py`
 re-verifies the full surface against a running Live and leaves an audible
 "MCP Test" track. One checkpoint step loads a specific drum sample from the
-author's User Library — edit that path on another machine or it fails late
-(see the roadmap item on making the checkpoint self-contained). Generated
-samples go in `samples/` (override with `ABLETON_MCP_SAMPLES_DIR`).
+author's User Library — edit that path on another machine or it fails late.
+Generated samples go in `samples/` (override with `ABLETON_MCP_SAMPLES_DIR`).
+Release history and remaining work: [docs/roadmap.md](docs/roadmap.md).
 
 ### Live on another machine (e.g. a Windows VM)
 
-Live's listeners stay loopback-only (see the trust model in
-`docs/architecture.md`), so reach them through an SSH tunnel and point the MCP
-server at it:
+Live's listeners stay loopback-only, so reach them through an SSH tunnel and
+point the MCP server at it:
 
 ```sh
 ssh -N -L 9877:127.0.0.1:9877 -L 9878:127.0.0.1:9878 <vm>
