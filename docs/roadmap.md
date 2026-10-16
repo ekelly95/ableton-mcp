@@ -327,6 +327,16 @@ Live 12.4.6.
   spec but not yet tested in Claude Desktop itself.
 - First public release; the .mcpb is attached to the GitHub release.
 
+### 2.21.2 — Bundle pins Python 3.13
+
+- Tested on Windows the way an MCPB host runs it (`uv run --directory`): uv
+  picked CPython 3.15, `pydantic-core` had no 3.15 wheel, and the bundle
+  failed to start (it tried to compile with Rust + MSVC). The bundle now
+  ships `.python-version` = 3.13, and the README's uvx command passes
+  `--python 3.13`. Verified on Windows 11: dependencies install from wheels,
+  50 tools, Live reachable, `install_control_surface` writes the real User
+  Library and correctly asks for a restart when config.py changed.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained

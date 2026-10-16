@@ -12,7 +12,7 @@ import os
 import sys
 from pathlib import Path
 
-VERSION: str = "2.21.1"
+VERSION: str = "2.21.2"
 CONTROL_SURFACE_NAME: str = "AbletonMCP"
 
 # IPC: TCP on Windows (no Unix sockets), Unix socket elsewhere

@@ -22,7 +22,7 @@ def test_bundle_is_complete_and_valid(tmp_path):
         manifest = json.loads(z.read("manifest.json"))
     jsonschema.validate(manifest, json.loads(SCHEMA.read_text()))
     assert manifest["server"]["type"] == "uv"
-    assert {"server.py", "pyproject.toml", "uv.lock", "AGENTS.md"} <= names
+    assert {"server.py", "pyproject.toml", "uv.lock", "AGENTS.md", ".python-version"} <= names
     assert "control_surface/commands/clips.py" in names
     assert "mcp_server/install.py" in names
     assert "m4l/AbletonMCP Tap.amxd" in names

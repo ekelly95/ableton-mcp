@@ -103,8 +103,10 @@ needs 12.3+).
   no Python is needed) but hasn't yet been tested in Claude Desktop itself —
   please open an issue if it doesn't install.
 - **Any MCP client, via [uv](https://docs.astral.sh/uv/):** register the
-  command `uvx --from git+https://github.com/ekelly95/ableton-mcp ableton-mcp`
-  (Codex: `command = 'uvx'`, `args = ['--from', 'git+https://github.com/ekelly95/ableton-mcp', 'ableton-mcp']`).
+  command `uvx --python 3.13 --from git+https://github.com/ekelly95/ableton-mcp ableton-mcp`
+  (Codex: `command = 'uvx'`, `args = ['--python', '3.13', '--from', 'git+https://github.com/ekelly95/ableton-mcp', 'ableton-mcp']`).
+  `--python 3.13` matters: without it uv may pick a Python so new that a
+  dependency has no prebuilt wheel yet and needs compilers to install.
 - **From a checkout (development):**
   ```bash
   git clone https://github.com/ekelly95/ableton-mcp.git && cd ableton-mcp

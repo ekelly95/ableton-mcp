@@ -30,6 +30,11 @@ SCHEMA = ROOT / "packaging" / "mcpb-manifest-v0.4.schema.json"
 INCLUDE_DIRS = ("mcp_server", "control_surface", "m4l")
 INCLUDE_FILES = ("pyproject.toml", "uv.lock", "README.md", "LICENSE", "AGENTS.md")
 ENTRY_POINT = "server.py"
+# uv otherwise picks the newest Python it can download. On Windows that was
+# 3.15, for which pydantic-core had no wheel yet, so uv tried compiling it
+# (Rust + MSVC) and the bundle failed to start. Pin a version every
+# dependency ships wheels for; uv honours .python-version in the project dir.
+PYTHON_VERSION = "3.13"
 ENTRY_SOURCE = '''"""MCP Bundle entry point: the host runs `uv run --directory <bundle> server.py`."""
 
 from mcp_server import run
@@ -110,6 +115,7 @@ def build(out_dir: Path | None = None) -> Path:
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as bundle:
         bundle.writestr("manifest.json", json.dumps(data, indent=2) + "\n")
         bundle.writestr(ENTRY_POINT, ENTRY_SOURCE)
+        bundle.writestr(".python-version", PYTHON_VERSION + "\n")
         for name in INCLUDE_FILES:
             if (ROOT / name).exists():
                 bundle.write(ROOT / name, name)
