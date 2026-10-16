@@ -238,6 +238,18 @@ Live 12.4.6.
   a forward-slash path, missing-file error. Undo: replace is one step, a new
   pad two (Live commits the chain separately), a name one more. 46 tools.
 
+### 2.16.0 — Hot reload
+
+- `install_control_surface.py --reload` reloads command handlers in a running
+  Live — no restart. An internal `reload_commands` command drops
+  `commands/` and `utils/` from `sys.modules` and imports them fresh (no stale
+  cross-module references); a failed import restores the previous modules and
+  commands. The socket server, marshal, registry, errors and config are not
+  reloaded, and the script says when a change touches them.
+- Verified on Live 12.4.6: a changed handler went live with no restart, a
+  syntax error was refused while the old handlers kept serving, and the
+  original came back the same way.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained

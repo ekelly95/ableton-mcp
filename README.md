@@ -141,7 +141,11 @@ surface isn't enabled in Preferences.
 ```bash
 uv pip install -e ".[dev]"
 .venv/Scripts/python.exe -m pytest
+.venv/Scripts/python.exe scripts/install_control_surface.py --reload
 ```
+
+`--reload` pushes handler changes (`control_surface/commands`, `utils`) into a
+running Live without a restart; it tells you when a change needs one.
 
 Tests run without Live — `tests/mock_live.py` encodes real-Live behaviour
 (verified on 12.4.3) with provenance comments. `scripts/live_checkpoint.py`

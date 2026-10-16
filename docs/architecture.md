@@ -553,7 +553,12 @@ No provider dependency ever goes into the bridge.
   Documents) before per-install ProgramData locations. It copies over existing
   files rather than deleting the target because OneDrive and Ableton's indexer
   may hold locks after Live closes.
-- After a `control_surface` change, rerun the install script and restart Live.
+- After a `control_surface` change, rerun the install script with `--reload`:
+  changes under `commands/` and `utils/` hot-reload into the running Live
+  (2.16, `control_surface/reloader.py`; verified on Live 12.4.6 — a broken
+  file is refused and Live keeps the previous handlers). Anything else — the
+  socket server, marshal, registry, errors, config/VERSION, `__init__` — still
+  needs a Live restart, and the script says so.
 - After a version change in `pyproject.toml`, reinstall the editable package in
   the active virtual environment. Stale editable-install hooks can cause an MCP
   client to report `ModuleNotFoundError: No module named 'mcp_server'` even
