@@ -6,6 +6,7 @@ the real-Live checkpoint; corrections must be back-ported here with a
 comment naming the verified behaviour.
 """
 
+import copy
 import itertools
 import sys
 import types
@@ -641,7 +642,9 @@ class MockTrack:
         self._insert_arrangement_clip(clone)
         if self.duplicate_returns_none:
             return None
-        return clone
+        # CONFIRMED (Live 12.4.6): the returned object is a fresh wrapper, not
+        # identical (`is`) to the entry later read from arrangement_clips.
+        return copy.copy(clone)
 
     def create_audio_clip(self, file_path: str, position: float) -> MockClip:
         """LOM-documented: absolute path to a supported audio file, arrangement only."""
@@ -843,6 +846,10 @@ class MockSong:
         self.is_playing = True
 
     def stop_playing(self) -> None:
+        # CONFIRMED (Live 12.4.6): stopping an already-stopped transport sends
+        # the playhead back to the start (the double-press Stop behaviour).
+        if not self.is_playing:
+            self.current_song_time = 0.0
         self.is_playing = False
 
     def continue_playing(self) -> None:

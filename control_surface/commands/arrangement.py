@@ -328,15 +328,12 @@ def place_clip_in_arrangement(
     track = get_track(song, track_index)
     session_clip = get_clip(track, slot_index)
 
-    returned = track.duplicate_clip_to_arrangement(session_clip, destination_time)
+    track.duplicate_clip_to_arrangement(session_clip, destination_time)
 
-    # LOM says the new clip is returned; fall back to an epsilon start-time
-    # re-scan if a Live version hands back nothing.
-    if returned is not None:
-        index = next((i for i, c in enumerate(track.arrangement_clips) if c is returned), -1)
-        placed = (index, returned)
-    else:
-        placed = _find_clip_at(track, destination_time)
+    # Find the new clip by start time rather than by the returned object: Live
+    # hands back a fresh wrapper on every access, so an identity match against
+    # arrangement_clips never succeeds (it reported index -1 on Live 12.4.6).
+    placed = _find_clip_at(track, destination_time)
     if placed is None:
         raise LiveAPIError(
             f"Clip placement at {destination_time} could not be confirmed — "

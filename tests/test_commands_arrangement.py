@@ -129,6 +129,7 @@ class TestArrangement:
             destination_time=8.0,
         )
         assert result["placed"]["start_time"] == 8.0
+        assert result["placed"]["arrangement_clip_index"] == 0
         # end_time is derivable (start + length) and deliberately omitted.
         assert result["placed"]["length"] == 4.0
         assert "end_time" not in result["placed"]

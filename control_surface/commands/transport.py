@@ -124,7 +124,10 @@ def transport_control(ctx, action: str, position: float | None = None) -> dict[s
             song.start_playing()
     elif action == "continue":
         song.continue_playing()
-    else:
+    elif position is None or song.is_playing:
+        # Stopping an already-stopped transport sends the playhead back to the
+        # start (confirmed on Live 12.4.6), which would undo the seek the
+        # first phase just made.
         song.stop_playing()
     return _transport_state(song)
 

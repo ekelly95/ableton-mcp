@@ -69,6 +69,10 @@ def test_stop_with_position_parks_then_confirms(registry, ctx, song):
     second = run_command(registry, ctx, "transport_control", action="stop", position=8.0)
     assert second["is_playing"] is False
     assert second["current_song_time"] == 8.0
+    # A second stop_playing would reset the playhead to the start on the next
+    # tick (Live 12.4.6) — it must still be parked at 8 afterwards.
+    later = run_command(registry, ctx, "get_transport_state")
+    assert later["current_song_time"] == 8.0
 
 
 def test_set_transport_batch(registry, ctx, song):
