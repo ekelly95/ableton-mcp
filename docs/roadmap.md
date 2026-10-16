@@ -280,6 +280,17 @@ Live 12.4.6.
   analysis unless `keep_recording` — measuring a mix no longer leaves files
   in the project.
 
+### 2.19.0 — inspect: a read-only escape hatch
+
+- New `inspect` tool: any object in Live's API by canonical path (Max for
+  Live's syntax), returning its readable properties and its children to walk
+  into. Properties only — methods are never called — so it cannot change the
+  set; writes stay with the validated tools. Two routing-channel properties
+  are skipped as unverified suspects in a Live 12.4.6 crash.
+- Verified on Live 12.4.6: song, application, views, tracks, mixer,
+  parameters, master, scenes, clip slots, and a Core Library kit down to a
+  pad's nested Simpler and its sample file path. 49 tools.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained

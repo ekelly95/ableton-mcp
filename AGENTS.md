@@ -108,6 +108,19 @@ verified against real Live. Deeper design rationale and Live API facts:
   sends (flags bring them back); device/note fields at their defaults are
   simply absent — absent = default, never "unknown".
 
+## Looking at anything else: `inspect` (2.19, verified on real Live 12.4.6)
+
+- When no dedicated tool shows what you need, `inspect` reads any object in
+  Live's API by its canonical path, as Max for Live writes it:
+  `live_set`, `live_set tracks 0 mixer_device volume`, `live_set tracks 2
+  devices 0 drum_pads 36 chains 0 devices 0 chains 0 devices 0 sample` (a
+  kit sample's file_path). Follow `children` to walk down; `properties`
+  limits the read.
+- It only reads. Use the dedicated tools to change anything — they validate,
+  group undo, and guard against a changed set; `inspect` has no write side.
+- `unreadable` lists properties that don't apply to that object (e.g. arm on
+  the master track); that's normal.
+
 ## Measuring the mix (2.17, verified on real Live 12.4.6)
 
 - `capture_audio` records Live's master output for `length_beats` from
