@@ -83,47 +83,6 @@ def serialize_track(
 
 
 @REGISTRY.register(
-    "get_tracks",
-    params=[
-        ParamSchema("include_devices", ParamType.BOOL, required=False, default=False),
-        ParamSchema("include_clips", ParamType.BOOL, required=False, default=False),
-    ],
-    category="tracks",
-    read_only=True,
-    description=(
-        "All tracks with mixer state (volume/pan normalized 0-1; volume 0.85 is 0 dB), "
-        "plus return tracks and master. Flags add device lists and clip-slot summaries."
-    ),
-    output_schema={
-        "type": "object",
-        "properties": {
-            "tracks": {"type": "array"},
-            "return_tracks": {"type": "array"},
-            "master_track": {"type": "object"},
-            "track_count": {"type": "integer"},
-        },
-    },
-)
-def get_tracks(ctx, include_devices: bool = False, include_clips: bool = False) -> dict[str, Any]:
-    song = ctx.song
-    tracks = [
-        serialize_track(i, t, "track", include_devices, include_clips)
-        for i, t in enumerate(song.tracks)
-    ]
-    returns = [
-        serialize_track(i, t, "return", include_devices, False)
-        for i, t in enumerate(song.return_tracks)
-    ]
-    master = serialize_track(0, song.master_track, "master", include_devices, False)
-    return {
-        "tracks": tracks,
-        "return_tracks": returns,
-        "master_track": master,
-        "track_count": len(tracks),
-    }
-
-
-@REGISTRY.register(
     "get_track_meters",
     params=[],
     category="tracks",

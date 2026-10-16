@@ -172,8 +172,8 @@ def check_duplicate_clip(client):
 def check_launch(client):
     client.send("launch_clip", track_index=state["track"], slot_index=0)
     time.sleep(1.5)
-    clips = client.send("get_clips", track_index=state["track"])
-    slot = clips["tracks"][0]["clip_slots"][0]
+    overview = client.send("get_session_overview", track_index=state["track"])
+    slot = overview["tracks"][0]["clip_slots"][0]
     playing = slot["is_playing"] or slot["is_triggered"]
     client.send("stop_clips", track_index=state["track"])
     # Firing a clip starts Live's TRANSPORT, and stop_clips doesn't stop it —
@@ -208,13 +208,13 @@ def check_delete_track(client):
 
 @step("create + delete scene")
 def check_scenes(client):
-    before = len(client.send("get_clips")["scenes"])
+    before = len(client.send("get_session_overview")["scenes"])
     client.send("create_scene")
     client.send("create_scene")
-    after = len(client.send("get_clips")["scenes"])
+    after = len(client.send("get_session_overview")["scenes"])
     client.send("delete_scene", scene_index=after - 1)
     client.send("delete_scene", scene_index=after - 2)
-    final = len(client.send("get_clips")["scenes"])
+    final = len(client.send("get_session_overview")["scenes"])
     assert final == before, f"scene count {final} != {before}"
     return None
 

@@ -22,7 +22,6 @@ from ..utils.live_helpers import (
     resolve_clip_ref,
 )
 from ..utils.pitch import midi_to_pitch_name, pitch_to_midi
-from .tracks import serialize_clip_summary
 
 # Shared by the five commands that address a clip in EITHER view.
 _SLOT_XOR = ParamSchema(
@@ -78,44 +77,6 @@ def _serialize_note(note: Any) -> dict[str, Any]:
 
 def _fetch_all_notes(clip: Any):
     return clip.get_notes_extended(_ALL_PITCHES[0], _ALL_PITCHES[1], 0.0, _MAX_TIME_SPAN)
-
-
-@REGISTRY.register(
-    "get_clips",
-    params=[
-        ParamSchema(
-            "track_index",
-            ParamType.INT,
-            required=False,
-            min_value=0,
-            description="Limit to one track; omit for all tracks",
-        ),
-    ],
-    category="clips",
-    read_only=True,
-    description="Clip slots per track: which have clips, names, lengths, play state. Scene names included.",
-    output_schema={
-        "type": "object",
-        "properties": {
-            "tracks": {"type": "array"},
-            "scenes": {"type": "array"},
-        },
-    },
-)
-def get_clips(ctx, track_index: int | None = None) -> dict[str, Any]:
-    song = ctx.song
-    if track_index is not None:
-        tracks = [(track_index, get_track(song, track_index))]
-    else:
-        tracks = list(enumerate(song.tracks))
-
-    result = []
-    for index, track in tracks:
-        slots = [serialize_clip_summary(i, slot) for i, slot in enumerate(track.clip_slots)]
-        result.append({"track_index": index, "track_name": track.name, "clip_slots": slots})
-
-    scenes = [{"scene_index": i, "name": scene.name} for i, scene in enumerate(song.scenes)]
-    return {"tracks": result, "scenes": scenes}
 
 
 @REGISTRY.register(

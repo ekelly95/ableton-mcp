@@ -139,12 +139,19 @@ class TestClips:
         assert result["stopped"] == "all"
         assert not with_clip.is_playing
 
-    def test_get_clips(self, registry, ctx, with_clip):
-        result = run_command(registry, ctx, "get_clips")
-        assert len(result["tracks"]) == 2
+    def test_overview_one_track_with_empty_slots(self, registry, ctx, with_clip):
+        # get_clips folded into get_session_overview in 2.11.
+        result = run_command(
+            registry, ctx, "get_session_overview", track_index=0, include_empty_slots=True
+        )
+        assert [t["index"] for t in result["tracks"]] == [0]
         assert result["tracks"][0]["clip_slots"][0]["has_clip"] is True
         assert result["tracks"][0]["clip_slots"][1]["has_clip"] is False
         assert len(result["scenes"]) == 4
+
+    def test_overview_track_index_out_of_range(self, registry, ctx):
+        with pytest.raises(LiveAPIError, match="out of range"):
+            run_command(registry, ctx, "get_session_overview", track_index=9)
 
 
 class TestScenes:

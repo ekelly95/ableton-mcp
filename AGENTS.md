@@ -71,8 +71,9 @@ verified against real Live. Deeper design rationale and Live API facts:
   name substring, Live tags
   (comma-separated, all must match; mine the `tags` field of results for the
   vocabulary), kind, and source, sorted by how often the user actually used
-  each item. `find_similar` ranks by sonic similarity to a reference sound
-  using Live's own audio analysis — "more 808s like this one".
+  each item. `search_library` with `similar_to` (a path or a name) instead
+  ranks by sonic similarity to that reference using Live's own audio
+  analysis — "more 808s like this one".
 - **Loading a hit:** when a result carries `browser_path_guess`, pass it
   straight to `load_item` (verified: user-library sample → Simpler on the
   target track). Samples always also work via `import_audio` with the

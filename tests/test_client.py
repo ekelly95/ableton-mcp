@@ -54,7 +54,7 @@ def test_reconnects_once_after_dead_socket():
     server = ScriptedServer.tcp(["drop", "serve"])
     client = AbletonClient(use_tcp=True, port=server.port)
     try:
-        assert client.send("get_tracks") == {"echo": "get_tracks"}
+        assert client.send("get_transport_state") == {"echo": "get_transport_state"}
     finally:
         client.close()
         server.close()
@@ -123,7 +123,7 @@ def test_second_connection_loss_is_translated():
     client = AbletonClient(use_tcp=True, port=server.port)
     try:
         with pytest.raises(AbletonConnectionError, match="Ableton Live running"):
-            client.send("get_tracks")
+            client.send("get_transport_state")
     finally:
         client.close()
         server.close()
@@ -139,7 +139,7 @@ def test_malformed_response_is_translated_and_never_resent():
     client = AbletonClient(use_tcp=True, port=server.port)
     try:
         with pytest.raises(AbletonConnectionError, match="malformed response"):
-            client.send("get_tracks")
+            client.send("get_transport_state")
         assert len(server.requests_received) == 1
     finally:
         client.close()

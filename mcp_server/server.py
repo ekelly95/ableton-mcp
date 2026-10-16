@@ -4,8 +4,8 @@ Tools are generated from control_surface's REGISTRY — imported directly, the
 single source of truth. Nothing here defines a tool schema by hand except the
 tools that cannot or need not run inside Live: get_bridge_status (reports
 whether Live is reachable), get_audio_levels (mcp_server/m4l.py, the optional
-tap), transform_clip (server-side composite), and search_library/find_similar
-(mcp_server/library.py — read Live's database files, never Live itself).
+tap), transform_clip (server-side composite), and search_library
+(mcp_server/library.py — reads Live's database files, never Live itself).
 
 All logging goes to stderr: stdout belongs to the MCP stdio transport.
 """
@@ -34,7 +34,6 @@ from .client import (  # noqa: E402
     AbletonConnectionError,
     CommandError,
 )
-from .library import find_similar as _find_similar  # noqa: E402
 from .library import search_library as _search_library  # noqa: E402
 from .m4l import AUDIO_LEVELS_TOOL, TapClient, get_audio_levels  # noqa: E402
 from .notation import parse_notation, serialize_notation  # noqa: E402
@@ -108,7 +107,9 @@ SEARCH_LIBRARY_TOOL = types.Tool(
         "Search Live's own library database (works even while Live is closed): "
         "samples, presets/racks, clips, MIDI files, grooves, Sets, plug-ins. "
         "Filter by name substring, Live tags, kind, source; sorted by how often "
-        "each item has been used. Give at least one filter. To load a hit: "
+        "each item has been used. Give at least one filter — or similar_to, "
+        "which instead ranks every analyzed file by how alike it sounds (Live's "
+        "own audio analysis; 'more 808s like this one'). To load a hit: "
         "browse/load_item with its browser_path_guess when present; for samples "
         "import_audio with its absolute path always works. Results reflect "
         "Live's last database snapshot (a staleness field says when that lags)."
@@ -144,6 +145,13 @@ SEARCH_LIBRARY_TOOL = types.Tool(
                     "any",
                 ],
             },
+            "similar_to": {
+                "type": "string",
+                "description": (
+                    "Reference sound: absolute path, or a name substring (best-used "
+                    "match). Not combinable with the other filters; limit max 50."
+                ),
+            },
             "limit": {"type": "integer", "minimum": 1, "maximum": 100},
         },
         "additionalProperties": False,
@@ -155,42 +163,12 @@ SEARCH_LIBRARY_TOOL = types.Tool(
             "matches": {"type": "array", "items": {"type": "object"}},
             "truncated": {"type": "boolean"},
             "staleness": {"type": "string"},
+            "reference": {"type": "object"},
+            "note": {"type": "string"},
         },
         "required": ["matches"],
     },
 )
-
-FIND_SIMILAR_TOOL = types.Tool(
-    name="find_similar",
-    description=(
-        "Rank library files by sonic similarity to a reference, using Live's "
-        "own per-file audio analysis (64-dim feature vectors — 'more sounds "
-        "like this 808'). Reference: exactly one of path (absolute) or query "
-        "(name substring; best-used match wins). Only files Live has analyzed "
-        "appear. Load hits like search_library hits."
-    ),
-    input_schema={
-        "type": "object",
-        "properties": {
-            "path": {"type": "string", "description": "Absolute path of the reference file"},
-            "query": {"type": "string", "description": "Name substring of the reference"},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 50},
-        },
-        "additionalProperties": False,
-    },
-    annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False),
-    output_schema={
-        "type": "object",
-        "properties": {
-            "reference": {"type": "object"},
-            "matches": {"type": "array", "items": {"type": "object"}},
-            "note": {"type": "string"},
-            "staleness": {"type": "string"},
-        },
-        "required": ["reference", "matches"],
-    },
-)
-
 
 # Fields transform statements may change; the write-back diff compares these.
 _TRANSFORM_FIELDS = (
@@ -299,7 +277,6 @@ def registry_tools() -> list[types.Tool]:
     # Library intelligence reads Live's database files, never Live itself —
     # also outside the registry hash.
     tools.append(SEARCH_LIBRARY_TOOL)
-    tools.append(FIND_SIMILAR_TOOL)
     return tools
 
 
@@ -417,8 +394,6 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
         # Library tools read Live's database files directly, never Live.
         if name == "search_library":
             return _search_library(arguments)
-        if name == "find_similar":
-            return _find_similar(arguments)
 
         if not drift.done:
             drift.check(ableton.ping())

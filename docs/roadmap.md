@@ -212,7 +212,6 @@ The following are intentionally excluded unless their constraints change:
   detecting tool-selection regressions.
 - An unrestricted run-arbitrary-code tool inside Live.
 - Bundled audio-generation or voice services.
-- Multiple simultaneous MCP clients; one serial client preserves ordering.
 - Arrangement automation lanes, which Live's exposed API does not provide.
 
 ## Verification checklist

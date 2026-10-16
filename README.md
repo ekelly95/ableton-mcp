@@ -21,7 +21,7 @@ Tahoe 26.6.1, 2026-08-12) over its Unix-socket transport — both on Live
 
 ## What the AI can do
 
-46 tools:
+43 tools:
 
 - Read the whole session at a glance.
 - Create/rename/mix tracks; create, duplicate, launch, and edit clips.

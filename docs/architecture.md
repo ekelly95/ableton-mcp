@@ -201,12 +201,12 @@ What mcp 2 stopped doing, and the server now does itself:
   everything and returns `is_error` results with the message ("Ableton is
   not reachable: …", "Ableton rejected the command: …").
 
-Five tools live outside the registry because they cannot (or need not) run
+Four tools live outside the registry because they cannot (or need not) run
 inside Live: `get_bridge_status` (server.py), `get_audio_levels`
 (mcp_server/m4l.py — the optional Max for Live tap, see below),
-`transform_clip` (mcp_server/transforms.py, 2.5), and `search_library` /
-`find_similar` (mcp_server/library.py, 2.6). Everything else is
-registry-generated.
+`transform_clip` (mcp_server/transforms.py, 2.5), and `search_library`
+(mcp_server/library.py, 2.6; similarity ranking via `similar_to`, the
+`find_similar` tool until 2.11). Everything else is registry-generated.
 
 ## Audio metering (2.3)
 
@@ -358,9 +358,10 @@ the state that never appears in `device.parameters`:
 
 ## Library intelligence (2.6)
 
-Two server-only tools (`search_library`, `find_similar` in mcp_server/
-library.py, declared beside transform_clip — outside the registry hash, no
-Live code, work with Live closed) read Live's own library SQLite databases at
+The server-only `search_library` tool (mcp_server/library.py, declared beside
+transform_clip — outside the registry hash, no Live code, works with Live
+closed; its `similar_to` option was the `find_similar` tool until 2.11) reads
+Live's own library SQLite databases at
 `%LOCALAPPDATA%\Ableton\Live Database\` (macOS:
 `~/Library/Application Support/Ableton/Live Database`; override
 `ABLETON_MCP_LIVE_DB_DIR`). Facts probed on the real DBs
@@ -388,7 +389,7 @@ tests/test_library.py's fixture schema:
 - `fe_values` joins on **file_id** (the `hash` column is opaque, never a
   key); `data` is 268 bytes: uint32 LE version=18, count=64, reserved, then
   64 float32 LE — Live's own audio feature vector. Cosine over all 6,199
-  vectors takes ~0.04 s in pure Python; find_similar ranks with it. One
+  vectors takes ~0.04 s in pure Python; `similar_to` ranks with it. One
   verification result ranked Impulse 606 and 808 Core Kit near Impulse 808.
 - `search_aggregation*` are FTS tables on a custom AbletonTokenizer that
   raises outside Live — search uses plain LIKE (wildcards escaped).
@@ -524,7 +525,11 @@ No provider dependency ever goes into the bridge.
   is clearer in a tool name than in a flexible parameter, particularly for
   destructive operations, and separate tools preserve permission granularity.
   Reconsider consolidation only with an evaluation harness that can measure
-  tool-selection regressions.
+  tool-selection regressions. 2.11 removed only near-duplicate reads
+  (`get_tracks`/`get_clips` into `get_session_overview`, `find_similar` into
+  `search_library`); every write and destructive tool stays separate. Measured
+  then: tool count barely moves the token cost — input schemas are ~63% of
+  it, so shared-parameter text is the lever.
 - **Built-in audio generators.** Clients can supply note data or generated
   audio through the existing MIDI and import tools. Offline key, tempo, or drum
   analysis may be added later as a separate optional package.

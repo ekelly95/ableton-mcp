@@ -55,7 +55,7 @@ def test_client_reconnects_once_over_unix_socket(socket_path):
     client = _unix_client(socket_path)
     try:
         # Read-only command: eligible for the one reconnect-and-resend.
-        assert client.send("get_tracks") == {"echo": "get_tracks"}
+        assert client.send("get_transport_state") == {"echo": "get_transport_state"}
     finally:
         client.close()
         server.close()

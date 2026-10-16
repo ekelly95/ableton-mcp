@@ -309,8 +309,30 @@ def _search_plugins(conn, query, tag_list, limit):
     return matches[:limit], len(matches) > limit
 
 
+def _looks_like_path(text: str) -> bool:
+    return text.startswith(("/", "\\\\")) or re.match(r"^[A-Za-z]:[\\/]", text) is not None
+
+
 def search_library(arguments: dict) -> dict:
     """Handler for the search_library tool (server-only, never touches Live)."""
+    similar_to = (arguments.get("similar_to") or "").strip()
+    if similar_to:
+        # Similarity ranking (formerly the find_similar tool) covers every file
+        # Live has analyzed; the name/tag filters below don't apply to it.
+        if (
+            (arguments.get("query") or "").strip()
+            or (arguments.get("tags") or "").strip()
+            or arguments.get("kind", "any") != "any"
+            or arguments.get("source", "any") != "any"
+        ):
+            raise ValueError(
+                "similar_to ranks the whole analyzed library; it can't be combined "
+                "with query, tags, kind or source"
+            )
+        reference = "path" if _looks_like_path(similar_to) else "query"
+        limit = min(int(arguments.get("limit", _SIMILAR_LIMIT_DEFAULT)), _SIMILAR_LIMIT_MAX)
+        return find_similar({reference: similar_to, "limit": limit})
+
     query = (arguments.get("query") or "").strip()
     tag_list = [t.strip() for t in (arguments.get("tags") or "").split(",") if t.strip()]
     kind = arguments.get("kind", "any")

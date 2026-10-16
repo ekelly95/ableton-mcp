@@ -6,23 +6,17 @@ from control_surface.registry import LiveAPIError, ValidationError
 from tests.helpers import run_command
 
 
-def test_get_tracks_shape(registry, ctx):
-    result = run_command(registry, ctx, "get_tracks")
-    assert result["track_count"] == 2
+def test_overview_track_shape(registry, ctx):
+    # get_tracks folded into get_session_overview in 2.11.
+    result = run_command(registry, ctx, "get_session_overview", include_sends=True)
+    assert len(result["tracks"]) == 2
     assert len(result["return_tracks"]) == 2
     assert result["master_track"]["type"] == "master"
     first = result["tracks"][0]
     assert first["is_midi"] is True
     assert 0.0 <= first["volume"] <= 1.0
     assert len(first["sends"]) == 2
-    assert "devices" not in first
-
-
-def test_get_tracks_with_flags(registry, ctx):
-    result = run_command(registry, ctx, "get_tracks", include_devices=True, include_clips=True)
-    first = result["tracks"][0]
     assert first["devices"] == []
-    assert len(first["clip_slots"]) == 4
 
 
 def test_create_midi_track(registry, ctx, song):

@@ -3,6 +3,7 @@
 from typing import Any
 
 from ..registry import REGISTRY, ParamSchema, ParamType
+from ..utils.live_helpers import get_track
 from .tracks import serialize_track
 from .transport import _transport_state
 
@@ -18,11 +19,19 @@ from .transport import _transport_state
             description="Empty clip slots are omitted by default (they dominate payload size)",
         ),
         ParamSchema("include_sends", ParamType.BOOL, required=False, default=False),
+        ParamSchema(
+            "track_index",
+            ParamType.INT,
+            required=False,
+            min_value=0,
+            description="Only this track in 'tracks' (returns, master, scenes still listed)",
+        ),
     ],
     category="meta",
     read_only=True,
     description=(
-        "One-shot map of the whole Live set: transport, every track with clip-slot "
+        "One-shot map of the whole Live set: transport, every track with mixer "
+        "state (volume/pan 0-1; volume 0.85 is 0 dB), devices and clip-slot "
         "summaries, return tracks, master, scenes. Call this first to orient. "
         "Notes are deliberately excluded — read them per-clip with get_notes. "
         "Only occupied clip slots are listed unless include_empty_slots."
@@ -39,9 +48,16 @@ from .transport import _transport_state
     },
 )
 def get_session_overview(
-    ctx, include_empty_slots: bool = False, include_sends: bool = False
+    ctx,
+    include_empty_slots: bool = False,
+    include_sends: bool = False,
+    track_index: int | None = None,
 ) -> dict[str, Any]:
     song = ctx.song
+    if track_index is not None:
+        tracks = [(track_index, get_track(song, track_index))]
+    else:
+        tracks = list(enumerate(song.tracks))
     return {
         "transport": _transport_state(song),
         "tracks": [
@@ -54,7 +70,7 @@ def get_session_overview(
                 include_sends=include_sends,
                 include_empty_slots=include_empty_slots,
             )
-            for i, t in enumerate(song.tracks)
+            for i, t in tracks
         ],
         "return_tracks": [
             serialize_track(i, t, "return", include_devices=True)

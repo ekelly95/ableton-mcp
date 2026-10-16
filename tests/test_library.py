@@ -399,13 +399,26 @@ class TestLibraryToolsOverProtocol:
             assert "\n" not in result.content[0].text  # compact emission
         assert fake.sent == []
 
-    async def test_find_similar_over_protocol(self, db_dir):
+    async def test_similar_to_over_protocol(self, db_dir):
+        # find_similar folded into search_library's similar_to in 2.11.
         from tests.helpers import FakeAbletonClient
 
         async with await self._session(FakeAbletonClient()) as session:
-            result = await session.call_tool("find_similar", {"query": "808 Kick"})
-            assert result.is_error is False
-            assert result.structured_content["reference"]["name"] == "808 Kick.wav"
+            by_name = await session.call_tool("search_library", {"similar_to": "808 Kick"})
+            assert by_name.is_error is False
+            assert by_name.structured_content["reference"]["name"] == "808 Kick.wav"
+            by_path = await session.call_tool(
+                "search_library",
+                {"similar_to": "C:/Music/User Library/Drum Kits/Kit A/808 Kick.wav"},
+            )
+            assert by_path.structured_content["reference"]["name"] == "808 Kick.wav"
+            mixed = await session.call_tool(
+                "search_library", {"similar_to": "808 Kick", "kind": "sample"}
+            )
+            assert mixed.is_error is True
+            assert "can't be combined" in mixed.content[0].text
+            names = {t.name for t in (await session.list_tools()).tools}
+            assert "find_similar" not in names
 
     async def test_errors_surface_as_tool_errors(self, db_dir):
         from tests.helpers import FakeAbletonClient
