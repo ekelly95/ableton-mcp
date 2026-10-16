@@ -174,6 +174,23 @@ unchanged; reinstall the package and the control surface, and restart Live.
 - List results carry cache hints, since the tool list is fixed per process.
 - CI installs from `uv.lock` and adds Linux and Python 3.13.
 
+### 2.11.0 — Smaller tool definitions
+
+46 → 43 tools, definitions 35.6k → 32.8k characters (~8.9k → ~8.2k tokens).
+Measured first: input schemas are ~63% of the cost, so most of the saving is
+shared-parameter text; tool count matters much less.
+
+- `get_tracks` and `get_clips` are gone: `get_session_overview` returns the
+  same data and gains `track_index` for a one-track read.
+- `find_similar` is `search_library`'s `similar_to` option.
+- The envelope tools address session slots only (`slot_index` required);
+  arrangement addressing, which they could only refuse, is no longer offered.
+- Shorter descriptions on the clip/track addressing parameters, and
+  `update_notes` no longer repeats `add_notes`' field descriptions.
+
+Writes and destructive tools are unchanged and separately named. Verified on
+Live 12.4.6.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained
