@@ -35,6 +35,9 @@ except ImportError:
         def schedule_message(self, delay, callback):
             callback()
 
+        def update_display(self):
+            pass
+
         def show_message(self, message):
             # stderr, never stdout: outside Live this package is imported by
             # the MCP server process, whose stdout carries the MCP transport.
@@ -48,6 +51,7 @@ except ImportError:
 from . import commands
 from .log import get_logger
 from .socket_server import SocketServer
+from .thread_marshal import MainThreadQueue
 
 logger = get_logger("__init__")
 
@@ -55,6 +59,7 @@ logger = get_logger("__init__")
 class AbletonMCP(ControlSurface):
     def __init__(self, c_instance):
         super().__init__(c_instance)
+        self._main_thread_tasks = MainThreadQueue()
         self._server = None
         try:
             self._server = SocketServer(self)
@@ -85,10 +90,17 @@ class AbletonMCP(ControlSurface):
         super().disconnect()
         logger.info("Disconnected")
 
-    # Deliberately NOT overriding update_display/refresh_state/build_midi_map:
-    # _Framework pumps scheduled messages inside update_display, so an empty
-    # override silently kills thread marshaling (verified on real Live —
-    # every marshaled command timed out while ping still answered).
+    def run_on_main_thread(self, task):
+        """Queue a task for Live's main thread; safe from any thread."""
+        self._main_thread_tasks.put(task)
+
+    def update_display(self):
+        # super() FIRST and always: _Framework pumps its own scheduled
+        # messages and components here, and an override that skips it breaks
+        # them (verified on real Live — an empty override timed out every
+        # marshaled command while ping still answered).
+        super().update_display()
+        self._main_thread_tasks.drain()
 
 
 def create_instance(c_instance):

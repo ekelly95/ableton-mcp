@@ -77,16 +77,17 @@ drift. Current guards:
 
 Live's API is main-thread-only. The socket server (daemon thread) marshals
 every handler, including reads, as one task per request onto Live's main
-thread via `schedule_message`, then blocks on a queue with that command's
-timeout (`thread_marshal.py`).
+thread, then blocks on a queue with that command's timeout
+(`thread_marshal.py`). Tasks go into a thread-safe `MainThreadQueue` that the
+control surface drains in `update_display()`.
 
-Verified behavior on Live 12.4.3:
-
-- Do not override `update_display()` in the ControlSurface subclass.
-  _Framework pumps scheduled messages inside it; an empty override silently
-  kills all marshaling (symptom: ping answers, every real command times out).
-- `schedule_message(1, task)`, not 0 — some _Framework versions assert
-  delay > 0, and both land on the same ~100ms tick.
+- `update_display()` must call `super()` first. _Framework pumps its own
+  scheduled messages and components inside it; an empty override silently
+  kills them (verified on Live 12.4.3 — ping answers, every real command times
+  out).
+- Not `schedule_message`: _Framework keeps a plain list it copies and then
+  replaces on the main thread, so a task appended from the socket thread
+  between those two steps was silently dropped and the request timed out.
 - The ~100ms tick is a per-request latency floor → the tool surface is
   batch-first (arrays of notes/params/sends per call) and payload-bounded
   (`get_session_overview` excludes notes; `get_notes` caps at 2000).

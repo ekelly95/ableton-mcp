@@ -7,7 +7,11 @@ import time
 import pytest
 
 from control_surface.errors import LiveAPIError, PartialApplyError, ValidationError
-from control_surface.thread_marshal import MainThreadExecutionError, ThreadMarshaler
+from control_surface.thread_marshal import (
+    MainThreadExecutionError,
+    MainThreadQueue,
+    ThreadMarshaler,
+)
 from tests.helpers import ImmediateControlSurface
 
 
@@ -190,3 +194,72 @@ def test_schedule_failure():
         marshaler.execute(lambda: None)
     assert "Failed to schedule" in str(exc.value)
     assert exc.value.timeout is False
+
+
+class QueueingControlSurface:
+    """Mirrors AbletonMCP: tasks go into a MainThreadQueue that a separate
+    'main thread' drains on a timer, like update_display does in Live."""
+
+    def __init__(self, tick: float = 0.01):
+        self.tasks = MainThreadQueue()
+        self.main_thread_names: list[str] = []
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._pump, args=(tick,), name="live-main")
+        self._thread.start()
+
+    def run_on_main_thread(self, task):
+        self.tasks.put(task)
+
+    def schedule_message(self, delay, callback):  # pragma: no cover - must not be used
+        raise AssertionError("the marshal must prefer run_on_main_thread")
+
+    def _pump(self, tick):
+        while not self._stop.is_set():
+            self.tasks.drain()
+            time.sleep(tick)
+
+    def close(self):
+        self._stop.set()
+        self._thread.join()
+
+
+def test_tasks_run_on_the_draining_thread():
+    surface = QueueingControlSurface()
+    try:
+        marshaler = ThreadMarshaler(surface)
+        assert marshaler.execute(lambda: threading.current_thread().name) == "live-main"
+    finally:
+        surface.close()
+
+
+def test_concurrent_submissions_are_never_dropped():
+    # _Framework's schedule_message could lose a task appended while the main
+    # thread swapped its list; every submission through the queue must run.
+    surface = QueueingControlSurface(tick=0.001)
+    marshaler = ThreadMarshaler(surface, default_timeout=5.0)
+    results: list[int] = []
+    lock = threading.Lock()
+
+    def submit(n):
+        value = marshaler.execute(lambda: n)
+        with lock:
+            results.append(value)
+
+    try:
+        threads = [threading.Thread(target=submit, args=(n,)) for n in range(200)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        surface.close()
+    assert sorted(results) == list(range(200))
+
+
+def test_drain_survives_a_failing_task():
+    tasks = MainThreadQueue()
+    ran = []
+    tasks.put(lambda: 1 / 0)
+    tasks.put(lambda: ran.append("second"))
+    tasks.drain()
+    assert ran == ["second"]

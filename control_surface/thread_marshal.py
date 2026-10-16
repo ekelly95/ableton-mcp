@@ -1,14 +1,17 @@
 """Marshal command execution onto Live's main thread.
 
 Live's API is not thread-safe; the socket server runs on a daemon thread.
-Every command handler is executed here as a single scheduled task on the main
-thread (via ControlSurface.schedule_message) while the socket thread blocks on
-a response queue with a timeout. One marshal per request — handlers never
-marshal internally.
+Every command handler is executed here as a single task on the main thread
+while the socket thread blocks on a response queue with a timeout. One marshal
+per request — handlers never marshal internally.
 
-schedule_message rides Live's ~100ms timer tick, so each request carries that
-latency floor regardless of payload; that is why the command surface is
-batch-first rather than chatty.
+Tasks go through MainThreadQueue, drained from the control surface's
+update_display, rather than _Framework's schedule_message: that keeps a plain
+list it copies and then replaces on the main thread, so an append from the
+socket thread landing between those two steps was silently dropped (the
+request then timed out after ~32 s). Either way the hop rides Live's ~100ms
+display tick, so each request carries that latency floor regardless of
+payload; that is why the command surface is batch-first rather than chatty.
 
 Timeout contract: the scheduled task refuses to START once its deadline
 (request time + timeout) has passed, and the waiter holds on for an extra
@@ -30,6 +33,33 @@ from .errors import LiveAPIError, ValidationError
 from .log import get_logger
 
 logger = get_logger("thread_marshal")
+
+
+class MainThreadQueue:
+    """Thread-safe hand-off from the socket threads to Live's main thread.
+
+    put() may be called from any thread; drain() runs on the main thread (from
+    update_display) and executes everything queued so far. Tasks catch their
+    own exceptions — drain() only guards against a bug in one stopping the
+    rest.
+    """
+
+    def __init__(self) -> None:
+        self._tasks: queue.SimpleQueue[Callable[[], None]] = queue.SimpleQueue()
+
+    def put(self, task: Callable[[], None]) -> None:
+        self._tasks.put(task)
+
+    def drain(self) -> None:
+        while True:
+            try:
+                task = self._tasks.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                task()
+            except Exception as e:
+                logger.error(f"Unhandled error in main-thread task: {e}")
 
 
 class MainThreadExecutionError(Exception):
@@ -143,9 +173,13 @@ class ThreadMarshaler:
                 response_queue.put(outcome)
 
         try:
-            # Delay of 1 tick (~100ms), not 0: some _Framework versions assert
-            # delay_in_ticks > 0, and 1 lands on the same next pump anyway.
-            self._control_surface.schedule_message(1, task)
+            run_on_main_thread = getattr(self._control_surface, "run_on_main_thread", None)
+            if run_on_main_thread is not None:
+                run_on_main_thread(task)
+            else:
+                # Test doubles without a queue. Delay 1, not 0: some _Framework
+                # versions assert delay_in_ticks > 0.
+                self._control_surface.schedule_message(1, task)
         except Exception as e:
             raise MainThreadExecutionError(
                 f"Failed to schedule task: {e}",
