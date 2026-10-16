@@ -123,6 +123,26 @@ def resolve_clip_ref(
     return clip
 
 
+def clip_region_start(clip: Any) -> float:
+    """Where the clip's audible region begins, in clip time (beats).
+
+    clip.length is the loop length for a looped clip (end - start marker
+    otherwise), but note and envelope times count from the clip's own zero —
+    so a clip looped over 4-8 has length 4 and its notes at 4..8. Confirmed on
+    Live 12.4.6.
+    """
+    return clip.loop_start if clip.looping else clip.start_marker
+
+
+def clip_content_end(clip: Any) -> float:
+    """The latest clip time that can hold notes or automation, in beats.
+
+    Covers both the loop and the markers, so a default read never misses notes
+    that sit past clip.length (see clip_region_start).
+    """
+    return max(clip.loop_end, clip.end_marker, clip_region_start(clip) + clip.length)
+
+
 def get_device(track: Any, device_index: int) -> Any:
     devices = list(track.devices)
     if not 0 <= device_index < len(devices):

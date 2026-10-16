@@ -163,10 +163,17 @@ class _Tokens:
 class _Env:
     """Per-note evaluation context shared by expressions and functions."""
 
-    def __init__(self, rng: random.Random, beats_per_bar: float, clip_duration: float):
+    def __init__(
+        self,
+        rng: random.Random,
+        beats_per_bar: float,
+        clip_duration: float,
+        clip_start: float = 0.0,
+    ):
         self.rng = rng
         self.beats_per_bar = beats_per_bar
         self.clip_duration = clip_duration
+        self.clip_start = clip_start
         self.note: dict[str, Any] = {}
         self.selection: list[dict[str, Any]] = []
         self.index = 0
@@ -196,8 +203,10 @@ def _call_function(name: str, args: list[float], env: _Env, raw_args: list[str])
     if name == "ramp":
         if len(args) != 2:
             raise TransformError("ramp(start, end) takes two arguments")
+        # Position within the audible region: a loop at 4-8 ramps over 4..8.
         span = env.clip_duration or 1.0
-        t = min(env.note.get("start_time", 0.0) / span, 1.0)
+        t = (env.note.get("start_time", 0.0) - env.clip_start) / span
+        t = min(max(t, 0.0), 1.0)
         return args[0] + (args[1] - args[0]) * t
     if name == "rand":
         return env.rng.random()
@@ -689,6 +698,7 @@ def apply_transforms(
     sig_denominator: int = 4,
     clip_duration: float | None = None,
     seed: int | None = None,
+    clip_start: float = 0.0,
 ) -> tuple[list[dict[str, Any]], int, list[str]]:
     """Apply transform statements to note dicts.
 
@@ -697,7 +707,7 @@ def apply_transforms(
     keep their note_id; notes created by ratchet/repeat/merge have none.
     """
     beats_per_bar = sig_numerator * 4.0 / sig_denominator
-    env = _Env(random.Random(seed), beats_per_bar, clip_duration or 0.0)
+    env = _Env(random.Random(seed), beats_per_bar, clip_duration or 0.0, clip_start)
     if clip_duration is None and notes:
         env.clip_duration = max(n["start_time"] + n["duration"] for n in notes)
 

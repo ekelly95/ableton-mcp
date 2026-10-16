@@ -18,6 +18,8 @@ from typing import Any
 from ..errors import ValidationError, batch_writer
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import (
+    clip_content_end,
+    clip_region_start,
     get_device,
     get_track,
     resolve_clip_ref,
@@ -176,6 +178,7 @@ def set_clip_envelope(
     # a success.)
     if not points:
         raise ValidationError("points must contain at least one {time, value}")
+    end = clip_content_end(clip)
     parsed: list[tuple[float, float]] = []
     for i, p in enumerate(points):
         if "time" not in p or "value" not in p:
@@ -187,9 +190,9 @@ def set_clip_envelope(
             raise ValidationError(f"Point {i}: time and value must be numbers") from None
         if not 0.0 <= v <= 1.0:
             raise ValidationError(f"Point {i}: value {v} is outside 0-1", param="points")
-        if t > clip.length:
+        if t > end:
             raise ValidationError(
-                f"Point {i}: time {t} is beyond the clip's length ({clip.length} beats)",
+                f"Point {i}: time {t} is beyond the clip's end ({end} beats)",
                 param="points",
             )
         parsed.append((t, v))
@@ -218,7 +221,7 @@ def set_clip_envelope(
         if i + 1 < len(ordered):
             length = max(ordered[i + 1][0] - start, 0.01)
         else:
-            length = max(clip.length - start, 0.01)
+            length = max(end - start, 0.01)
         native = denormalize_parameter(param, value)
         # Event-level APIs (create_event / events_in_range, incl. curve
         # coefficients) exist in Live 12.4 but are intentionally unused —
@@ -291,14 +294,18 @@ def get_clip_envelope(
     if envelope is None:
         return {"exists": False, "parameter": param.name, "points": []}
 
+    # Sample the audible region; times stay in clip time (a loop at 4-8
+    # samples 4..8, not 0..4).
+    region_start = clip_region_start(clip)
+    region_end = region_start + clip.length
     step = clip.length / (samples - 1)
     points = []
     for i in range(samples):
-        t = round(i * step, 4)
+        t = round(region_start + i * step, 4)
         # Confirmed on real Live: value_at_time is start-EXCLUSIVE at step
         # boundaries. Sample a hair after t so each point reports the value
         # in effect FROM that time, which is what a reader expects.
-        probe = min(t + 0.001, clip.length)
+        probe = min(t + 0.001, region_end)
         native = envelope.value_at_time(probe)
         points.append(
             {

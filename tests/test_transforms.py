@@ -162,6 +162,15 @@ def test_ramp_over_clip():
     assert velocities[-1] == 95.0  # start 12.0 of 16.0 -> 20 + 100*0.75
 
 
+def test_ramp_over_offset_loop():
+    # Clip looped over 4-8: the ramp runs across 4..8, not 0..4.
+    notes = [{"pitch": 60, "start_time": t, "duration": 0.5, "velocity": 100} for t in (4, 6)]
+    result, _, _ = apply_transforms(
+        notes, "velocity = ramp(20, 120)", clip_duration=4.0, clip_start=4.0
+    )
+    assert [n["velocity"] for n in result] == [20.0, 70.0]
+
+
 def test_swing_moves_offbeat_eighths():
     notes = _pattern("n/8 C3 1|1x8@n/8")
     result, _, warnings = apply_transforms(notes, "timing = swing(0.6)")

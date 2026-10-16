@@ -6,6 +6,8 @@ from ..config import MAX_COLOR_INDEX, MAX_NOTES_PER_READ
 from ..errors import ValidationError, batch_writer
 from ..registry import NOTE_OBJECT_SCHEMA, REGISTRY, LiveAPIError, ParamSchema, ParamType
 from ..utils.live_helpers import (
+    clip_content_end,
+    clip_region_start,
     get_clip,
     get_clip_slot,
     get_scene,
@@ -401,6 +403,10 @@ def delete_scene(ctx, scene_index: int) -> dict[str, Any]:
             "note_count": {"type": "integer"},
             "truncated": {"type": "boolean"},
             "clip_length": {"type": "number", "description": "In beats"},
+            "clip_start": {
+                "type": "number",
+                "description": "Where the audible region (loop, or start marker) begins",
+            },
         },
     },
 )
@@ -425,7 +431,7 @@ def get_notes(
         require_midi=True,
         take_lane_index=take_lane_index,
     )
-    span = time_span if time_span is not None else max(clip.length - from_time, 0.0)
+    span = time_span if time_span is not None else max(clip_content_end(clip) - from_time, 0.0)
     notes = clip.get_notes_extended(from_pitch, pitch_span, from_time, span)
 
     truncated = len(notes) > MAX_NOTES_PER_READ
@@ -435,6 +441,7 @@ def get_notes(
         "note_count": len(notes),
         "truncated": truncated,
         "clip_length": clip.length,
+        "clip_start": clip_region_start(clip),
     }
 
 

@@ -211,6 +211,21 @@ class TestNotes:
         assert read["note_count"] == 1
         assert read["notes"][0]["pitch"] == 64
 
+    def test_get_notes_default_covers_offset_loop(self, registry, ctx, song):
+        # Live 12.4.6: a clip looped over 4-8 reports length 4, but its notes
+        # sit at 4..8 in clip time. The default read used to stop at 4 and
+        # return only the notes outside the loop.
+        run_command(registry, ctx, "create_clip", track_index=0, slot_index=0, length_beats=8.0)
+        notes = [{"pitch": 60, "start_time": t, "duration": 0.5} for t in (0.5, 2.5, 4.5, 6.5)]
+        run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=notes)
+        run_command(
+            registry, ctx, "set_clip", track_index=0, slot_index=0, loop_start=4.0, loop_end=8.0
+        )
+        read = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)
+        assert [n["start_time"] for n in read["notes"]] == [0.5, 2.5, 4.5, 6.5]
+        assert read["clip_length"] == 4.0
+        assert read["clip_start"] == 4.0
+
     def test_update_notes_by_id(self, registry, ctx, with_clip):
         run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
         notes = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]

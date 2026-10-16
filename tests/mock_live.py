@@ -157,10 +157,11 @@ class MockClip:
     def __init__(self, length: float = 4.0, name: str = "", is_midi_clip: bool = True):
         self.name = name
         self.color_index = 0
-        self.length = length
         self.looping = True
         self.loop_start = 0.0
         self.loop_end = length
+        self.start_marker = 0.0
+        self.end_marker = length
         self.is_midi_clip = is_midi_clip
         self.is_audio_clip = not is_midi_clip
         if not is_midi_clip:
@@ -181,6 +182,15 @@ class MockClip:
         self._envelopes: dict = {}  # id(parameter) -> MockAutomationEnvelope
 
     # --- Clip automation envelopes (spike-CONFIRMED on real Live 12.4.3) ---
+
+    @property
+    def length(self) -> float:
+        # CONFIRMED (Live 12.4.6): the loop length for a looped clip, otherwise
+        # end - start marker. Note times still count from the clip's zero, so a
+        # clip looped over 4-8 reports length 4 with its notes at 4..8.
+        if self.looping:
+            return self.loop_end - self.loop_start
+        return self.end_marker - self.start_marker
 
     def automation_envelope(self, parameter):
         """Returns None when no envelope exists for the parameter (CONFIRMED).

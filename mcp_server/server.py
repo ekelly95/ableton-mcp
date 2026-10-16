@@ -227,6 +227,7 @@ def _transform_clip(ableton: AbletonClient, arguments: dict[str, Any]) -> dict:
         int(transport.get("signature_denominator", 4)),
         clip_duration=read.get("clip_length"),
         seed=arguments.get("seed"),
+        clip_start=read.get("clip_start", 0.0),
     )
 
     def field_value(note: dict, field: str) -> Any:

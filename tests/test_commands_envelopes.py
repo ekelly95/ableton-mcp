@@ -61,6 +61,35 @@ class TestSetAndGet:
         times = [p["time"] for p in read["points"]]
         assert times == [0.0, 1.0, 2.0, 3.0, 4.0]
 
+    def test_offset_loop_uses_clip_time(self, registry, ctx, with_clip_and_device, song):
+        # A loop at 4-8 (length 4): points inside the loop are valid, and the
+        # sampled read covers 4..8 rather than 0..4.
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.end_marker = clip.loop_end = 8.0
+        clip.loop_start = 4.0
+        run_command(
+            registry,
+            ctx,
+            "set_clip_envelope",
+            track_index=0,
+            slot_index=0,
+            device_index=0,
+            parameter="Macro 1",
+            points=[{"time": 4.0, "value": 0.2}, {"time": 6.0, "value": 0.8}],
+        )
+        read = run_command(
+            registry,
+            ctx,
+            "get_clip_envelope",
+            track_index=0,
+            slot_index=0,
+            device_index=0,
+            parameter="Macro 1",
+            samples=5,
+        )
+        assert [p["time"] for p in read["points"]] == [4.0, 5.0, 6.0, 7.0, 8.0]
+        assert [p["value"] for p in read["points"]] == [0.2, 0.2, 0.8, 0.8, 0.8]
+
     def test_mixer_volume_envelope(self, registry, ctx, with_clip_and_device):
         run_command(
             registry,
@@ -285,7 +314,7 @@ class TestValidation:
     def test_point_beyond_clip_length_rejected(self, registry, ctx, with_clip_and_device):
         # Previously time=1000 on a 4-beat clip was silently written as a
         # 0.01-beat step and counted as a success.
-        with pytest.raises(ValidationError, match="beyond the clip's length"):
+        with pytest.raises(ValidationError, match="beyond the clip's end"):
             run_command(
                 registry,
                 ctx,
@@ -314,7 +343,7 @@ class TestValidation:
             parameter="Macro 1",
             points=RAMP,
         )
-        with pytest.raises(ValidationError, match="beyond the clip's length"):
+        with pytest.raises(ValidationError, match="beyond the clip's end"):
             run_command(
                 registry,
                 ctx,
