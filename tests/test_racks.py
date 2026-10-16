@@ -172,6 +172,7 @@ def test_load_sample_replaces_a_filled_pads_sample(registry, ctx, drum_rack, wav
     assert result["created"] is False
     simpler = drum_rack.drum_pads[36].chains[0].devices[0]
     assert simpler.sample_path == wav
+    assert simpler.name == "Clap"  # Live renames the Simpler after the sample
 
 
 def test_load_sample_finds_a_nested_simpler(registry, ctx, song, wav):

@@ -134,7 +134,12 @@ verified against real Live. Deeper design rationale and Live API facts:
   `rack_index: [0, 0], chain: ["C1", 0]` — then device_index 0 is the
   Simpler (tune, decay, sample start). Read the pad's devices first; nesting
   varies between kits.
-- Loading a new sample onto a pad is not supported yet.
+- **Loading samples onto pads (2.15):** `load_sample` with the Drum Rack's
+  `rack_index`, a `pad` ("C1"), and an absolute `file_path` — e.g. a
+  `search_library` hit's `path`. A filled pad gets its sample replaced (the
+  Simpler is found even inside a kit's nested rack and renames itself after
+  the file); an empty pad is created with a new Simpler. Undo: a replace is
+  one step, a new pad two, a name one more.
 
 ## Undo (2.12, verified on real Live 12.4.6)
 
@@ -183,8 +188,7 @@ Work Session view → Arrangement, in this order:
 - Envelopes: **session clips only** (arrangement clips can't hold clip
   automation — Live API limit); unwarped audio clips are rejected (warp first).
 - No scene rename, no track reorder, no track grouping, no arrangement clip
-  move/resize (delete + re-place is the workaround). No loading samples onto
-  Drum Rack pads yet.
+  move/resize (delete + re-place is the workaround).
 - Arrangement clip indices are positional and go stale on any change —
   re-read `get_arrangement` before touching them.
 - `load_item` on a `.mid` file ignores `track_index` (known bug — it lands on

@@ -425,10 +425,11 @@ class MockSimplerDevice(MockDevice):
         return 4.0
 
     def replace_sample(self, file_path: str) -> None:
-        # LOM (SimplerDevice, listed in Live 12.4.6's LomTypes). VERIFY on
-        # real Live: whether the device renames itself after the sample.
+        # LOM (SimplerDevice, listed in Live 12.4.6's LomTypes). CONFIRMED on
+        # 12.4.6: the device renames itself after the sample ("Noise1").
         self.method_calls.append(("replace_sample", file_path))
         self.sample_path = file_path
+        self.name = file_path.replace("\\", "/").rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
 
 class MockEq8Device(MockDevice):

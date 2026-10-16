@@ -777,7 +777,8 @@ def _find_simpler(host: Any, depth: int = 0) -> Any | None:
         "Put an audio file on a Drum Rack pad: replaces the sample in the pad's "
         "Simpler (also inside a nested rack, as in Live's Core Library kits), or "
         "creates the pad with a new Simpler if it's empty. Doesn't touch the "
-        "browser or the selection."
+        "browser or the selection. Undo: a replace is one step; Live records a "
+        "new pad as two (plus one for a name)."
     ),
 )
 def load_sample(
@@ -825,6 +826,8 @@ def load_sample(
         chain.in_note = note
         chain.insert_device("Simpler", 0)
         simpler = list(chain.devices)[0]
+    # Confirmed on Live 12.4.6: replacing is one undo step; a new pad is two
+    # (Live commits the new chain on its own), and a name adds one more.
     simpler.replace_sample(file_path)
     if name is not None:
         chain.name = name

@@ -226,6 +226,18 @@ Live 12.4.6.
 - Seeking past the song's end now says so (and gives the song's length)
   instead of Live's "Cannot set the Songtime behind the Songlength".
 
+### 2.15.0 — Samples onto Drum Rack pads
+
+- New `load_sample` tool: an absolute audio file path onto a Drum Rack pad.
+  Filled pads get the sample replaced in their Simpler (also inside the
+  nested rack Live's Core Library kits use); empty pads are created with
+  `RackDevice.insert_chain` + `DrumChain.in_note` + a Simpler and
+  `replace_sample` — all found in Live 12.4.6's own LOM type table, no
+  browser or selection involved.
+- Verified on Live 12.4.6: nested replace in the 505 Core Kit, a new pad from
+  a forward-slash path, missing-file error. Undo: replace is one step, a new
+  pad two (Live commits the chain separately), a name one more. 46 tools.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained
