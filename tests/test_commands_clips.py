@@ -306,3 +306,54 @@ class TestSessionOverview:
         assert result["master_track"]["type"] == "master"
         # Notes deliberately excluded from the overview payload
         assert "notes" not in str(result["tracks"][0]["clip_slots"][0])
+
+
+class TestUpdateNotesValidation:
+    def _note_id(self, registry, ctx):
+        run_command(registry, ctx, "create_clip", track_index=0, slot_index=0, length_beats=4.0)
+        run_command(registry, ctx, "add_notes", track_index=0, slot_index=0, notes=MELODY)
+        read = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)
+        return [n["note_id"] for n in read["notes"]]
+
+    @pytest.mark.parametrize(
+        "field, value",
+        [
+            ("velocity", 200),
+            ("velocity", -1),
+            ("probability", 1.5),
+            ("duration", -0.5),
+            ("duration", 0),
+            ("start_time", -1),
+            ("pitch", 128),
+            ("velocity_deviation", 300),
+        ],
+    )
+    def test_out_of_range_rejected(self, registry, ctx, field, value):
+        ids = self._note_id(registry, ctx)
+        with pytest.raises(ValidationError):
+            run_command(
+                registry,
+                ctx,
+                "update_notes",
+                track_index=0,
+                slot_index=0,
+                modifications=[{"note_id": ids[0], field: value}],
+            )
+
+    def test_bad_value_leaves_every_note_untouched(self, registry, ctx):
+        ids = self._note_id(registry, ctx)
+        before = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]
+        with pytest.raises(ValidationError):
+            run_command(
+                registry,
+                ctx,
+                "update_notes",
+                track_index=0,
+                slot_index=0,
+                modifications=[
+                    {"note_id": ids[0], "velocity": 50},
+                    {"note_id": ids[1], "velocity": 500},
+                ],
+            )
+        after = run_command(registry, ctx, "get_notes", track_index=0, slot_index=0)["notes"]
+        assert after == before

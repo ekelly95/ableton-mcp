@@ -4,7 +4,14 @@ from typing import Any
 
 from ..config import MAX_COLOR_INDEX, MAX_NOTES_PER_READ
 from ..errors import ValidationError, batch_writer
-from ..registry import NOTE_OBJECT_SCHEMA, REGISTRY, LiveAPIError, ParamSchema, ParamType
+from ..registry import (
+    NOTE_OBJECT_SCHEMA,
+    REGISTRY,
+    LiveAPIError,
+    ParamSchema,
+    ParamType,
+    check_note_ranges,
+)
 from ..utils.live_helpers import (
     clip_content_end,
     clip_region_start,
@@ -606,22 +613,38 @@ def update_notes(
         "release_velocity": float,
     }
 
-    touched = []
+    # Validate every modification before touching any note, so a bad value
+    # can't leave the clip half-edited.
+    planned = []
     missing = []
-    for mod in modifications:
+    for i, mod in enumerate(modifications):
         if "note_id" not in mod:
             raise LiveAPIError("Each modification needs a note_id (from get_notes)")
         note = all_notes.get(int(mod["note_id"]))
         if note is None:
             missing.append(int(mod["note_id"]))
             continue
+        changes = {}
         for field, cast in editable.items():
             if field in mod and mod[field] is not None:
-                setattr(note, field, cast(mod[field]))
-        touched.append(note)
+                try:
+                    changes[field] = cast(mod[field])
+                except (TypeError, ValueError):
+                    raise ValidationError(
+                        f"Modification {i}: {field} must be a number, got {mod[field]!r}",
+                        param="modifications",
+                    ) from None
+        check_note_ranges(changes, param="modifications")
+        planned.append((note, changes))
 
     if missing:
         raise LiveAPIError(f"Unknown note_ids: {missing}. Fetch current ids with get_notes first.")
+
+    touched = []
+    for note, changes in planned:
+        for field, value in changes.items():
+            setattr(note, field, value)
+        touched.append(note)
 
     if touched:
         clip.apply_note_modifications(note_vector)

@@ -143,6 +143,31 @@ def _strict_int(value: Any) -> int:
     return int(value)
 
 
+# (min, max, label) per note field; None = unbounded on that side.
+_NOTE_RANGES: dict[str, tuple[float | None, float | None, str]] = {
+    "pitch": (0, 127, "0-127"),
+    "velocity": (0, 127, "0-127"),
+    "release_velocity": (0, 127, "0-127"),
+    "probability": (0.0, 1.0, "0.0-1.0"),
+    "velocity_deviation": (-127, 127, "-127..127"),
+    "start_time": (0.0, None, "non-negative"),
+}
+
+
+def check_note_ranges(fields: dict[str, Any], param: str | None = None) -> None:
+    """Range-check whichever note fields are present (add_notes passes a full
+    note, update_notes only the fields being changed)."""
+    for name, (low, high, label) in _NOTE_RANGES.items():
+        if name not in fields:
+            continue
+        value = fields[name]
+        if (low is not None and value < low) or (high is not None and value > high):
+            name = name.replace("_", " ").capitalize()
+            raise ValidationError(f"{name} must be {label}, got {value}", param=param)
+    if "duration" in fields and fields["duration"] <= 0:
+        raise ValidationError(f"Duration must be positive, got {fields['duration']}", param=param)
+
+
 @dataclass
 class ParamSchema:
     name: str
@@ -273,35 +298,7 @@ class ParamSchema:
             ),
         }
 
-        if not 0 <= validated["pitch"] <= 127:
-            raise ValidationError(f"Pitch must be 0-127, got {validated['pitch']}", param=self.name)
-        if not 0 <= validated["velocity"] <= 127:
-            raise ValidationError(
-                f"Velocity must be 0-127, got {validated['velocity']}", param=self.name
-            )
-        if not 0 <= validated["release_velocity"] <= 127:
-            raise ValidationError(
-                f"Release velocity must be 0-127, got {validated['release_velocity']}",
-                param=self.name,
-            )
-        if not 0.0 <= validated["probability"] <= 1.0:
-            raise ValidationError(
-                f"Probability must be 0.0-1.0, got {validated['probability']}", param=self.name
-            )
-        if not -127 <= validated["velocity_deviation"] <= 127:
-            raise ValidationError(
-                f"Velocity deviation must be -127..127, got {validated['velocity_deviation']}",
-                param=self.name,
-            )
-        if validated["duration"] <= 0:
-            raise ValidationError(
-                f"Duration must be positive, got {validated['duration']}", param=self.name
-            )
-        if validated["start_time"] < 0:
-            raise ValidationError(
-                f"Start time must be non-negative, got {validated['start_time']}", param=self.name
-            )
-
+        check_note_ranges(validated, self.name)
         return validated
 
     def to_json_schema(self) -> dict[str, Any]:
