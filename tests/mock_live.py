@@ -424,6 +424,12 @@ class MockSimplerDevice(MockDevice):
         self.method_calls.append(("guess_playback_length",))
         return 4.0
 
+    def replace_sample(self, file_path: str) -> None:
+        # LOM (SimplerDevice, listed in Live 12.4.6's LomTypes). VERIFY on
+        # real Live: whether the device renames itself after the sample.
+        self.method_calls.append(("replace_sample", file_path))
+        self.sample_path = file_path
+
 
 class MockEq8Device(MockDevice):
     """LOM: Eq8Device class properties (global_mode 0=Stereo 1=L/R 2=M/S,
@@ -583,6 +589,27 @@ class MockChain(MockDeviceChainHost):
         self.mixer_device = MockMixerDevice()
 
 
+class MockDrumChain(MockChain):
+    """A Drum Rack chain: in_note picks the pad it answers to (DrumChain in
+    Live 12.4.6's LomTypes, next to out_note and choke_group)."""
+
+    def __init__(self, rack: "MockRackDevice", name: str = "Chain"):
+        super().__init__(name=name)
+        self._rack = rack
+        self._in_note: int | None = None
+
+    @property
+    def in_note(self) -> int | None:
+        return self._in_note
+
+    @in_note.setter
+    def in_note(self, note: int) -> None:
+        if self._in_note is not None:
+            self._rack.drum_pads[self._in_note].chains.remove(self)
+        self._in_note = note
+        self._rack.drum_pads[note].chains.append(self)
+
+
 class MockDrumPad:
     """One of a Drum Rack's 128 pads; note == its index. Empty pads have no
     chains."""
@@ -607,6 +634,15 @@ class MockRackDevice(MockDevice):
         self.can_have_drum_pads = drum
         self.chains: list[MockChain] = []
         self.drum_pads: list[MockDrumPad] = [MockDrumPad(n) for n in range(128)] if drum else []
+
+    def insert_chain(self, index: int | None = None) -> None:
+        """RackDevice.insert_chain (LomTypes, Live 12.4.6). VERIFY: signature
+        and return value; callers re-scan chains."""
+        chain = MockDrumChain(self) if self.can_have_drum_pads else MockChain()
+        if index is None or index >= len(self.chains):
+            self.chains.append(chain)
+        else:
+            self.chains.insert(index, chain)
 
     def fill_pad(self, note: int, name: str, devices: list | None = None) -> MockChain:
         chain = MockChain(name=name, devices=devices)

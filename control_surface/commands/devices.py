@@ -8,6 +8,8 @@ the device, and set_device_parameters accepts those names (and safe class
 methods via `invoke`) transparently.
 """
 
+import ntpath
+import os
 from typing import Any
 
 from ..errors import ValidationError, batch_writer
@@ -17,9 +19,10 @@ from ..utils.live_helpers import (
     get_device,
     resolve_device_host,
     resolve_device_parameter,
+    resolve_track,
 )
 from ..utils.normalize import denormalize_parameter, normalize_parameter
-from ..utils.pitch import midi_to_pitch_name
+from ..utils.pitch import midi_to_pitch_name, pitch_to_midi
 
 # LOM DeviceParameter.automation_state values.
 _AUTOMATION_STATES = {0: "none", 1: "active", 2: "overridden"}
@@ -734,4 +737,100 @@ def set_chain(
         "volume": normalize_parameter(mixer.volume),
         "pan": normalize_parameter(mixer.panning),
         "applied": applied,
+    }
+
+
+def _find_simpler(host: Any, depth: int = 0) -> Any | None:
+    """The first Simpler in a chain, looking inside nested racks too — Live's
+    Core Library kits wrap every pad's Simpler in an Instrument Rack."""
+    for device in host.devices:
+        if device.class_name == "OriginalSimpler":
+            return device
+        if depth < 3 and getattr(device, "can_have_chains", False):
+            if getattr(device, "can_have_drum_pads", False):
+                continue
+            for chain in device.chains:
+                found = _find_simpler(chain, depth + 1)
+                if found is not None:
+                    return found
+    return None
+
+
+@REGISTRY.register(
+    "load_sample",
+    params=[
+        ParamSchema("track_index", ParamType.INT, required=False, min_value=0),
+        TRACK_TYPE_PARAM,
+        ParamSchema("rack_index", ParamType.INT, min_value=0, description="The Drum Rack"),
+        ParamSchema("pad", ParamType.ANY, description="Pad note: 'C1' or 36"),
+        ParamSchema(
+            "file_path",
+            ParamType.STRING,
+            description="Absolute path to an audio file (search_library returns these)",
+        ),
+        ParamSchema(
+            "name", ParamType.STRING, required=False, description="Pad name; default keeps Live's"
+        ),
+    ],
+    category="devices",
+    description=(
+        "Put an audio file on a Drum Rack pad: replaces the sample in the pad's "
+        "Simpler (also inside a nested rack, as in Live's Core Library kits), or "
+        "creates the pad with a new Simpler if it's empty. Doesn't touch the "
+        "browser or the selection."
+    ),
+)
+def load_sample(
+    ctx,
+    rack_index: int,
+    pad: Any,
+    file_path: str,
+    track_index: int | None = None,
+    track_type: str = "track",
+    name: str | None = None,
+) -> dict[str, Any]:
+    # Live may run on Windows while the path was written with forward slashes;
+    # accept either absolute form.
+    if not (os.path.isabs(file_path) or ntpath.isabs(file_path)):
+        raise ValidationError(f"file_path must be absolute, got {file_path!r}", param="file_path")
+    if not os.path.isfile(file_path):
+        raise LiveAPIError(f"No such file: {file_path}")
+    track = resolve_track(ctx.song, track_type, track_index)
+    rack = get_device(track, rack_index)
+    if not getattr(rack, "can_have_drum_pads", False):
+        raise LiveAPIError(f"'{rack.name}' is not a Drum Rack")
+    note = pitch_to_midi(pad, param="pad")
+    if not 0 <= note <= 127:
+        raise ValidationError(f"Pad note must be 0-127, got {note}", param="pad")
+
+    chains = list(rack.drum_pads[note].chains)
+    created = not chains
+    if chains:
+        chain = chains[0]
+        simpler = _find_simpler(chain)
+        if simpler is None:
+            raise LiveAPIError(
+                f"Pad {midi_to_pitch_name(note)} holds no Simpler to load into "
+                f"({[d.name for d in chain.devices]}). Delete its devices first, or pick "
+                f"an empty pad."
+            )
+    else:
+        # LomTypes (Live 12.4.6): RackDevice.insert_chain, DrumChain.in_note.
+        before = list(rack.chains)
+        rack.insert_chain()
+        added = [c for c in rack.chains if c not in before]
+        if not added:
+            raise LiveAPIError(f"Live did not add a chain to '{rack.name}'")
+        chain = added[0]
+        chain.in_note = note
+        chain.insert_device("Simpler", 0)
+        simpler = list(chain.devices)[0]
+    simpler.replace_sample(file_path)
+    if name is not None:
+        chain.name = name
+    return {
+        "pad": midi_to_pitch_name(note),
+        "note": note,
+        "created": created,
+        "chain": _chain_summary(chain),
     }
