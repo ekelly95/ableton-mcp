@@ -124,6 +124,39 @@ live in a file readable by anything running as the same user, so it stops other
 *accounts* and nothing else, at the cost of an install step and a new way for
 the halves to disagree.
 
+### 2.9.0 — Fixes from re-verifying on Live 12.4.6
+
+An audit, then each finding checked against real Live 12.4.6 (in a Windows 11
+VM) before and after the fix. Every fix has a test that fails on the old code;
+the mock now models the Live behaviour behind each one.
+
+- **Clips whose loop doesn't start at 0.** `clip.length` is the loop length,
+  but note and envelope times count from the clip's zero. A clip looped over
+  4-8 had its notes read as 0-4 — the notes outside the loop — and
+  `transform_clip` edited that wrong set. Reads, envelopes and `ramp()` now use
+  the clip's real time range; `get_notes` also returns `clip_start`.
+- **Several MCP clients at once.** The control surface served one connection at
+  a time, so a second client (another session, a stale server process) timed
+  out on every call. Each client now gets its own thread; commands still run
+  one at a time. `scripts/toggle_desktop_client.py` is gone.
+- **No more dropped commands.** _Framework's `schedule_message` list could lose
+  a task appended from the socket thread, which then timed out after ~32 s.
+  Tasks go through our own thread-safe queue, drained in `update_display`.
+- **`transform_clip` is all-or-nothing.** Its remove/update/add writes are one
+  internal `apply_note_diff` command that refuses if the clip changed since the
+  read and validates everything before writing.
+- **`update_notes` range-checks** every value, and checks all of them before
+  changing any note.
+- **`create_locator` no longer deletes locators.** Live snaps new locators to
+  the grid, and a request within ~0.1 beat of an existing one toggled it off.
+  The locator is now restored (with its name) and the request refused.
+- **`place_clip_in_arrangement`** returns the real clip index, not -1.
+- **`transport_control(stop, position)`** keeps the playhead where it was sent;
+  a second stop had sent it back to the start.
+- `ABLETON_MCP_HOST`/`ABLETON_MCP_PORT` (and the tap equivalents) point the MCP
+  server at a Live on another machine, e.g. a VM through an SSH tunnel. Live
+  itself still listens on loopback only.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained
