@@ -8,6 +8,7 @@ two tiny clients beat one coupled one.
 
 import json
 import logging
+import os
 import socket
 import struct
 import threading
@@ -56,6 +57,17 @@ class TapClient:
         self.port = port
         self._lock = threading.Lock()
         self._warned_version = False
+
+    @classmethod
+    def from_env(cls) -> "TapClient":
+        """ABLETON_TAP_HOST / ABLETON_TAP_PORT, the tap's counterpart of
+        AbletonClient.from_env."""
+        from .client import env_port
+
+        return cls(
+            host=os.environ.get("ABLETON_TAP_HOST") or TAP_HOST,
+            port=env_port("ABLETON_TAP_PORT", TAP_PORT),
+        )
 
     def send(self, command: str, **params: Any) -> dict[str, Any]:
         request = {"type": command, "params": params, "id": str(uuid.uuid4())}

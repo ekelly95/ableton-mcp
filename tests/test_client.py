@@ -165,3 +165,43 @@ def test_reply_that_is_not_the_protocol_is_never_reported_as_a_refusal(behaviour
     finally:
         client.close()
         server.close()
+
+
+def test_from_env_defaults(monkeypatch):
+    monkeypatch.delenv("ABLETON_MCP_HOST", raising=False)
+    monkeypatch.delenv("ABLETON_MCP_PORT", raising=False)
+    client = AbletonClient.from_env()
+    default = AbletonClient()
+    assert (client.host, client.port, client.use_tcp) == (
+        default.host,
+        default.port,
+        default.use_tcp,
+    )
+
+
+def test_from_env_host_forces_tcp(monkeypatch):
+    # A remote Live (e.g. a Windows VM) is only reachable over TCP, even from
+    # a platform whose default transport is the Unix socket.
+    monkeypatch.setenv("ABLETON_MCP_HOST", "192.0.2.10")
+    monkeypatch.setenv("ABLETON_MCP_PORT", "19877")
+    client = AbletonClient.from_env()
+    assert (client.host, client.port, client.use_tcp) == ("192.0.2.10", 19877, True)
+
+
+def test_from_env_round_trip_over_tcp(monkeypatch):
+    server = ScriptedServer.tcp(["serve"])
+    monkeypatch.setenv("ABLETON_MCP_HOST", "127.0.0.1")
+    monkeypatch.setenv("ABLETON_MCP_PORT", str(server.port))
+    client = AbletonClient.from_env()
+    try:
+        assert client.send("hello") == {"echo": "hello"}
+    finally:
+        client.close()
+        server.close()
+
+
+@pytest.mark.parametrize("raw", ["abc", "0", "70000"])
+def test_from_env_rejects_bad_port(monkeypatch, raw):
+    monkeypatch.setenv("ABLETON_MCP_PORT", raw)
+    with pytest.raises(ValueError, match="ABLETON_MCP_PORT"):
+        AbletonClient.from_env()

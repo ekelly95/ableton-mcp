@@ -152,6 +152,21 @@ author's User Library — edit that path on another machine or it fails late
 (see the roadmap item on making the checkpoint self-contained). Generated
 samples go in `samples/` (override with `ABLETON_MCP_SAMPLES_DIR`).
 
+### Live on another machine (e.g. a Windows VM)
+
+Live's listeners stay loopback-only (see the trust model in
+`docs/architecture.md`), so reach them through an SSH tunnel and point the MCP
+server at it:
+
+```sh
+ssh -N -L 9877:127.0.0.1:9877 -L 9878:127.0.0.1:9878 <vm>
+ABLETON_MCP_HOST=127.0.0.1 ableton-mcp
+```
+
+`ABLETON_MCP_HOST` forces TCP (otherwise macOS/Linux use the Unix socket);
+`ABLETON_MCP_PORT`, `ABLETON_TAP_HOST` and `ABLETON_TAP_PORT` override the
+rest. These only change where the MCP server connects, never where Live binds.
+
 ## Support expectations
 
 Shared as-is: a personal tool I use for my own music. Issues and PRs are

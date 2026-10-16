@@ -382,3 +382,14 @@ def test_node_tap_goes_stale_when_feed_stops():
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+
+
+def test_tap_from_env(monkeypatch):
+    monkeypatch.delenv("ABLETON_TAP_HOST", raising=False)
+    monkeypatch.delenv("ABLETON_TAP_PORT", raising=False)
+    tap = TapClient.from_env()
+    assert (tap.host, tap.port) == ("127.0.0.1", 9878)
+    monkeypatch.setenv("ABLETON_TAP_HOST", "192.0.2.10")
+    monkeypatch.setenv("ABLETON_TAP_PORT", "19878")
+    tap = TapClient.from_env()
+    assert (tap.host, tap.port) == ("192.0.2.10", 19878)

@@ -349,8 +349,8 @@ def _tool_result(result: Any) -> tuple[list[types.TextContent], dict]:
 
 
 def build_server(client: AbletonClient | None = None, tap: TapClient | None = None) -> Server:
-    ableton = client if client is not None else AbletonClient()
-    tap_client = tap if tap is not None else TapClient()
+    ableton = client if client is not None else AbletonClient.from_env()
+    tap_client = tap if tap is not None else TapClient.from_env()
     drift = _DriftCheck()
     server = Server("ableton-mcp", version=VERSION)
 

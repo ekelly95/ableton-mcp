@@ -38,6 +38,9 @@ disagree. The single-user assumption is the honest description of the tool.
 What follows from it, and is enforced:
 
 - Loopback only, never `0.0.0.0`. Neither listener is reachable off the machine.
+  `ABLETON_MCP_HOST`/`ABLETON_TAP_HOST` move only the MCP server's end, so a
+  remote Live (a test VM) is reached through an SSH tunnel, which supplies the
+  authentication the bridge lacks.
 - On Windows the TCP socket sets `SO_EXCLUSIVEADDRUSE`, **not** `SO_REUSEADDR`.
   Windows inverts that option's meaning: with `SO_REUSEADDR` any other process
   can bind the same port and take over new connections (measured — the second
