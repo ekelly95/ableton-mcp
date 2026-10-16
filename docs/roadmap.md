@@ -319,6 +319,14 @@ Live 12.4.6.
   sounds loadable by name).
 - README, AGENTS.md and the architecture notes tidied for the public release.
 
+### 2.21.1 — Release polish
+
+- Bundle manifest: tool summaries no longer cut off at "e.g." (three tools'
+  listings ended mid-phrase).
+- README: the Claude Desktop bundle install is described as built to the MCPB
+  spec but not yet tested in Claude Desktop itself.
+- First public release; the .mcpb is attached to the GitHub release.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained

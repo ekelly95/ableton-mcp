@@ -15,6 +15,7 @@ Run:  uv run python packaging/build_mcpb.py
 """
 
 import json
+import re
 import sys
 import tomllib
 import zipfile
@@ -35,6 +36,20 @@ from mcp_server import run
 
 run()
 '''
+
+
+# A sentence ends at ". " — but not after "e.g." / "i.e." (that split three
+# tools' listings mid-phrase), and not inside parentheses.
+_SENTENCE_END = re.compile(r"(?<!\be\.g)(?<!\bi\.e)\.\s")
+
+
+def _first_sentence(text: str, limit: int = 200) -> str:
+    depth = 0
+    for i, ch in enumerate(text):
+        depth += {"(": 1, ")": -1}.get(ch, 0)
+        if depth == 0 and _SENTENCE_END.match(text, i):
+            return text[: i + 1][:limit]
+    return text[:limit]
 
 
 def manifest(version: str) -> dict:
@@ -68,7 +83,7 @@ def manifest(version: str) -> dict:
             },
         },
         "tools": [
-            {"name": t.name, "description": (t.description or "").split(". ")[0][:200]}
+            {"name": t.name, "description": _first_sentence(t.description or "")}
             for t in registry_tools()
         ],
         "compatibility": {

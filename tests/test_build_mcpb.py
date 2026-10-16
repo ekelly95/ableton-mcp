@@ -29,3 +29,13 @@ def test_bundle_is_complete_and_valid(tmp_path):
     assert not [n for n in names if "__pycache__" in n or n.endswith(".pyc")]
     assert not [n for n in names if n.startswith(("tests/", ".venv/", "scripts/"))]
     assert [t["name"] for t in manifest["tools"]] == [t.name for t in registry_tools()]
+
+
+def test_tool_descriptions_are_whole_sentences(tmp_path):
+    # "first sentence" used to split at "e.g." and cut three tools mid-phrase.
+    with zipfile.ZipFile(build(tmp_path)) as z:
+        manifest = json.loads(z.read("manifest.json"))
+    for tool in manifest["tools"]:
+        text = tool["description"]
+        assert text.count("(") == text.count(")"), (tool["name"], text)
+        assert not text.endswith(("e.g", "i.e", "e.g.", "i.e.")), (tool["name"], text)

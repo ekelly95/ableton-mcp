@@ -99,7 +99,9 @@ needs 12.3+).
 
 - **Claude Desktop, one click:** download `ableton-mcp-<version>.mcpb` from
   the latest release and open it (or drag it into Settings → Extensions).
-  Claude Desktop installs the dependencies itself; no Python needed.
+  It's built to the MCP Bundle spec (the host installs the dependencies, so
+  no Python is needed) but hasn't yet been tested in Claude Desktop itself —
+  please open an issue if it doesn't install.
 - **Any MCP client, via [uv](https://docs.astral.sh/uv/):** register the
   command `uvx --from git+https://github.com/ekelly95/ableton-mcp ableton-mcp`
   (Codex: `command = 'uvx'`, `args = ['--from', 'git+https://github.com/ekelly95/ableton-mcp', 'ableton-mcp']`).
