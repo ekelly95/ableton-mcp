@@ -12,6 +12,7 @@ from typing import Any
 
 from ..errors import ValidationError, batch_writer
 from ..registry import REGISTRY, LiveAPIError, ParamSchema, ParamType
+from ..utils.display_values import native_for_choice, native_for_display
 from ..utils.live_helpers import (
     get_device,
     resolve_device_host,
@@ -354,8 +355,9 @@ def get_devices(
                     },
                     "value": {
                         "description": (
-                            "0-1 for regular parameters; for class properties: a "
-                            "choice label, true/false, or integer"
+                            "0-1, or the text Live displays ('-6 dB', '+5 st', "
+                            "'800 Hz', '30L') or a choice label ('Lowpass'); for "
+                            "class properties: a choice label, true/false, or integer"
                         ),
                     },
                 },
@@ -438,12 +440,25 @@ def set_device_parameters(
             class_writes.append((name, attribute, raw, echo))
             continue
         param = resolve_device_parameter(device, selector)
-        try:
-            value = float(item["value"])
-        except (TypeError, ValueError):
-            raise LiveAPIError(
-                f"Value for '{param.name}' is not a number: {item['value']!r}"
-            ) from None
+        raw_value = item["value"]
+        if isinstance(raw_value, str):
+            # A choice label ("Lowpass") or display text ("-6 dB", "+5 st").
+            native = native_for_choice(param, raw_value)
+            if native is None:
+                if getattr(param, "is_quantized", False) and getattr(param, "value_items", None):
+                    raise LiveAPIError(
+                        f"'{param.name}' has no choice {raw_value!r}. Choices: "
+                        f"{list(param.value_items)}"
+                    )
+                native = native_for_display(param, raw_value)
+            value = normalize_parameter(param, native)
+        else:
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                raise LiveAPIError(
+                    f"Value for '{param.name}' is not a number: {raw_value!r}"
+                ) from None
         if not 0.0 <= value <= 1.0:
             raise LiveAPIError(f"Value for '{param.name}' must be 0-1, got {value}")
         if not getattr(param, "is_enabled", True):

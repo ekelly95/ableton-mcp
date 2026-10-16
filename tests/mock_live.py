@@ -84,8 +84,11 @@ class MockParameter:
         max: float = 1.0,  # noqa: A002
         is_quantized: bool = False,
         value_items: list[str] | None = None,
+        display=None,
     ):
         self.name = name
+        # native value -> display text, as Live's str_for_value renders it
+        self._display = display
         self._value = value
         self.min = min
         self.max = max
@@ -116,8 +119,15 @@ class MockParameter:
         if self.automation_state == 2:
             self.automation_state = 1
 
+    def str_for_value(self, value: float) -> str:
+        if self._display is not None:
+            return self._display(value)
+        if self.value_items:
+            return self.value_items[int(round(value - self.min))]
+        return f"{value:.2f}"
+
     def __str__(self) -> str:
-        return f"{self.value:.2f}"
+        return self.str_for_value(self.value)
 
 
 class MockAutomationEnvelope:
