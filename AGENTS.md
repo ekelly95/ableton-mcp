@@ -108,6 +108,21 @@ verified against real Live. Deeper design rationale and Live API facts:
   sends (flags bring them back); device/note fields at their defaults are
   simply absent — absent = default, never "unknown".
 
+## Drum Racks and other racks (2.13, verified on real Live 12.4.6)
+
+- `get_devices` on a track lists what's inside each rack: a Drum Rack's
+  filled pads (`pad` "C1", `note` 36, name, devices), other racks' chains.
+- Reach inside with `rack_index` + `chain` on get_devices /
+  set_device_parameters / insert_device / delete_device: `chain` is a pad
+  ("C1" or 36) or a chain index. `set_chain` names, mutes, solos and mixes a
+  pad (volume/pan).
+- **Core Library kits nest:** each pad holds an Instrument Rack around the
+  Simpler. Reach the sample with lists, outermost first —
+  `rack_index: [0, 0], chain: ["C1", 0]` — then device_index 0 is the
+  Simpler (tune, decay, sample start). Read the pad's devices first; nesting
+  varies between kits.
+- Loading a new sample onto a pad is not supported yet.
+
 ## Undo (2.12, verified on real Live 12.4.6)
 
 - Each write call is one step in Live's undo history (a rename inside it
@@ -155,7 +170,8 @@ Work Session view → Arrangement, in this order:
 - Envelopes: **session clips only** (arrangement clips can't hold clip
   automation — Live API limit); unwarped audio clips are rejected (warp first).
 - No scene rename, no track reorder, no track grouping, no arrangement clip
-  move/resize (delete + re-place is the workaround).
+  move/resize (delete + re-place is the workaround). No loading samples onto
+  Drum Rack pads yet.
 - Arrangement clip indices are positional and go stale on any change —
   re-read `get_arrangement` before touching them.
 - `load_item` on a `.mid` file ignores `track_index` (known bug — it lands on

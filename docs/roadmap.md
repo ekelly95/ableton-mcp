@@ -201,6 +201,18 @@ Live 12.4.6.
   `can_redo`. Live has one history shared with the user, so undo reverts
   whatever came last — the description tells the model to check first.
 
+### 2.13.0 — Drum Rack pads and rack chains
+
+- The device tools take `rack_index` + `chain` to work inside a rack: a Drum
+  Rack pad by note ("C1" or 36), or another rack's chain by index. Equal-
+  length lists reach nested racks, which Live's Core Library kits need (every
+  pad holds an Instrument Rack around its Simpler).
+- `get_devices` lists a Drum Rack's filled pads and other racks' chains.
+- New `set_chain` tool: name, mute, solo, volume, pan for one pad or chain.
+- Verified on Live 12.4.6 with the 505 Core Kit: 16 pads listed; set_chain;
+  insert/delete inside a pad; Transpose on the kick's Simpler two racks deep.
+- Not yet: loading a sample onto a pad. 45 tools.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained
