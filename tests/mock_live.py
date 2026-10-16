@@ -186,8 +186,8 @@ class MockClip:
         if not is_midi_clip:
             # CONFIRMED (LOM): `warping` exists on audio clips only — MIDI
             # clips raise AttributeError on access, so commands must guard with
-            # is_audio_clip first. Default True for fresh audio clips is VERIFY
-            # (checkpoint toggles it via set_clip warping=false).
+            # is_audio_clip first. CONFIRMED (Live 12.4.6): a freshly imported
+            # audio clip reads warping=True.
             self.warping = True
         self.is_playing = False
         # Arrangement placement (meaningful only for arrangement clips)
@@ -342,8 +342,8 @@ class MockClipSlot:
         self.has_clip = True
 
     def create_audio_clip(self, path: str) -> None:
-        """LOM-confirmed: session audio import. Errors on non-audio tracks;
-        empty-slot requirement assumed (VERIFY at checkpoint)."""
+        """LOM-confirmed: session audio import. Errors on non-audio tracks.
+        CONFIRMED (Live 12.4.6): an occupied slot is refused."""
         if self._track.has_midi_input:
             raise RuntimeError("Clip slot doesn't belong to an audio track")
         if self.has_clip:
@@ -539,7 +539,8 @@ class MockTakeLane:
         clip.end_time = start_time + length
         clip._is_arrangement_clip = True
         self.arrangement_clips.append(clip)
-        # Assumed time-ordered like the track's own list (VERIFY at checkpoint).
+        # CONFIRMED (Live 12.4.6): lane clips list time-ordered — two clips
+        # created at 8 then 0 came back as [0, 8].
         self.arrangement_clips.sort(key=lambda c: c.start_time)
 
 
@@ -599,7 +600,8 @@ class MockDeviceChainHost:
 
 class MockChain(MockDeviceChainHost):
     """A rack chain (or a Drum Rack pad's chain): its own device list and
-    mixer. VERIFY on real Live: mixer parameter names on a chain."""
+    mixer. CONFIRMED (Live 12.4.6): set_chain's volume/pan writes land on a
+    505 Core Kit pad chain through mixer_device.volume/.panning."""
 
     def __init__(self, name: str = "Chain", devices: list | None = None):
         self.name = name
@@ -657,8 +659,9 @@ class MockRackDevice(MockDevice):
         self.drum_pads: list[MockDrumPad] = [MockDrumPad(n) for n in range(128)] if drum else []
 
     def insert_chain(self, index: int | None = None) -> None:
-        """RackDevice.insert_chain (LomTypes, Live 12.4.6). VERIFY: signature
-        and return value; callers re-scan chains."""
+        """RackDevice.insert_chain (LomTypes, Live 12.4.6). CONFIRMED: callable
+        with no arguments (load_sample creates pads with it); the return value
+        is not relied on — callers re-scan chains."""
         chain = MockDrumChain(self) if self.can_have_drum_pads else MockChain()
         if index is None or index >= len(self.chains):
             self.chains.append(chain)

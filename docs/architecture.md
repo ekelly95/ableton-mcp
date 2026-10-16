@@ -94,6 +94,15 @@ control surface drains in `update_display()`.
 
 ## Live API facts (verified on Live 12.4.3 Trial, 2026-08-10)
 
+Re-checked on Live 12.4.6 (October 2026, silent probes through the bridge):
+the note-ID API round trip (add, update by id, remove by id), volume 0.85 =
+0 dB, take lanes and their time-ordered clips, Simpler / EQ Eight / Drift
+class properties, one instrument per chain, Main and return device
+addressing, the unwarped-audio envelope refusal, a fresh audio clip's
+warping=True, and occupied-slot refusal on import. One 12.4.3-era
+assumption was wrong: `duplicate_clip_slot` silently overwrites an occupied
+next slot (`duplicate_clip` refuses since 2.21).
+
 Encoded in `tests/mock_live.py` with provenance comments — keep them in sync:
 
 1. `get_notes_extended(from_pitch, pitch_span, from_time, time_span)` —
@@ -270,16 +279,20 @@ Two metering tiers are available:
   `Browser.plugins`), closing the gap where insert_device's own error text
   pointed at a route that didn't exist. This removes the need for the
   unsupported screen-automation workaround used before the root was exposed.
-- Verified tree shape: `plugins` → format folder (`VST`, `VST3`) → vendor
-  folder → loadable plugin item. Both installed plug-ins load via `load_item`:
-  `['plugins','VST','SonicCat','Purity_x64']` (VST2) and
-  `['plugins','VST3','Spectrasonics','Omnisphere']`. Loading onto a fresh MIDI
-  track auto-renames it after the plugin.
+- The tree mirrors the machine's plug-in folders. On the 2.4 machine it was
+  `plugins` → format folder (`VST`, `VST3`) → vendor folder → item, e.g.
+  `['plugins','VST','SonicCat','Purity_x64']`; on the 12.4.6 test VM, with a
+  single VST2 custom folder holding `Purity.dll`, it is `['plugins','Purity']`.
+  Re-verified on 12.4.6: Purity loads via `load_item` as a PluginDevice and
+  the fresh MIDI track is renamed after it. Omnisphere is unverified: the
+  2.4 claim came from a session that drove it by screen automation (commit
+  e90c683), not through the bridge.
 - Plugin items can carry children (presets Live indexes for them), and the mock
-  encodes that loadable-with-children shape. For the two installed plug-ins,
-  children are empty: Omnisphere's STEAM library and Purity's bank
-  picker live inside the plugin UI and are invisible to Live's browser. Patch
-  choice there remains a human step.
+  encodes that loadable-with-children shape. Purity's item has none (12.4.6);
+  its bank picker lives in the plugin UI, and `PluginDevice.presets` holds
+  only the current program ("1st Impression"), so `selected_preset_index` is
+  no patch route for it either. Patch choice remains a human step; saved Live
+  presets (.adv) are the loadable alternative.
 - A freshly loaded PluginDevice exposes `parameter_count: 1`
   ("Device On") until the user hand-clicks Configure in Live — so parameter
   writes are not a patch-selection route either.
@@ -425,6 +438,9 @@ the browse tree exactly; a search → browse → load_item check landed a kit
 sample as a Simpler) and plugins (['plugins', VST|VST3, vendor, name] built
 from the plugins DB, not from the files DB's virtual `<plugins>/` paths,
 which contain an extra 'Custom' level the real browser tree doesn't show).
+The plugin guess matches the 2.4 machine's folder layout only; on a machine
+with a flat custom folder (the 12.4.6 VM: `['plugins','Purity']`) it will be
+wrong — browse the `plugins` root to confirm before loading.
 Core Library items appear in the browser by category, not disk layout — no
 guess, absolute path only. `import_audio` accepts the
 forward-slash absolute paths exactly as search_library returns them.

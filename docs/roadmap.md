@@ -307,6 +307,18 @@ Live 12.4.6.
   `get_bridge_status` points at the tool. 50 tools.
 - Not yet verified: installing the bundle in Claude Desktop itself.
 
+### 2.21.0 — Docs re-verified for release
+
+- The docs' 12.4.3 claims were re-checked on 12.4.6 with silent probes; all
+  held except one wrong assumption — `duplicate_clip` overwrote an occupied
+  next slot (Live does that silently). It now refuses.
+- Plug-ins: Purity (VST2) re-verified loading through the bridge.
+  Omnisphere is now marked unverified: the 2.4 claim came from a session
+  that drove it by screen automation. The plug-in tree is documented as
+  machine-dependent, and patch choice as manual (save Live presets to make
+  sounds loadable by name).
+- README, AGENTS.md and the architecture notes tidied for the public release.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained

@@ -77,7 +77,7 @@ class TestEndToEnd:
             assert "add_notes" in names
 
     async def test_tool_count_matches_readme(self):
-        # Guards the README's "46 tools" headline — a feature round that adds
+        # Guards the README's "50 tools" headline — a feature round that adds
         # tools must update both this number and the README sentence.
         async with await self._session(FakeAbletonClient()) as session:
             result = await session.list_tools()

@@ -10,13 +10,15 @@ Claude Desktop, Claude Code, Codex, anything.
 Focus: **stable MIDI readback and precise edits**, **clip automation
 envelopes**, **third-party VST/VST3 loading**, and **audio-level feedback**
 (per-track meters plus an optional calibrated loudness/spectrum meter). Core
-needs no Max for Live. MIT licensed. Every verified fact is from Live 12.4.3
-(Trial); other editions should work but are untested.
+needs no Max for Live. MIT licensed. Verified on Live 12.4.3 and 12.4.6
+(Trial editions); other editions should work but are untested.
 
-**Status: experimental, verified on both platforms.** Windows 11 end-to-end;
-macOS via the full 42-step live checkpoint (Apple Silicon Mac mini, macOS
-Tahoe 26.6.1, 2026-08-12) over its Unix-socket transport — both on Live
-12.4.3.
+**Status: experimental, verified on both platforms.** Windows 11 end-to-end
+on Live 12.4.3, and again on 12.4.6 (October 2026: every 2.9-2.20 feature,
+plus a re-check of the earlier claims); macOS via the full 42-step live
+checkpoint on 12.4.3 (Apple Silicon Mac mini, macOS Tahoe 26.6.1,
+2026-08-12) over its Unix-socket transport. What is and isn't verified, per
+claim: `AGENTS.md` and `docs/architecture.md`.
 
 ## What the AI can do
 
@@ -38,7 +40,8 @@ Tahoe 26.6.1, 2026-08-12) over its Unix-socket transport — both on Live
 - Import audio into the session or timeline — the landing pad for sample
   generation: write a file, call `import_audio`.
 - Browse the library and load instruments/effects — including third-party
-  VST/VST3 plug-ins (2.4) — or insert native devices by name.
+  VST/VST3 plug-ins (choosing a patch inside a plug-in is still a manual
+  step) — or insert native devices by name.
 - Search Live's own library database offline (samples, presets, MIDI,
   grooves, plug-ins by name/tag/kind, ranked by how often you use them) and
   rank sounds by **sonic similarity** using Live's own audio analysis.

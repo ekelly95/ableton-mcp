@@ -46,18 +46,26 @@ verified against real Live. Deeper design rationale and Live API facts:
   visible to the search — very recent additions may be missing; everything
   else is current.
 
-## Plug-ins and presets (2.4, verified on real Live 12.4.3)
+## Plug-ins and presets (2.4; Purity re-verified on Live 12.4.6)
 
-- Load third-party plug-ins via the `plugins` browser root:
-  `browse ['plugins']` → format (`VST`/`VST3`) → vendor → loadable item, then
-  `load_item` with `track_index`. Verified working for Purity (VST2) and
-  Omnisphere (VST3); no manual drag step is needed.
-- **Patch/preset selection inside a plug-in remains manual.** These
-  plug-ins publish no presets to Live's browser (children empty), and a fresh
-  PluginDevice exposes only "Device On" until the user clicks Configure. So:
-  pick the patch *name* yourself (read the plugin's own library files on disk
-  if you need the catalogue), then ask the user to click it — one line, e.g.
-  "In Omnisphere, load 'Cedar Plucked Piano'".
+- Load third-party plug-ins via the `plugins` browser root, then `load_item`
+  with `track_index`. **Walk the tree, don't assume its shape** — it mirrors
+  the user's plug-in folders: `plugins → VST/VST3 → vendor → item` on one
+  machine, `plugins → Purity` on another (a single VST2 custom folder).
+- Verified through the bridge on 12.4.6: Purity (VST2) loads as a
+  PluginDevice. Omnisphere (VST3) is **unverified** — the earlier claim came
+  from a session where the plug-in was driven by screen automation, not the
+  bridge.
+- A plug-in's first load may show its own activation or registration dialog.
+  You can't click it: tell the user, and retry once they have.
+- **Choosing a patch inside a plug-in is manual.** Plug-ins don't list their
+  libraries in Live's browser, a fresh PluginDevice exposes only "Device On"
+  until the user clicks Configure, and Purity reports only its current
+  program to the host. Pick the patch *name* yourself and ask the user to
+  select it — one line, e.g. "In Purity, load 'Warm Pad'". The lasting fix
+  is for the user to save sounds they like as Live presets (the device's
+  save button): those are `.adv` files `search_library`/`load_item` can then
+  load by name.
 - Native devices: `insert_device` by exact name, no browser round-trip.
 - First `load_item` in a fresh Live session can take up to 120 s (indexing).
 
@@ -117,7 +125,7 @@ verified against real Live. Deeper design rationale and Live API facts:
   the file); an empty pad is created with a new Simpler. Undo: a replace is
   one step, a new pad two, a name one more.
 
-## Take lanes & deep device control (2.7, verified on real Live 12.4.3)
+## Take lanes & deep device control (2.7, re-verified on real Live 12.4.6)
 
 - **Take-lane variations:** `create_take_lane` (name it), then
   `create_arrangement_clip`/`add_notes`/`transform_clip` with the same
