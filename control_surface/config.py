@@ -12,14 +12,36 @@ import os
 import sys
 from pathlib import Path
 
-VERSION: str = "2.21.2"
+VERSION: str = "2.22.0"
 CONTROL_SURFACE_NAME: str = "AbletonMCP"
 
 # IPC: TCP on Windows (no Unix sockets), Unix socket elsewhere
 TCP_HOST: str = "127.0.0.1"
 TCP_PORT: int = 9877
-SOCKET_PATH: str = "/tmp/ableton_mcp.sock"
 USE_TCP: bool = os.name == "nt"
+
+# The Unix socket lives in a per-user directory, never a shared one: with a
+# fixed name in /tmp, another account could create that name first — Live then
+# can't bind (DoS), and a client would talk to whatever is listening there.
+#
+# Derived from the home directory only, NOT from $TMPDIR/$XDG_RUNTIME_DIR: the
+# two halves run in different environments (Live is a GUI app; MCP stdio hosts
+# hand the server a stripped environment without those variables), and they
+# must compute the same path. Path.home() falls back to the password database
+# when HOME is unset.
+if sys.platform == "darwin":
+    RUNTIME_DIR: Path = Path.home() / "Library" / "Application Support" / "AbletonMCP"
+else:
+    RUNTIME_DIR: Path = Path.home() / ".local" / "state" / "ableton-mcp"
+# AF_UNIX paths are capped at 104 bytes on macOS (108 on Linux). A very long
+# home path falls back to a per-uid name in /tmp; the client still refuses a
+# socket another account owns, so the fallback can be blocked but not hijacked.
+_SOCKET_PATH_LIMIT = 100
+SOCKET_PATH: str = str(RUNTIME_DIR / "bridge.sock")
+if len(os.fsencode(SOCKET_PATH)) > _SOCKET_PATH_LIMIT and hasattr(os, "getuid"):
+    SOCKET_PATH = f"/tmp/ableton_mcp-{os.getuid()}.sock"
+# Where 2.21.2 and earlier listened. Only used to explain a version mismatch.
+LEGACY_SOCKET_PATH: str = "/tmp/ableton_mcp.sock"
 
 # Wire framing: 4-byte big-endian length prefix + UTF-8 JSON payload
 HEADER_SIZE: int = 4

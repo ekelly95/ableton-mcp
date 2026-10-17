@@ -10,6 +10,7 @@ that duplication).
 import hashlib
 import json
 import math
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -395,6 +396,11 @@ class CommandRegistry:
     def __init__(self):
         self._commands: dict[str, CommandSchema] = {}
         self._categories: dict[str, list[str]] = {}
+        # Held by the reloader for the whole clear-and-re-import, and by the
+        # socket server while it answers ping/list_commands/get_mcp_tools
+        # outside its execution lock — so those never see a half-built
+        # registry (a wrong schema_hash would read as script drift).
+        self.lock = threading.RLock()
 
     def register(
         self,

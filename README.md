@@ -73,8 +73,9 @@ Without the device it answers `available: false`.
 AI client ── MCP (stdio) ── mcp_server ── local socket ── control surface inside Live
 ```
 
-The local socket is TCP `127.0.0.1:9877` on Windows, a Unix socket
-(`/tmp/ableton_mcp.sock`) on macOS.
+The local socket is TCP `127.0.0.1:9877` on Windows, a Unix socket in your
+own user directory (`~/Library/Application Support/AbletonMCP/bridge.sock`) on
+macOS.
 
 **Worth knowing before you enable it:** that socket has no password. It is
 loopback-only, so nothing off your machine can reach it — but while Live is

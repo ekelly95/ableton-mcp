@@ -2,7 +2,7 @@
 
 These tests exercise the TCP transport and say so (use_tcp=True): the
 platform default is AF_UNIX off Windows, which would ignore the port and dial
-/tmp/ableton_mcp.sock (the first macOS CI run failed exactly there). The
+the default socket path (the first macOS CI run failed exactly there). The
 AF_UNIX transport has its own suite in test_unix_socket.py."""
 
 import pytest

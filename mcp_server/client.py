@@ -19,6 +19,7 @@ from control_surface.commands import REGISTRY
 from control_surface.config import (
     COMMAND_TIMEOUTS,
     HEADER_SIZE,
+    LEGACY_SOCKET_PATH,
     MAX_MESSAGE_SIZE,
     SOCKET_PATH,
     TCP_HOST,
@@ -153,6 +154,7 @@ class AbletonClient:
                     raise AbletonConnectionError(
                         "Unix sockets are unavailable on this platform; use use_tcp=True"
                     )
+                self._check_socket_owner()
                 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 try:
                     sock.settimeout(CONNECT_TIMEOUT)
@@ -162,11 +164,45 @@ class AbletonClient:
                     raise
         except OSError as e:
             raise AbletonConnectionError(
-                f"Cannot connect to {self._endpoint()}. {NOT_RUNNING_HINT} ({e})"
+                f"Cannot connect to {self._endpoint()}. {NOT_RUNNING_HINT}{self._legacy_hint()} ({e})"
             ) from e
         sock.settimeout(self.timeout)
         self._socket = sock
         logger.info(f"Connected to control surface at {self._endpoint()}")
+
+    def _check_socket_owner(self) -> None:
+        """Refuse a socket another account owns. Both halves run as the same
+        user, so a foreign owner means someone else bound the path first — and
+        whatever they answer would land in the agent's context as Live's reply.
+        A missing path is left for connect() to report as "not running"."""
+        getuid = getattr(os, "getuid", None)
+        if getuid is None:
+            return
+        try:
+            owner = os.lstat(self.socket_path).st_uid
+        except FileNotFoundError:
+            return
+        except OSError as e:
+            raise AbletonConnectionError(f"Cannot inspect {self.socket_path}: {e}") from e
+        if owner != getuid():
+            raise AbletonConnectionError(
+                f"Refusing to connect: {self.socket_path} is owned by another account "
+                f"(uid {owner}), not by you (uid {getuid()}). Something other than "
+                f"your Live is listening there."
+            )
+
+    def _legacy_hint(self) -> str:
+        """2.21.2 and earlier listened on a fixed /tmp path. If that socket is
+        present while the new one is not, Live still runs the old script."""
+        if self.use_tcp or self.socket_path == LEGACY_SOCKET_PATH:
+            return ""
+        if os.path.exists(LEGACY_SOCKET_PATH) and not os.path.exists(self.socket_path):
+            return (
+                f" Live is listening on the old path {LEGACY_SOCKET_PATH}: its control "
+                f"surface is out of date. Run the install_control_surface tool, then "
+                f"restart Live."
+            )
+        return ""
 
     def _disconnect(self) -> None:
         if self._socket is not None:

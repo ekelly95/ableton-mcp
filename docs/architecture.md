@@ -22,7 +22,8 @@ MCP client ── stdio ── mcp_server ── local socket ── control_sur
 ## Trust model
 
 One machine, one user, no authentication. Both listeners — the bridge on TCP
-`127.0.0.1:9877` (Windows) or `/tmp/ableton_mcp.sock` (macOS), and the optional
+`127.0.0.1:9877` (Windows) or a Unix socket in the user's own directory
+(macOS: `~/Library/Application Support/AbletonMCP/bridge.sock`), and the optional
 tap on TCP `127.0.0.1:9878` — accept commands from anything that can open a
 loopback socket. There is no token, no peer check, and no allowlist. Anything
 running on the machine can therefore drive Live through the full command
@@ -51,6 +52,17 @@ What follows from it, and is enforced:
 - The Unix socket is mode 0600, and logs live under the user's own directory
   (see Operational notes). Group access bought nothing and, since every macOS
   account is in `staff`, cost a great deal.
+- The Unix socket lives in a per-user, mode-0700 directory, not `/tmp` (2.22).
+  With a fixed `/tmp` name, another account could bind the path first: Live
+  then can't start its listener, and the client would send commands to — and
+  hand the agent replies from — whatever was listening. The path is derived
+  from the home directory alone (not `$TMPDIR`/`$XDG_RUNTIME_DIR`) because Live
+  and an MCP host's stdio child see different environments and must agree. As
+  defence in depth the client refuses any socket whose owner is not the
+  current uid, and the server only ever unlinks a *socket* at its path. A home
+  path too long for AF_UNIX (104 bytes on macOS) falls back to
+  `/tmp/ableton_mcp-<uid>.sock`, where the owner check still prevents
+  hijacking.
 - The single-user assumption stops at the *machine* boundary — it is not an
   assumption that the data is trustworthy. Names, paths and tags read out of a
   Live set or the library are attacker-supplied text as far as an agent is

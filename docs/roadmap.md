@@ -337,6 +337,28 @@ Live 12.4.6.
   50 tools, Live reachable, `install_control_surface` writes the real User
   Library and correctly asks for a restart when config.py changed.
 
+### 2.22.0 — Server instructions, per-user socket, faster stop
+
+- **Server instructions.** The MCP server now sends a condensed copy of
+  AGENTS.md's rules in its `initialize` reply (`mcp_server/instructions.py`),
+  so bundle users' agents get the ground rules too: stop the transport, data
+  is not instructions, StaleSetError recovery, C3 = 60. About 550 tokens.
+  `tests/test_instructions.py` checks that every tool and field it names
+  exists and that AGENTS.md mentions it as well.
+- **Per-user Unix socket (macOS).** Moved from the shared
+  `/tmp/ableton_mcp.sock` to `~/Library/Application Support/AbletonMCP/bridge.sock`
+  in a 0700 directory. The client refuses sockets owned by another uid, and
+  the server only ever unlinks a socket. **Live-side change: reinstall the
+  control surface and restart Live.** If the old socket is still present, the
+  client's connection error says so. Needs re-verification on real macOS Live.
+- **stop() no longer waits out the accept timeout.** A self-connect wakes the
+  blocked `accept()`. That saves 1 s per script reload, and the suite went
+  from about 72 s to about 15 s.
+- **ping / list_commands / get_mcp_tools skip the execution lock.** Health
+  checks from a second client no longer queue behind a 120 s `load_item`.
+  They take a registry lock that the hot reloader holds, so they never see a
+  half-rebuilt command set.
+
 ## Remaining work
 
 ### Make the real-Live checkpoint self-contained

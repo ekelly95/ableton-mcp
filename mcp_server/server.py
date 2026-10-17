@@ -38,6 +38,7 @@ from .client import (  # noqa: E402
     CommandError,
 )
 from .install import install as _install_control_surface  # noqa: E402
+from .instructions import SERVER_INSTRUCTIONS  # noqa: E402
 from .library import search_library as _search_library  # noqa: E402
 from .m4l import AUDIO_LEVELS_TOOL, TapClient, get_audio_levels  # noqa: E402
 from .notation import parse_notation, serialize_notation  # noqa: E402
@@ -637,6 +638,8 @@ def build_server(client: AbletonClient | None = None, tap: TapClient | None = No
     return Server(
         "ableton-mcp",
         version=VERSION,
+        # AGENTS.md's rules, condensed, for clients that never see the repo.
+        instructions=SERVER_INSTRUCTIONS,
         cache_hints={
             "tools/list": static,
             "resources/list": static,

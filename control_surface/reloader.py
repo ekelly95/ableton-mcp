@@ -33,26 +33,27 @@ def _reloadable() -> list[str]:
 
 
 def reload_command_modules() -> dict[str, Any]:
-    names = _reloadable()
-    saved_modules = {name: sys.modules[name] for name in names}
-    saved_commands = dict(REGISTRY._commands)
-    saved_categories = {k: list(v) for k, v in REGISTRY._categories.items()}
+    with REGISTRY.lock:
+        names = _reloadable()
+        saved_modules = {name: sys.modules[name] for name in names}
+        saved_commands = dict(REGISTRY._commands)
+        saved_categories = {k: list(v) for k, v in REGISTRY._categories.items()}
 
-    for name in names:
-        del sys.modules[name]
-    REGISTRY.clear()
-    try:
-        importlib.import_module(f"{_BASE}.commands")
-    except Exception:
-        for name in _reloadable():
+        for name in names:
             del sys.modules[name]
-        sys.modules.update(saved_modules)
         REGISTRY.clear()
-        REGISTRY._commands.update(saved_commands)
-        REGISTRY._categories.update(saved_categories)
-        raise
-    return {
-        "reloaded": len(_reloadable()),
-        "command_count": len(REGISTRY),
-        "schema_hash": REGISTRY.schema_hash(),
-    }
+        try:
+            importlib.import_module(f"{_BASE}.commands")
+        except Exception:
+            for name in _reloadable():
+                del sys.modules[name]
+            sys.modules.update(saved_modules)
+            REGISTRY.clear()
+            REGISTRY._commands.update(saved_commands)
+            REGISTRY._categories.update(saved_categories)
+            raise
+        return {
+            "reloaded": len(_reloadable()),
+            "command_count": len(REGISTRY),
+            "schema_hash": REGISTRY.schema_hash(),
+        }

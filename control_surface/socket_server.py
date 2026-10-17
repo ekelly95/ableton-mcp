@@ -17,6 +17,7 @@ Wire protocol (unchanged from 1.0):
 import json
 import os
 import socket
+import stat
 import struct
 import threading
 import time
@@ -49,6 +50,17 @@ logger = get_logger("socket_server")
 RECENT_RESPONSES_MAX = 64
 # Concurrent client connections; past this, new ones are closed immediately.
 MAX_CLIENTS = 8
+# Answered from the registry alone, never on Live's main thread — so they run
+# outside the execution lock (mirrored by the client's WIRE_SPECIALS).
+WIRE_SPECIALS = frozenset({"ping", "list_commands", "get_mcp_tools"})
+
+
+def _is_socket(path: str) -> bool:
+    """True only for a socket at `path` itself (symlinks are not followed)."""
+    try:
+        return stat.S_ISSOCK(os.lstat(path).st_mode)
+    except OSError:
+        return False
 
 
 def _in_undo_step(handler: Any) -> Any:
@@ -201,6 +213,10 @@ class SocketServer:
             if not self._running:
                 return
             self._running = False
+            # Closing a listening socket does not wake a thread blocked in
+            # accept() on Linux or macOS, so stop() used to wait out the whole
+            # SOCKET_ACCEPT_TIMEOUT (1 s per script reload, and per test).
+            self._wake_accept()
             self._cleanup_socket()
             # Unblock any handler parked in a blocking recv: closing the
             # socket from this thread makes that recv raise OSError, which
@@ -250,7 +266,19 @@ class SocketServer:
             )
             self._socket.bind((self._host, self._port))
         else:
-            if os.path.exists(self._socket_path):
+            # The per-user runtime directory (config.RUNTIME_DIR). Owner-only
+            # from creation, so the socket is never reachable by other
+            # accounts — not even in the instant between bind() and chmod().
+            parent = os.path.dirname(self._socket_path)
+            if parent and not os.path.isdir(parent):
+                os.makedirs(parent, mode=0o700, exist_ok=True)
+            if os.path.lexists(self._socket_path):
+                if not _is_socket(self._socket_path):
+                    # Only ever replace a stale socket — never delete a file
+                    # that happens to sit at the configured path.
+                    raise OSError(
+                        f"{self._socket_path} exists and is not a socket; not replacing it"
+                    )
                 try:
                     os.unlink(self._socket_path)
                 except OSError as e:
@@ -266,6 +294,25 @@ class SocketServer:
         self._socket.listen(SOCKET_BACKLOG)
         self._socket.settimeout(SOCKET_ACCEPT_TIMEOUT)
 
+    def _wake_accept(self) -> None:
+        """Unblock the accept loop by connecting to ourselves; the loop sees
+        _running is False, closes the connection, and exits."""
+        if self._socket is None:
+            return
+        try:
+            if self._use_tcp:
+                host = self._host if self._host not in ("", "0.0.0.0") else "127.0.0.1"
+                waker = socket.create_connection((host, self.bound_port), timeout=0.5)
+            else:
+                waker = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                waker.settimeout(0.5)
+                waker.connect(self._socket_path)
+            waker.close()
+        except OSError:
+            # Nothing listening any more, or backlog full: the accept timeout
+            # still ends the loop, just later.
+            pass
+
     def _cleanup_socket(self) -> None:
         if self._socket:
             try:
@@ -273,7 +320,9 @@ class SocketServer:
             except Exception as e:
                 logger.error(f"Error closing socket: {e}")
             self._socket = None
-        if not self._use_tcp and os.path.exists(self._socket_path):
+        if not self._use_tcp and _is_socket(self._socket_path):
+            # Sockets only: this also runs when start() fails, including when
+            # it refused a regular file sitting at the path.
             try:
                 os.unlink(self._socket_path)
             except OSError as e:
@@ -336,8 +385,17 @@ class SocketServer:
                 message = self._read_message(client_socket)
                 if message is None:
                     break
-                with self._exec_lock:
-                    response = self._process_message(message)
+                if message.get("type") in WIRE_SPECIALS:
+                    # Answered without touching Live, so they skip the
+                    # execution lock: a ping from a second client must not
+                    # wait behind another client's 120 s load_item. Never
+                    # cached either — they are idempotent. The registry lock
+                    # keeps them off a hot reload in progress.
+                    with self._registry.lock:
+                        response = self._execute_message(message, self._response_id(message))
+                else:
+                    with self._exec_lock:
+                        response = self._process_message(message)
                 self._send_message(client_socket, response)
             except (ConnectionResetError, BrokenPipeError):
                 logger.debug("Client disconnected")
@@ -410,6 +468,11 @@ class SocketServer:
         if len(body) > MAX_MESSAGE_SIZE:
             raise ValueError(f"Response too large: {len(body)} > {MAX_MESSAGE_SIZE}")
         sock.sendall(struct.pack(">I", len(body)) + body)
+
+    @staticmethod
+    def _response_id(message: dict[str, Any]) -> str:
+        request_id = message.get("id")
+        return request_id if isinstance(request_id, str) else str(uuid.uuid4())
 
     def _process_message(self, message: dict[str, Any]) -> dict[str, Any]:
         request_id = message.get("id")
