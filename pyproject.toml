@@ -5,7 +5,10 @@ description = "MCP server bridging Claude to Ableton Live via a control-surface 
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "ekelly95" }]
-requires-python = ">=3.11"
+# Upper bound: pydantic-core ships wheels only through 3.14 at the locked
+# version; on 3.15 uv falls back to a Rust source build (2.21.1's bundle failure).
+# Raise it, and add the version to CI, once the lock has wheels for it.
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "mcp>=2.3,<3",
     # Imported directly by mcp_server (anyio.to_thread, and jsonschema for

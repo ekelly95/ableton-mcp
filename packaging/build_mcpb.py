@@ -94,7 +94,7 @@ def manifest(version: str) -> dict:
         "compatibility": {
             # Live runs on Windows and macOS; the server needs to sit beside it.
             "platforms": ["darwin", "win32"],
-            "runtimes": {"python": ">=3.11"},
+            "runtimes": {"python": ">=3.11,<3.15"},
         },
     }
 

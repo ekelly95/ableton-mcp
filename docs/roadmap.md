@@ -358,6 +358,10 @@ Live 12.4.6.
   checks from a second client no longer queue behind a 120 s `load_item`.
   They take a registry lock that the hot reloader holds, so they never see a
   half-rebuilt command set.
+- **Python capped below 3.15.** CPython 3.15 is out, and the locked
+  pydantic-core has no 3.15 wheels, so a bare `uvx` could repeat 2.21.1's
+  failed source build. `requires-python = ">=3.11,<3.15"` keeps uv on a
+  version with wheels; CI adds a 3.14 job so the top of the range is tested.
 
 ## Remaining work
 
